@@ -43,7 +43,7 @@ def probability(state : State) -> Tuple[State, float]:
     result = random.uniform(0.0, 1.0)
     return random.getstate(), result
 
-def decimal(
+def real(
     state : State,
     lower_bound : float,
     upper_bound : float

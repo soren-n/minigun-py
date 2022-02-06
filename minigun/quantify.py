@@ -78,7 +78,7 @@ def _small_natural(state : a.State) -> Sample[int]:
         10 if prop < 0.75 else
         100
     ))
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def small_natural() -> Sampler[int]: return _small_natural
 
 def _natural(state : a.State) -> Sample[int]:
@@ -89,14 +89,14 @@ def _natural(state : a.State) -> Sample[int]:
         1000 if prop < 0.95 else
         10000
     ))
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def natural() -> Sampler[int]: return _natural
 
 def _big_natural(state : a.State) -> Sample[int]:
     state, prop = a.probability(state)
     if prop < 0.75: return _natural(state)
     state, result = a.natural(state, 1000000)
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def big_natural() -> Sampler[int]: return _big_natural
 
 def _small_integer(state : a.State) -> Sample[int]:
@@ -106,7 +106,7 @@ def _small_integer(state : a.State) -> Sample[int]:
         100
     )
     state, result = a.integer(state, -bound, bound)
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def small_integer() -> Sampler[int]: return _small_integer
 
 def _integer(state : a.State) -> Sample[int]:
@@ -118,34 +118,38 @@ def _integer(state : a.State) -> Sample[int]:
         10000
     )
     state, result = a.integer(state, -bound, bound)
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def integer() -> Sampler[int]: return _integer
 
 def _big_integer(state : a.State) -> Sample[int]:
     state, prop = a.probability(state)
     if prop < 0.75: return _integer(state)
     state, result = a.integer(state, -1000000, 1000000)
-    return state, d.primitive(t.integer(0), result)
+    return state, d.unary(t.integer(0), result)
 def big_integer() -> Sampler[int]: return _big_integer
 
-def _decimal(state : a.State) -> Sample[float]:
-    state, exponent = a.decimal(state, -15.0, 15.0)
+def _real(state : a.State) -> Sample[float]:
+    state, exponent = a.real(state, -15.0, 15.0)
     state, sign = a.boolean(state)
     result = (1.0 if sign else -1.0) * math.exp(exponent)
-    return state, d.primitive(t.decimal(0.0), result)
-def decimal() -> Sampler[float]: return _decimal
+    return state, d.binary(
+        t.real_integer_part(0.0),
+        t.real_fractional_part(0.0),
+        result
+    )
+def real() -> Sampler[float]: return _real
 
-def positive_decimal() -> Sampler[float]:
+def positive_real() -> Sampler[float]:
     def _impl(value : float) -> float:
         if value > 0.0: return value
         return -1.0 * value
-    return map(_impl, decimal())
+    return map(_impl, real())
 
-def negative_decimal() -> Sampler[float]:
+def negative_real() -> Sampler[float]:
     def _impl(value : float) -> float:
         if value < 0.0: return value
         return -1.0 * value
-    return map(_impl, decimal())
+    return map(_impl, real())
 
 ###############################################################################
 # Ranges
@@ -158,7 +162,7 @@ def integer_range(
         assert lower_bound <= upper_bound
         state, result = a.integer(state, lower_bound, upper_bound)
         goal = max(lower_bound, min(0, upper_bound))
-        return state, d.primitive(t.integer(goal), result)
+        return state, d.unary(t.integer(goal), result)
     return _impl
 
 ###############################################################################
@@ -324,7 +328,7 @@ def infer(T : type | types.GenericAlias) -> m.Maybe[Sampler[Any]]:
         if isinstance(value_sampler, m.Nothing): return m.Nothing()
         return m.Something(dict_of(key_sampler.value, value_sampler.value))
     if T is int: return m.Something(integer())
-    if T is float: return m.Something(decimal())
+    if T is float: return m.Something(real())
     if T is str: return m.Something(string())
     if isinstance(T, types.GenericAlias):
         if T.__origin__ is tuple: return _tuple(T)

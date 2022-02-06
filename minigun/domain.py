@@ -127,5 +127,22 @@ def maybe(case : Domain[A]) -> Domain[m.Maybe[A]]:
         )
     )
 
-def primitive(trimmer : t.Trimmer[A], value : A) -> Domain[A]:
-    return value, s.map(partial(primitive, trimmer), trimmer(value))
+def concat(
+    domain : Domain[A],
+    stream : s.Stream[Domain[A]]
+    ) -> Domain[A]:
+    domain_value, domain_stream = domain
+    return domain_value, s.concat(domain_stream, stream)
+
+def unary(
+    x_trim : t.Trimmer[A],
+    value : A
+    ) -> Domain[A]:
+    return value, s.map(partial(unary, x_trim), x_trim(value))
+
+def binary(
+    x_trim : t.Trimmer[A],
+    y_trim : t.Trimmer[A],
+    value : A
+    ) -> Domain[A]:
+    return value, s.map(partial(binary, y_trim, x_trim), x_trim(value))

@@ -69,21 +69,36 @@ def domain(*lparams : q.Sampler[Any], **kparams : q.Sampler[Any]):
         return Unit(law, args, {})
     return _decorate
 
-def _distribute_dict_domain(
+def _merge_args(
     args : Dict[str, d.Domain[Any]]
     ) -> d.Domain[Dict[str, Any]]:
-    def _thunk(params : List[str]) -> s.StreamResult[d.Domain[Dict[str, Any]]]:
-        if len(params) == 0: raise StopIteration
-        _params = params.copy()
-        param = _params.pop(0)
-        arg_stream = d.tail(args[param])
-        if s.is_empty(arg_stream): return _thunk(_params)
-        next_arg_domain, _ = arg_stream()
-        _args = args.copy()
-        _args[param] = next_arg_domain
-        return _distribute_dict_domain(_args), partial(_thunk, _params)
-    values = { param : d.head(arg) for param, arg in args.items() }
-    return values, partial(_thunk, list(args.keys()))
+    def _shrink_args(
+        args : Dict[str, d.Domain[Any]]
+        ) -> s.Stream[d.Domain[Dict[str, Any]]]:
+        def _step_left(
+            param : str,
+            args : Dict[str, d.Domain[Any]],
+            next_arg_domain : d.Domain[Any]
+            ) -> d.Domain[Dict[str, Any]]:
+            _args = args.copy()
+            _args[param] = next_arg_domain
+            return _merge_args(_args)
+        def _step_right(
+            params : List[str]
+            ) -> s.StreamResult[d.Domain[Dict[str, Any]]]:
+            if len(params) == 0: raise StopIteration
+            _params = params.copy()
+            param = _params.pop(0)
+            _args = args.copy()
+            next_arg_domain, next_arg_stream = d.tail(args[param])()
+            _args[param] = next_arg_domain
+            return _merge_args(_args), s.concat(
+                s.map(partial(_step_left, param, _args), next_arg_stream),
+                partial(_step_right, _params)
+            )
+        return partial(_step_right, list(args.keys()))
+    arg_values = { param : d.head(arg) for param, arg in args.items() }
+    return arg_values, _shrink_args(args)
 
 def _trim_counter_example(
     law : Law[P],
@@ -94,15 +109,13 @@ def _trim_counter_example(
         return not law(**d.head(args))
 
     def _search(args : d.Domain[Dict[str, Any]]) -> Dict[str, Any]:
-        init_args, trimmed_args = args
+        arg_values, arg_streams = args
         while True:
-            _args = s.peek(s.filter(_is_counter_example, trimmed_args))
-            if isinstance(_args, m.Something):
-                init_args, trimmed_args = _args.value
-                continue
-            return init_args
+            next_args = s.peek(s.filter(_is_counter_example, arg_streams))
+            if isinstance(next_args, m.Nothing): return arg_values
+            arg_values, arg_streams = next_args.value
 
-    return _search(_distribute_dict_domain(counter_example))
+    return _search(_merge_args(counter_example))
 
 def _find_counter_example(
     name : str,
