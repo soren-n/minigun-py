@@ -57,9 +57,9 @@ def domain(*lparams : q.Sampler[Any], **kparams : q.Sampler[Any]):
             arg_type = arg_types[param]
             arg_sampler = q.infer(arg_type)
             if isinstance(arg_sampler, m.Nothing):
-                raise RuntimeError(
+                raise TypeError(
                     'Failed to infer domain for '
-                    'parameter %s of functions %s' % (
+                    'parameter %s of function %s' % (
                         param, law.__name__
                     )
                 )

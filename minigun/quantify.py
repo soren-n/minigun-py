@@ -2,6 +2,7 @@
 from typing import (
     cast,
     overload,
+    get_args,
     Any,
     TypeVar,
     Callable,
@@ -10,7 +11,6 @@ from typing import (
     List,
     Dict
 )
-import types
 import math
 
 # Internal module dependencies
@@ -181,7 +181,7 @@ def word() -> Sampler[str]:
 ###############################################################################
 # Maybe
 ###############################################################################
-def maybe(
+def maybe_of(
     value_sampler : Sampler[A]
     ) -> Sampler[m.Maybe[A]]:
     def _impl(state : a.State) -> Sample[m.Maybe[A]]:
@@ -219,12 +219,13 @@ def tuple_of(
     d_sampler: Sampler[D]
     ) -> Sampler[Tuple[A, B, C, D]]: ...
 def tuple_of(*samplers: Sampler[Any]) -> Sampler[Tuple[Any, ...]]:
+    def _tuple(*values : Any) -> Tuple[Any, ...]: return tuple(values)
     def _impl(state : a.State) -> Sample[Tuple[Any, ...]]:
         values : List[Any] = []
         for sampler in samplers:
             state, value = sampler(state)
             values.append(value)
-        return state, d.map(tuple, *values)
+        return state, d.map(_tuple, *values)
     return _impl
 
 ###############################################################################
@@ -251,7 +252,7 @@ def bounded_list_of(
     return _impl
 
 def list_of(item_sampler : Sampler[A]) -> Sampler[List[A]]:
-    return bounded_list_of(natural(), item_sampler)
+    return bounded_list_of(small_natural(), item_sampler)
 
 def unique_list_of(
     item_sampler : Sampler[Hashable]
@@ -290,7 +291,7 @@ def dict_of(
     key_sampler : Sampler[K],
     value_sampler : Sampler[V]
     ) -> Sampler[Dict[K, V]]:
-    return bounded_dict_of(natural(), key_sampler, value_sampler)
+    return bounded_dict_of(small_natural(), key_sampler, value_sampler)
 
 ###############################################################################
 # Combinators
@@ -309,29 +310,29 @@ def weighted_one_of(cases : List[Tuple[int, Sampler[A]]]) -> Sampler[A]:
 ###############################################################################
 # Infer a sampler
 ###############################################################################
-def infer(T : type | types.GenericAlias) -> m.Maybe[Sampler[Any]]:
-    def _tuple(T : types.GenericAlias) -> m.Maybe[Sampler[Any]]:
+def infer(T : type) -> m.Maybe[Sampler[Any]]:
+    def _tuple(T : type) -> m.Maybe[Sampler[Any]]:
         item_samplers : List[Sampler[Any]] = []
-        for item_T in T.__args__:
+        for item_T in get_args(T):
             item_sampler = infer(item_T)
             if isinstance(item_sampler, m.Nothing): return m.Nothing()
             item_samplers.append(item_sampler.value)
         return m.Something(tuple_of(*item_samplers))
-    def _list(T : types.GenericAlias) -> m.Maybe[Sampler[Any]]:
-        item_sampler = infer(T.__args__[0])
+    def _list(T : type) -> m.Maybe[Sampler[Any]]:
+        item_sampler = infer(get_args(T)[0])
         if isinstance(item_sampler, m.Nothing): return m.Nothing()
         return m.Something(list_of(item_sampler.value))
-    def _dict(T : types.GenericAlias) -> m.Maybe[Sampler[Any]]:
-        key_sampler = infer(T.__args__[0])
+    def _dict(T : type) -> m.Maybe[Sampler[Any]]:
+        key_sampler = infer(get_args(T)[0])
         if isinstance(key_sampler, m.Nothing): return m.Nothing()
-        value_sampler = infer(T.__args__[1])
+        value_sampler = infer(get_args(T)[1])
         if isinstance(value_sampler, m.Nothing): return m.Nothing()
         return m.Something(dict_of(key_sampler.value, value_sampler.value))
     if T is int: return m.Something(integer())
     if T is float: return m.Something(real())
     if T is str: return m.Something(string())
-    if isinstance(T, types.GenericAlias):
-        if T.__origin__ is tuple: return _tuple(T)
-        if T.__origin__ is list: return _list(T)
-        if T.__origin__ is dict: return _dict(T)
+    if '__origin__' in T.__dict__:
+        if T.__dict__['__origin__'] is tuple: return _tuple(T)
+        if T.__dict__['__origin__'] is list: return _list(T)
+        if T.__dict__['__origin__'] is dict: return _dict(T)
     return m.Nothing()
