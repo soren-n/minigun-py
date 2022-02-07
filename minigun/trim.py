@@ -1,5 +1,5 @@
 # External module dependencies
-from typing import TypeVar, Callable, Tuple
+from typing import Any, TypeVar, Callable, Tuple, List
 import math
 
 # Internal module dependencies
@@ -66,4 +66,17 @@ def real_fractional_part(target : float) -> Trimmer[float]:
             _value = value_i + current + ((value_f - current) / 2)
             return m.Something((_value, (count - 1, _value, current)))
         return s.unfold(_towards, (10, initial, math.modf(target)[0]))
+    return _impl
+
+###############################################################################
+# String
+###############################################################################
+def string() -> Trimmer[str]:
+    def _impl(initial : str) -> s.Stream[str]:
+        past = len(initial)
+        def _towards(index : int) -> m.Maybe[Tuple[str, int]]:
+            if index == past: return m.Nothing()
+            _value = initial[:index] + initial[index + 1:]
+            return m.Something((_value, index + 1))
+        return s.unfold(_towards, 0)
     return _impl

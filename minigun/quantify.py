@@ -11,6 +11,7 @@ from typing import (
     List,
     Dict
 )
+import string
 import math
 
 # Internal module dependencies
@@ -168,15 +169,36 @@ def integer_range(
 ###############################################################################
 # Strings
 ###############################################################################
-def string() -> Sampler[str]:
+def alphabet(sigma : str) -> Sampler[str]:
     def _impl(state : a.State) -> Sample[str]:
-        ...
+        state, index = a.integer(state, 0, len(sigma) - 1)
+        return state, d.singleton(sigma[index])
     return _impl
 
-def word() -> Sampler[str]:
+def bounded_string_of(
+    lower_bound : int,
+    upper_bound : int,
+    alphabet : str
+    ) -> Sampler[str]:
+    assert lower_bound >= 0
+    assert lower_bound <= upper_bound
     def _impl(state : a.State) -> Sample[str]:
-        ...
+        result = ''
+        for _ in range(upper_bound - lower_bound):
+            state, index = a.integer(state, 0, len(alphabet) - 1)
+            result += alphabet[index]
+        return state, d.unary(t.string(), result)
     return _impl
+
+def text() -> Sampler[str]:
+    def _impl(upper_bound : int) -> Sampler[str]:
+        return bounded_string_of(0, upper_bound, string.printable)
+    return bind(_impl, small_natural())
+
+def word() -> Sampler[str]:
+    def _impl(upper_bound : int) -> Sampler[str]:
+        return bounded_string_of(0, upper_bound, string.ascii_letters)
+    return bind(_impl, small_natural())
 
 ###############################################################################
 # Maybe
@@ -232,27 +254,28 @@ def tuple_of(*samplers: Sampler[Any]) -> Sampler[Tuple[Any, ...]]:
 # List
 ###############################################################################
 def bounded_list_of(
-    size_sampler : Sampler[int],
+    lower_bound : int,
+    upper_bound : int,
     item_sampler : Sampler[A]
     ) -> Sampler[List[A]]:
+    assert lower_bound >= 0
+    assert lower_bound <= upper_bound
     def _impl(state : a.State) -> Sample[List[A]]:
         def _append(x : A, xs : List[A]) -> List[A]:
             xs1 = xs.copy()
             xs1.append(x)
             return xs1
-        def _loop(size : int) -> d.Domain[List[A]]:
-            nonlocal state
-            result = d.singleton(cast(List[A], []))
-            for _ in range(size):
-                state, item = item_sampler(state)
-                result = d.map(_append, item, result)
-            return result
-        state, size = size_sampler(state)
-        return state, d.bind(_loop, size)
+        result = d.singleton(cast(List[A], []))
+        for _ in range(upper_bound - lower_bound):
+            state, item = item_sampler(state)
+            result = d.map(_append, item, result)
+        return state, result
     return _impl
 
 def list_of(item_sampler : Sampler[A]) -> Sampler[List[A]]:
-    return bounded_list_of(small_natural(), item_sampler)
+    def _impl(upper_bound : int) -> Sampler[List[A]]:
+        return bounded_list_of(0, upper_bound, item_sampler)
+    return bind(_impl, small_natural())
 
 def unique_list_of(
     item_sampler : Sampler[Hashable]
@@ -267,31 +290,32 @@ def unique_list_of(
 K = TypeVar('K')
 V = TypeVar('V')
 def bounded_dict_of(
-    size_sampler : Sampler[int],
+    lower_bound : int,
+    upper_bound : int,
     key_sampler : Sampler[K],
     value_sampler : Sampler[V]
     ) -> Sampler[Dict[K, V]]:
+    assert lower_bound >= 0
+    assert lower_bound <= upper_bound
     def _impl(state : a.State) -> Sample[Dict[K, V]]:
         def _insert(kv : Tuple[K, V], kvs : Dict[K, V]) -> Dict[K, V]:
             kvs1 = kvs.copy()
             kvs1[kv[0]] = kv[1]
             return kvs1
-        def _loop(size : int) -> d.Domain[Dict[K, V]]:
-            nonlocal state
-            result = d.singleton(cast(Dict[K, V], {}))
-            for _ in range(size):
-                state, key_value = tuple_of(key_sampler, value_sampler)(state)
-                result = d.map(_insert, key_value, result)
-            return result
-        state, size = size_sampler(state)
-        return state, d.bind(_loop, size)
+        result = d.singleton(cast(Dict[K, V], {}))
+        for _ in range(upper_bound - lower_bound):
+            state, key_value = tuple_of(key_sampler, value_sampler)(state)
+            result = d.map(_insert, key_value, result)
+        return state, result
     return _impl
 
 def dict_of(
     key_sampler : Sampler[K],
     value_sampler : Sampler[V]
     ) -> Sampler[Dict[K, V]]:
-    return bounded_dict_of(small_natural(), key_sampler, value_sampler)
+    def _impl(upper_bound : int) -> Sampler[Dict[K, V]]:
+        return bounded_dict_of(0, upper_bound, key_sampler, value_sampler)
+    return bind(_impl, small_natural())
 
 ###############################################################################
 # Combinators
@@ -330,7 +354,7 @@ def infer(T : type) -> m.Maybe[Sampler[Any]]:
         return m.Something(dict_of(key_sampler.value, value_sampler.value))
     if T is int: return m.Something(integer())
     if T is float: return m.Something(real())
-    if T is str: return m.Something(string())
+    if T is str: return m.Something(text())
     if '__origin__' in T.__dict__:
         if T.__dict__['__origin__'] is tuple: return _tuple(T)
         if T.__dict__['__origin__'] is list: return _list(T)
