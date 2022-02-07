@@ -1,5 +1,5 @@
 # External module dependencies
-from typing import Any, TypeVar, Callable, Tuple, List
+from typing import TypeVar, Callable, Tuple
 import math
 
 # Internal module dependencies
