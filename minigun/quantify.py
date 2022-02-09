@@ -2,6 +2,7 @@
 from typing import (
     cast,
     overload,
+    get_origin,
     get_args,
     Any,
     TypeVar,
@@ -50,6 +51,14 @@ def bind(func : Callable[[A], Sampler[B]], sampler : Sampler[A]) -> Sampler[B]:
 def sample(state : a.State, sampler : Sampler[A]) -> Tuple[a.State, A]:
     state, case = sampler(state)
     return state, case[0]
+
+###############################################################################
+# Constant
+###############################################################################
+def constant(value : A) -> Sampler[A]:
+    def _impl(state : a.State) -> Sample[A]:
+        return state, d.singleton(value)
+    return _impl
 
 ###############################################################################
 # None
@@ -352,11 +361,12 @@ def infer(T : type) -> m.Maybe[Sampler[Any]]:
         value_sampler = infer(get_args(T)[1])
         if isinstance(value_sampler, m.Nothing): return m.Nothing()
         return m.Something(dict_of(key_sampler.value, value_sampler.value))
-    if T is int: return m.Something(integer())
-    if T is float: return m.Something(real())
-    if T is str: return m.Something(text())
-    if '__origin__' in T.__dict__:
-        if T.__dict__['__origin__'] is tuple: return _tuple(T)
-        if T.__dict__['__origin__'] is list: return _list(T)
-        if T.__dict__['__origin__'] is dict: return _dict(T)
+    if T == int: return m.Something(integer())
+    if T == float: return m.Something(real())
+    if T == str: return m.Something(text())
+    origin = get_origin(T)
+    if origin != None:
+        if origin == tuple: return _tuple(T)
+        if origin == list: return _list(T)
+        if origin == dict: return _dict(T)
     return m.Nothing()
