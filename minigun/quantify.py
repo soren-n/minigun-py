@@ -7,7 +7,7 @@ from typing import (
     Any,
     TypeVar,
     Callable,
-    Hashable,
+    Optional,
     Tuple,
     List,
     Dict
@@ -265,7 +265,9 @@ def tuple_of(*samplers: Sampler[Any]) -> Sampler[Tuple[Any, ...]]:
 def bounded_list_of(
     lower_bound : int,
     upper_bound : int,
-    item_sampler : Sampler[A]
+    item_sampler : Sampler[A],
+    unique : bool = False,
+    ordering : Optional[Callable[[A], int]] = None
     ) -> Sampler[List[A]]:
     assert lower_bound >= 0
     assert lower_bound <= upper_bound
@@ -274,36 +276,28 @@ def bounded_list_of(
             xs1 = xs.copy()
             xs1.append(x)
             return xs1
+        def _unique(xs : List[A]) -> List[A]:
+            return list(set(xs))
+        def _sort(xs : List[A]) -> List[A]:
+            if ordering == None: return xs
+            xs1 = xs.copy()
+            xs1.sort(key=ordering)
+            return xs1
         result = d.singleton(cast(List[A], []))
         for _ in range(upper_bound - lower_bound):
             state, item = item_sampler(state)
             result = d.map(_append, item, result)
-        return state, result
+        if unique: result = d.map(_unique, result)
+        return state, d.map(_sort, result)
     return _impl
 
-def list_of(item_sampler : Sampler[A]) -> Sampler[List[A]]:
-    def _impl(upper_bound : int) -> Sampler[List[A]]:
-        return bounded_list_of(0, upper_bound, item_sampler)
-    return bind(_impl, small_natural())
-
-def bounded_unique_list_of(
-    lower_bound : int,
-    upper_bound : int,
-    item_sampler : Sampler[A]
-    ) -> Sampler[List[A]]:
-    def _impl(items : List[A]) -> List[A]:
-        return list(set(items))
-    return map(_impl, bounded_list_of(
-        lower_bound,
-        upper_bound,
-        item_sampler
-    ))
-
-def unique_list_of(
-    item_sampler : Sampler[A]
+def list_of(
+    item_sampler : Sampler[A],
+    unique : bool = False,
+    ordering : Optional[Callable[[A], int]] = None
     ) -> Sampler[List[A]]:
     def _impl(upper_bound : int) -> Sampler[List[A]]:
-        return bounded_unique_list_of(0, upper_bound, item_sampler)
+        return bounded_list_of(0, upper_bound, item_sampler, unique, ordering)
     return bind(_impl, small_natural())
 
 ###############################################################################

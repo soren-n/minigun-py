@@ -175,6 +175,18 @@ def _pos_black_list_remove_length_identity(xs : List[int], x : int):
 def _pos_black_list_concat_length_add_dist(xs : List[int], ys : List[int]):
     return len(xs + ys) == len(xs) + len(ys)
 
+@test('Unique list have no duplicate items', 1000)
+@domain(list_of(integer(), unique = True))
+def _pos_black_list_unique(xs : List[int]):
+    xs1 = set(xs)
+    return len(xs1.difference(xs)) == 0
+
+@test('Ordered list items are sorted', 1000)
+@domain(list_of(integer(), ordering = (lambda x : x)))
+def _pos_black_list_sorted(xs : List[int]):
+    if len(xs) == 0: return True
+    return all([ xs[i] <= xs[i+1] for i in range(len(xs)-1) ])
+
 ###############################################################################
 # Positive black-box testing of dictionaries
 ###############################################################################
@@ -262,6 +274,8 @@ if __name__ == '__main__':
         _pos_black_list_remove_identity,
         _pos_black_list_remove_length_identity,
         _pos_black_list_concat_length_add_dist,
+        _pos_black_list_unique,
+        _pos_black_list_sorted,
         _pos_black_dict_insert_identity,
         _pos_black_dict_remove_identity,
         _pos_white_one_of_bounds,
