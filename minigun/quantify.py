@@ -286,12 +286,25 @@ def list_of(item_sampler : Sampler[A]) -> Sampler[List[A]]:
         return bounded_list_of(0, upper_bound, item_sampler)
     return bind(_impl, small_natural())
 
-def unique_list_of(
-    item_sampler : Sampler[Hashable]
-    ) -> Sampler[List[Hashable]]:
-    def _impl(items : List[Hashable]) -> List[Hashable]:
+def bounded_unique_list_of(
+    lower_bound : int,
+    upper_bound : int,
+    item_sampler : Sampler[A]
+    ) -> Sampler[List[A]]:
+    def _impl(items : List[A]) -> List[A]:
         return list(set(items))
-    return map(_impl, list_of(item_sampler))
+    return map(_impl, bounded_list_of(
+        lower_bound,
+        upper_bound,
+        item_sampler
+    ))
+
+def unique_list_of(
+    item_sampler : Sampler[A]
+    ) -> Sampler[List[A]]:
+    def _impl(upper_bound : int) -> Sampler[List[A]]:
+        return bounded_unique_list_of(0, upper_bound, item_sampler)
+    return bind(_impl, small_natural())
 
 ###############################################################################
 # Dictionary
