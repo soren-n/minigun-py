@@ -6,6 +6,7 @@ from typing import (
     get_args,
     Any,
     TypeVar,
+    ParamSpec,
     Callable,
     Optional,
     Tuple,
@@ -29,23 +30,98 @@ B = TypeVar('B')
 C = TypeVar('C')
 D = TypeVar('D')
 
+P = ParamSpec('P')
+R = TypeVar('R')
+
 Sample = Tuple[a.State, d.Domain[A]]
 Sampler = Callable[[a.State], Sample[A]]
 
-def map(func : Callable[[A], B], sampler : Sampler[A]) -> Sampler[B]:
-    def _impl(state : a.State) -> Sample[B]:
-        state, case = sampler(state)
-        return state, d.map(func, case)
+@overload
+def map(
+    func : Callable[[], R]
+    ) -> Sampler[R]: ...
+@overload
+def map(
+    func : Callable[[A], R],
+    a_sampler : Sampler[A]
+    ) -> Sampler[R]: ...
+@overload
+def map(
+    func : Callable[[A, B], R],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B]
+    ) -> Sampler[R]: ...
+@overload
+def map(
+    func : Callable[[A, B, C], R],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B],
+    c_sampler : Sampler[C]
+    ) -> Sampler[R]: ...
+@overload
+def map(
+    func : Callable[[A, B, C, D], R],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B],
+    c_sampler : Sampler[C],
+    d_sampler : Sampler[D]
+    ) -> Sampler[R]: ...
+def map(
+    func : Callable[P, R],
+    *samplers : Sampler[Any]
+    ) -> Sampler[R]:
+    def _impl(state : a.State) -> Sample[R]:
+        cases : List[Any] = []
+        for sampler in samplers:
+            state, case = sampler(state)
+            cases.append(case)
+        return state, d.map(func, *cases)
     return _impl
 
-def bind(func : Callable[[A], Sampler[B]], sampler : Sampler[A]) -> Sampler[B]:
-    def _impl(state : a.State) -> Sample[B]:
-        def _step(value : A) -> d.Domain[B]:
+@overload
+def bind(
+    func : Callable[[], Sampler[R]]
+    ) -> Sampler[R]: ...
+@overload
+def bind(
+    func : Callable[[A], Sampler[R]],
+    a_sampler : Sampler[A]
+    ) -> Sampler[R]: ...
+@overload
+def bind(
+    func : Callable[[A, B], Sampler[R]],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B]
+    ) -> Sampler[R]: ...
+@overload
+def bind(
+    func : Callable[[A, B, C], Sampler[R]],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B],
+    c_sampler : Sampler[C]
+    ) -> Sampler[R]: ...
+@overload
+def bind(
+    func : Callable[[A, B, C, D], Sampler[R]],
+    a_sampler : Sampler[A],
+    b_sampler : Sampler[B],
+    c_sampler : Sampler[C],
+    d_sampler : Sampler[D]
+    ) -> Sampler[R]: ...
+def bind(
+    func : Callable[P, Sampler[R]],
+    *samplers : Sampler[Any]
+    ) -> Sampler[R]:
+    def _impl(state : a.State) -> Sample[R]:
+        def _step(*values : Any) -> d.Domain[R]:
             nonlocal state
-            state, result = func(value)(state)
+            state, result = func(*values)(state)
             return result
-        state, case = sampler(state)
-        return state, d.bind(_step, case)
+        cases : List[Any] = []
+        for sampler in samplers:
+            state, case = sampler(state)
+            cases.append(case)
+        return state, d.bind(_step, *cases)
     return _impl
 
 def sample(state : a.State, sampler : Sampler[A]) -> Tuple[a.State, A]:
