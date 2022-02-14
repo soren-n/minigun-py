@@ -345,7 +345,7 @@ def bounded_list_of(
     unique : bool = False,
     ordering : Optional[Callable[[A], int]] = None
     ) -> Sampler[List[A]]:
-    assert lower_bound >= 0
+    assert 0 <= lower_bound
     assert lower_bound <= upper_bound
     def _impl(state : a.State) -> Sample[List[A]]:
         def _append(x : A, xs : List[A]) -> List[A]:
@@ -387,7 +387,7 @@ def bounded_dict_of(
     key_sampler : Sampler[K],
     value_sampler : Sampler[V]
     ) -> Sampler[Dict[K, V]]:
-    assert lower_bound >= 0
+    assert 0 <= lower_bound
     assert lower_bound <= upper_bound
     def _impl(state : a.State) -> Sample[Dict[K, V]]:
         def _insert(kv : Tuple[K, V], kvs : Dict[K, V]) -> Dict[K, V]:
