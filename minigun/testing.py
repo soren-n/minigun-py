@@ -2,6 +2,7 @@
 from typing import (
     cast,
     ParamSpec,
+    Concatenate,
     Any,
     Generic,
     List,
@@ -9,10 +10,15 @@ from typing import (
     Tuple,
     Callable
 )
+from contextlib import contextmanager
 from dataclasses import dataclass
 from inspect import signature
 from functools import partial
 from tqdm.auto import trange
+from pathlib import Path
+import secrets
+import shutil
+import os
 
 # Internal module dependencies
 from . import arbitrary as a
@@ -22,24 +28,46 @@ from . import domain as d
 from . import maybe as m
 
 ###############################################################################
-# Test decorators
+# Type variables
 ###############################################################################
 P = ParamSpec('P')
 Q = ParamSpec('Q')
 
-Predicate = Callable[[Any], bool]
-Law = Callable[P, bool]
+###############################################################################
+# Testing context
+###############################################################################
+class Context:
+    def __init__(self, root_path : Path):
+        self._root_path = root_path
+
+    @contextmanager
+    def directory(self):
+        test_path = Path(self._root_path, secrets.token_hex(15))
+        os.makedirs(test_path)
+        yield test_path
+
+@contextmanager
+def _context(name : str):
+    root_path = Path('.minigun', name)
+    try: yield Context(root_path)
+    finally:
+        if not root_path.exists(): return
+        shutil.rmtree(root_path)
+
+###############################################################################
+# Test decorators
+###############################################################################
+Law = Callable[Concatenate[Context, P], bool]
 
 @dataclass
 class Unit(Generic[P]):
     law: Law[P]
     args: Dict[str, q.Sampler[Any]]
-    refines: Dict[str, Predicate]
 
 def domain(*lparams : q.Sampler[Any], **kparams : q.Sampler[Any]):
     def _decorate(law : Law[P]) -> Unit[P]:
         sig = signature(law)
-        params = list(sig.parameters.keys())
+        params = list(sig.parameters.keys())[1:]
         arg_types = {
             p.name : cast(type, p.annotation)
             for p in sig.parameters.values()
@@ -66,7 +94,7 @@ def domain(*lparams : q.Sampler[Any], **kparams : q.Sampler[Any]):
             args[param] = arg_sampler.value
 
         # Wrap up the unit
-        return Unit(law, args, {})
+        return Unit(law, args)
     return _decorate
 
 def _merge_args(
@@ -101,12 +129,13 @@ def _merge_args(
     return arg_values, _shrink_args(args)
 
 def _trim_counter_example(
+    ctx : Context,
     law : Law[P],
     counter_example : Dict[str, d.Domain[Any]]
     ) -> Dict[str, Any]:
 
     def _is_counter_example(args : d.Domain[Dict[str, Any]]) -> bool:
-        return not law(**d.head(args))
+        return not law(ctx, **d.head(args))
 
     def _search(args : d.Domain[Dict[str, Any]]) -> Dict[str, Any]:
         arg_values, arg_streams = args
@@ -121,6 +150,7 @@ def _find_counter_example(
     name : str,
     count : int,
     unit : Unit[P],
+    ctx : Context,
     state : a.State
     ) -> Tuple[a.State, m.Maybe[Dict[str, Any]]]:
     for _ in trange(count, desc = name):
@@ -129,20 +159,21 @@ def _find_counter_example(
             state, arg = arg_sampler(state)
             example[param] = arg
         _example = { param : d.head(arg) for param, arg in example.items() }
-        if unit.law(**_example): continue
-        return state, m.Something(_trim_counter_example(unit.law, example))
+        if unit.law(ctx, **_example): continue
+        return state, m.Something(_trim_counter_example(ctx, unit.law, example))
     return state, m.Nothing()
 
 @dataclass
 class Test(Generic[P]):
     name: str
     count: int
-    unit: Callable[[a.State], Tuple[a.State, m.Maybe[Dict[str, Any]]]]
+    unit: Callable[[Context, a.State], Tuple[a.State, m.Maybe[Dict[str, Any]]]]
+    unit_name: str
 
 def test(name : str, count : int):
     def _decorate(unit : Unit[P]):
         _unit = partial(_find_counter_example, name, count, unit)
-        return Test(name, count, _unit)
+        return Test(name, count, _unit, unit.law.__name__)
     return _decorate
 
 ###############################################################################
@@ -155,7 +186,8 @@ class Suite:
     def evaluate(self, args : List[str]) -> bool:
         state = a.seed()
         for test in self._tests:
-            state, counter_example = test.unit(state)
+            with _context(test.unit_name) as ctx:
+                state, counter_example = test.unit(ctx, state)
             if isinstance(counter_example, m.Nothing): continue
             print(
                 'Test \"%s\" failed with the '
