@@ -1,16 +1,7 @@
-from typing import Tuple, List, Dict
+from typing import TypeVar, Callable, Tuple, List, Dict
 
-from minigun.quantify import (
-    integer_range,
-    list_of,
-    dict_of,
-    one_of,
-    small_natural,
-    integer,
-    real,
-    text
-)
-from minigun.testing import Context, Suite, test, domain
+from minigun.testing import Spec, prop, domain, check, conj
+import minigun.quantify as q
 
 # The testing strategy for minigun is to exercise the bundled domains.
 # This will cover the following four areas of testing for each domain:
@@ -28,52 +19,127 @@ from minigun.testing import Context, Suite, test, domain
 #       implementation knowledge)
 
 ###############################################################################
+# Abstract specifications
+###############################################################################
+T = TypeVar('T')
+Operator = Callable[[T, T], T]
+Inverse = Callable[[T], T]
+
+def _operator_commute(
+    name : str,
+    sampler : q.Sampler[T],
+    operator : Operator[T]
+    ) -> Spec:
+    @prop('%s is commutative' % name, 100)
+    @domain(sampler, sampler)
+    def _operator_commute_impl(a : T, b : T):
+        return operator(a, b) == operator(b, a)
+    return _operator_commute_impl
+
+def _operator_assoc(
+    name : str,
+    sampler : q.Sampler[T],
+    operator : Operator[T]
+    ) -> Spec:
+    @prop('%s is associative' % name, 100)
+    @domain(sampler, sampler, sampler)
+    def _operator_assoc_impl(a : T, b : T, c : T):
+        return operator(a, operator(b, c)) == operator(operator(a, b), c)
+    return _operator_assoc_impl
+
+def _operator_identity(
+    name : str,
+    identity : T,
+    sampler : q.Sampler[T],
+    operator : Operator[T]
+    ) -> Spec:
+    @prop('\"%s\" is identity under %s' % (identity, name), 100)
+    @domain(sampler)
+    def _operator_neutral_impl(a : T):
+        return operator(a, identity) == a
+    return _operator_neutral_impl
+
+def _operator_inverse(
+    name : str,
+    identity : T,
+    sampler : q.Sampler[T],
+    operator : Operator[T],
+    inverse : Inverse[T]
+    ) -> Spec:
+    @prop('Domain has inverse under %s' % name, 100)
+    @domain(sampler)
+    def _operator_inverse_impl(a : T):
+        return operator(a, inverse(a)) == identity
+    return _operator_inverse_impl
+
+def _operators_dist(
+    plus_name : str,
+    times_name : str,
+    sampler : q.Sampler[T],
+    plus : Operator[T],
+    times : Operator[T]
+    ) -> Spec:
+    @prop('%s and %s are distributive' % (plus_name, times_name), 100)
+    @domain(sampler, sampler, sampler)
+    def _operators_dist_impl(a : T, b : T, c : T):
+        return (
+            (times(a, plus(b, c)) == plus(times(a, b), times(a, c))) and
+            (times(plus(b, c), a) == plus(times(b, a), times(c, a)))
+        )
+    return _operators_dist_impl
+
+def _operator_moniod(
+    name : str,
+    identity : T,
+    sampler : q.Sampler[T],
+    operator : Operator[T]
+    ) -> Spec:
+    return conj(
+        _operator_identity(name, identity, sampler, operator),
+        _operator_assoc(name, sampler, operator)
+    )
+
+def _operator_abelian(
+    name : str,
+    identity : T,
+    sampler : q.Sampler[T],
+    operator : Operator[T],
+    inverse : Inverse[T]
+    ) -> Spec:
+    return conj(
+        _operator_identity(name, identity, sampler, operator),
+        _operator_inverse(name, identity, sampler, operator, inverse),
+        _operator_assoc(name, sampler, operator),
+        _operator_commute(name, sampler, operator)
+    )
+
+def _operators_ring(
+    plus_name : str,
+    times_name : str,
+    plus_identity : T,
+    times_identity : T,
+    sampler : q.Sampler[T],
+    plus : Operator[T],
+    times : Operator[T],
+    inverse : Inverse[T]
+    ) -> Spec:
+    return conj(
+        _operator_abelian(plus_name, plus_identity, sampler, plus, inverse),
+        _operator_moniod(times_name, times_identity, sampler, times),
+        _operators_dist(plus_name, times_name, sampler, plus, times)
+    )
+
+###############################################################################
 # Positive black-box testing of integer
 ###############################################################################
-@test('Zero is neutral element of integer addition', 1000)
-@domain(integer())
-def _pos_black_int_add_zero(ctx : Context, a : int) -> bool:
-    return (a + 0) == a
-
-@test('One is neutral element of integer multiplication', 1000)
-@domain(integer())
-def _pos_black_int_mul_one(ctx : Context, a : int) -> bool:
-    return (a * 1) == a
-
-@test('Integer addition is commutative', 1000)
-@domain(integer(), integer())
-def _pos_black_int_add_commute(ctx : Context, a : int, b : int) -> bool:
-    return (a + b) == (b + a)
-
-@test('Integer addition is associative', 1000)
-@domain(integer(), integer(), integer())
-def _pos_black_int_add_assoc(ctx : Context, a : int, b : int, c : int) -> bool:
-    return (a + (b + c)) == ((a + b) + c)
-
-@test('Integer addition has inverse', 1000)
-@domain(integer())
-def _pos_black_int_add_inverse(ctx : Context, a : int) -> bool:
-    return (a + (-a)) == 0
-
-@test('Integer multiplication is commutative', 1000)
-@domain(integer(), integer())
-def _pos_black_int_mul_commute(ctx : Context, a : int, b : int) -> bool:
-    return (a * b) == (b * a)
-
-@test('Integer multiplication is associative', 1000)
-@domain(integer(), integer(), integer())
-def _pos_black_int_mul_assoc(ctx : Context, a : int, b : int, c : int) -> bool:
-    return (a * (b * c)) == ((a * b) * c)
-
-@test('Integer addition and multiplication is distributive', 1000)
-@domain(integer(), integer(), integer())
-def _pos_black_int_add_mul_dist(
-    ctx : Context,
-    a : int,
-    b : int,
-    c : int
-    ) -> bool:
-    return (a * (b + c)) == ((a * b) + (a * c))
+_int_ring = _operators_ring(
+    'integer addition',
+    'integer multiplication',
+    0, 1, q.integer(),
+    lambda a, b: a + b,
+    lambda a, b: a * b,
+    lambda a: -a
+)
 
 ###############################################################################
 # Positive black-box testing of real
@@ -81,72 +147,58 @@ def _pos_black_int_add_mul_dist(
 def float_equal(a : float, b : float, epsilon : float = 1e-8) -> bool:
     return abs(a - b) <= epsilon
 
-@test('Zero is neutral element of float addition', 1000)
-@domain(real())
-def _pos_black_float_add_zero(ctx : Context, a : float) -> bool:
+@prop('Zero is neutral element of float addition', 100)
+@domain(q.real())
+def _pos_black_float_add_zero(a : float) -> bool:
     return float_equal(a + 0, a)
 
-@test('One is neutral element of float multiplication', 1000)
-@domain(real())
-def _pos_black_float_mul_one(ctx : Context, a : float) -> bool:
+@prop('One is neutral element of float multiplication', 100)
+@domain(q.real())
+def _pos_black_float_mul_one(a : float) -> bool:
     return float_equal(a * 1, a)
 
-@test('Float addition is commutative', 1000)
-@domain(real(), real())
-def _pos_black_float_add_commute(ctx : Context, a : float, b : float) -> bool:
+@prop('Float addition is commutative', 100)
+@domain(q.real(), q.real())
+def _pos_black_float_add_commute(a : float, b : float) -> bool:
     return float_equal(a + b, b + a)
 
-@test('Float addition is associative', 1000)
-@domain(real(), real(), real())
+@prop('Float addition is associative', 100)
+@domain(q.real(), q.real(), q.real())
 def _pos_black_float_add_assoc(
-    ctx : Context,
     a : float,
     b : float,
     c : float
     ) -> bool:
     return float_equal(a + (b + c), (a + b) + c)
 
-@test('Float addition has inverse', 1000)
-@domain(real())
-def _pos_black_float_add_inverse(ctx : Context, a : float) -> bool:
+@prop('Float addition has inverse', 100)
+@domain(q.real())
+def _pos_black_float_add_inverse(a : float) -> bool:
     return float_equal(a + (-a), 0.0)
 
-@test('Float multiplication is commutative', 1000)
-@domain(real(), real())
-def _pos_black_float_mul_commute(ctx : Context, a : float, b : float) -> bool:
+@prop('Float multiplication is commutative', 100)
+@domain(q.real(), q.real())
+def _pos_black_float_mul_commute(a : float, b : float) -> bool:
     return float_equal(a * b, b * a)
 
 ###############################################################################
 # Positive black-box testing of text
 ###############################################################################
-@test('String append identity', 1000)
-@domain(text())
-def _pos_black_text_append_identity(ctx : Context, s : str) -> bool:
-    s1 = s + 'a'
-    return s1[-1] == 'a'
+_string_concat_moniod = _operator_moniod(
+    'string concatenation',
+    '', q.text(),
+    lambda a, b: a + b
+)
 
-@test('String append length identity', 1000)
-@domain(text())
-def _pos_black_text_append_length_identity(ctx : Context, s : str) -> bool:
+@prop('String append length identity', 100)
+@domain(q.text())
+def _pos_black_text_append_length_identity(s : str) -> bool:
     s1 = s + 'a'
     return len(s1) == len(s) + 1
 
-@test('String prepend identity', 1000)
-@domain(text())
-def _pos_black_text_prepend_identity(ctx : Context, s : str) -> bool:
-    s1 = 'a' + s
-    return s1[0] == 'a'
-
-@test('String prepend length identity', 1000)
-@domain(text())
-def _pos_black_text_prepend_length_identity(ctx : Context, s : str) -> bool:
-    s1 = 'a' + s
-    return len(s1) == len(s) + 1
-
-@test('String concat length distribute', 1000)
-@domain(text(), text())
+@prop('String concat length distribute', 100)
+@domain(q.text(), q.text())
 def _pos_black_text_concat_length_dist(
-    ctx : Context,
     xs : str,
     ys : str
     ) -> bool:
@@ -155,20 +207,24 @@ def _pos_black_text_concat_length_dist(
 ###############################################################################
 # Positive black-box testing of lists
 ###############################################################################
-@test('List append identity', 1000)
-@domain(list_of(integer()), integer())
+_list_concat_moniod = _operator_moniod(
+    'list concatenation',
+    [], q.list_of(q.integer()),
+    lambda a, b: a + b
+)
+
+@prop('List append identity', 100)
+@domain(q.list_of(q.integer()), q.integer())
 def _pos_black_list_append_identity(
-    ctx : Context,
     xs : List[int],
     x : int
     ) -> bool:
     xs.append(x)
     return xs[-1] == x
 
-@test('List append length identity', 1000)
-@domain(list_of(integer()), integer())
+@prop('List append length identity', 100)
+@domain(q.list_of(q.integer()), q.integer())
 def _pos_black_list_append_length_identity(
-    ctx : Context,
     xs : List[int],
     x : int
     ) -> bool:
@@ -176,10 +232,9 @@ def _pos_black_list_append_length_identity(
     xs1.append(x)
     return len(xs1) == len(xs) + 1
 
-@test('List remove identity', 1000)
-@domain(list_of(integer()), integer())
+@prop('List remove identity', 100)
+@domain(q.list_of(q.integer()), q.integer())
 def _pos_black_list_remove_identity(
-    ctx : Context,
     xs : List[int],
     x : int
     ) -> bool:
@@ -188,10 +243,9 @@ def _pos_black_list_remove_identity(
     del xs1[-1]
     return xs == xs1
 
-@test('List remove length identity', 1000)
-@domain(list_of(integer()), integer())
+@prop('List remove length identity', 100)
+@domain(q.list_of(q.integer()), q.integer())
 def _pos_black_list_remove_length_identity(
-    ctx : Context,
     xs : List[int],
     x : int
     ) -> bool:
@@ -200,34 +254,32 @@ def _pos_black_list_remove_length_identity(
     del xs1[-1]
     return len(xs1) == len(xs) - 1
 
-@test('List length concat distributes with add', 1000)
-@domain(list_of(integer()), list_of(integer()))
+@prop('List length concat distributes with add', 100)
+@domain(q.list_of(q.integer()), q.list_of(q.integer()))
 def _pos_black_list_concat_length_add_dist(
-    ctx : Context,
     xs : List[int],
     ys : List[int]
     ) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
 
-@test('Unique list have no duplicate items', 1000)
-@domain(list_of(integer(), unique = True))
-def _pos_black_list_unique(ctx : Context, xs : List[int]) -> bool:
+@prop('Unique list have no duplicate items', 100)
+@domain(q.list_of(q.integer(), unique = True))
+def _pos_black_list_unique(xs : List[int]) -> bool:
     xs1 = set(xs)
     return len(xs1.difference(xs)) == 0
 
-@test('Ordered list items are sorted', 1000)
-@domain(list_of(integer(), ordering = (lambda x : x)))
-def _pos_black_list_sorted(ctx : Context, xs : List[int]) -> bool:
+@prop('Ordered list items are sorted', 100)
+@domain(q.list_of(q.integer(), ordering = (lambda x : x)))
+def _pos_black_list_sorted(xs : List[int]) -> bool:
     if len(xs) == 0: return True
     return all([ xs[i] <= xs[i+1] for i in range(len(xs)-1) ])
 
 ###############################################################################
 # Positive black-box testing of dictionaries
 ###############################################################################
-@test('Dictionary insert identity', 1000)
-@domain(dict_of(integer(), integer()), integer(), integer())
+@prop('Dictionary insert identity', 100)
+@domain(q.dict_of(q.integer(), q.integer()), q.integer(), q.integer())
 def _pos_black_dict_insert_identity(
-    ctx : Context,
     kvs : Dict[int, int],
     k : int,
     v : int
@@ -235,10 +287,9 @@ def _pos_black_dict_insert_identity(
     kvs[k] = v
     return kvs[k] == v
 
-@test('Dictionary remove identity', 1000)
-@domain(dict_of(integer(), integer()), integer(), integer())
+@prop('Dictionary remove identity', 100)
+@domain(q.dict_of(q.integer(), q.integer()), q.integer(), q.integer())
 def _pos_black_dict_remove_identity(
-    ctx : Context,
     kvs : Dict[int, int],
     k : int,
     v : int
@@ -250,42 +301,42 @@ def _pos_black_dict_remove_identity(
 ###############################################################################
 # Positive white-box testing of domain combinators
 ###############################################################################
-@test('One of combinator', 1000)
-@domain(one_of([small_natural(), integer_range(0, 1000)]))
-def _pos_white_one_of_bounds(ctx : Context, v : int) -> bool:
-    return 0 <= v <= 1000
+@prop('One of combinator', 100)
+@domain(q.one_of([q.small_natural(), q.integer_range(0, 100)]))
+def _pos_white_one_of_bounds(v : int) -> bool:
+    return 0 <= v <= 100
 
 ###############################################################################
 # Positive white-box testing of infer
 ###############################################################################
-@test('Domain infer int', 1)
+@prop('Domain infer int', 1)
 @domain()
-def _pos_white_domain_infer_int(ctx : Context, v : int) -> bool:
+def _pos_white_domain_infer_int(v : int) -> bool:
     return type(v) == int
 
-@test('Domain infer float', 1)
+@prop('Domain infer float', 1)
 @domain()
-def _pos_white_domain_infer_float(ctx : Context, v : float) -> bool:
+def _pos_white_domain_infer_float(v : float) -> bool:
     return type(v) == float
 
-@test('Domain infer string', 1)
+@prop('Domain infer string', 1)
 @domain()
-def _pos_white_domain_infer_str(ctx : Context, v : str) -> bool:
+def _pos_white_domain_infer_str(v : str) -> bool:
     return type(v) == str
 
-@test('Domain infer tuple', 1)
+@prop('Domain infer tuple', 1)
 @domain()
-def _pos_white_domain_infer_tuple(ctx : Context, v : Tuple[int]) -> bool:
+def _pos_white_domain_infer_tuple(v : Tuple[int]) -> bool:
     return type(v) == tuple
 
-@test('Domain infer list', 1)
+@prop('Domain infer list', 1)
 @domain()
-def _pos_white_domain_infer_list(ctx : Context, bs : List[int]) -> bool:
+def _pos_white_domain_infer_list(bs : List[int]) -> bool:
     return type(bs) == list
 
-@test('Domain infer dict', 1)
+@prop('Domain infer dict', 1)
 @domain()
-def _pos_white_domain_infer_dict(ctx : Context, kvs : Dict[int, int]) -> bool:
+def _pos_white_domain_infer_dict(kvs : Dict[int, int]) -> bool:
     return type(kvs) == dict
 
 ###############################################################################
@@ -293,26 +344,18 @@ def _pos_white_domain_infer_dict(ctx : Context, kvs : Dict[int, int]) -> bool:
 ###############################################################################
 if __name__ == '__main__':
     import sys
-    tests = Suite(
-        _pos_black_int_add_zero,
-        _pos_black_int_mul_one,
-        _pos_black_int_add_commute,
-        _pos_black_int_add_assoc,
-        _pos_black_int_add_inverse,
-        _pos_black_int_mul_commute,
-        _pos_black_int_mul_assoc,
-        _pos_black_int_add_mul_dist,
+    success = check(conj(
+        _int_ring,
         _pos_black_float_add_zero,
         _pos_black_float_mul_one,
         _pos_black_float_add_commute,
         _pos_black_float_add_assoc,
         _pos_black_float_add_inverse,
         _pos_black_float_mul_commute,
-        _pos_black_text_append_identity,
+        _string_concat_moniod,
         _pos_black_text_append_length_identity,
-        _pos_black_text_prepend_identity,
-        _pos_black_text_prepend_length_identity,
         _pos_black_text_concat_length_dist,
+        _list_concat_moniod,
         _pos_black_list_append_identity,
         _pos_black_list_append_length_identity,
         _pos_black_list_remove_identity,
@@ -329,6 +372,5 @@ if __name__ == '__main__':
         _pos_white_domain_infer_tuple,
         _pos_white_domain_infer_list,
         _pos_white_domain_infer_dict,
-    )
-    success = tests.evaluate(sys.argv)
+    ))
     sys.exit(0 if success else -1)

@@ -13,8 +13,12 @@ from typing import (
     List,
     Dict
 )
+from pathlib import Path
+import secrets
+import shutil
 import string
 import math
+import os
 
 # Internal module dependencies
 from . import arbitrary as a
@@ -453,3 +457,15 @@ def infer(T : type) -> m.Maybe[Sampler[Any]]:
         if origin == list: return _list(T)
         if origin == dict: return _dict(T)
     return m.Nothing()
+
+###############################################################################
+# Filesystem fixture
+###############################################################################
+def directory(dir_path : Optional[Path] = None) -> Sampler[Path]:
+    def _impl(state : a.State) -> Sample[Path]:
+        result = Path('.minigun', secrets.token_hex(15))
+        if not result.parent.exists(): os.makedirs(result.parent)
+        if dir_path and dir_path.exists(): shutil.copytree(dir_path, result)
+        else: os.makedirs(result)
+        return state, d.singleton(result)
+    return _impl

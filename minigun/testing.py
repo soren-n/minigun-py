@@ -2,7 +2,6 @@
 from typing import (
     cast,
     ParamSpec,
-    Concatenate,
     Any,
     Generic,
     List,
@@ -10,15 +9,13 @@ from typing import (
     Tuple,
     Callable
 )
-from contextlib import contextmanager
 from dataclasses import dataclass
 from inspect import signature
 from functools import partial
 from tqdm.auto import trange
 from pathlib import Path
-import secrets
+import logging
 import shutil
-import os
 
 # Internal module dependencies
 from . import arbitrary as a
@@ -34,30 +31,9 @@ P = ParamSpec('P')
 Q = ParamSpec('Q')
 
 ###############################################################################
-# Testing context
-###############################################################################
-class Context:
-    def __init__(self, root_path : Path):
-        self._root_path = root_path
-
-    @contextmanager
-    def directory(self):
-        test_path = Path(self._root_path, secrets.token_hex(15))
-        os.makedirs(test_path)
-        yield test_path
-
-@contextmanager
-def _context(name : str):
-    root_path = Path('.minigun', name)
-    try: yield Context(root_path)
-    finally:
-        if not root_path.exists(): return
-        shutil.rmtree(root_path)
-
-###############################################################################
 # Test decorators
 ###############################################################################
-Law = Callable[Concatenate[Context, P], bool]
+Law = Callable[P, bool]
 
 @dataclass
 class Unit(Generic[P]):
@@ -67,7 +43,7 @@ class Unit(Generic[P]):
 def domain(*lparams : q.Sampler[Any], **kparams : q.Sampler[Any]):
     def _decorate(law : Law[P]) -> Unit[P]:
         sig = signature(law)
-        params = list(sig.parameters.keys())[1:]
+        params = list(sig.parameters.keys())
         arg_types = {
             p.name : cast(type, p.annotation)
             for p in sig.parameters.values()
@@ -129,13 +105,12 @@ def _merge_args(
     return arg_values, _shrink_args(args)
 
 def _trim_counter_example(
-    ctx : Context,
     law : Law[P],
     counter_example : Dict[str, d.Domain[Any]]
     ) -> Dict[str, Any]:
 
     def _is_counter_example(args : d.Domain[Dict[str, Any]]) -> bool:
-        return not law(ctx, **d.head(args))
+        return not law(**d.head(args))
 
     def _search(args : d.Domain[Dict[str, Any]]) -> Dict[str, Any]:
         arg_values, arg_streams = args
@@ -147,53 +122,101 @@ def _trim_counter_example(
     return _search(_merge_args(counter_example))
 
 def _find_counter_example(
-    name : str,
+    desc : str,
     count : int,
     unit : Unit[P],
-    ctx : Context,
     state : a.State
     ) -> Tuple[a.State, m.Maybe[Dict[str, Any]]]:
-    for _ in trange(count, desc = name):
+    for _ in trange(count, desc = desc):
         example : Dict[str, d.Domain[Any]] = {}
         for param, arg_sampler in unit.args.items():
             state, arg = arg_sampler(state)
             example[param] = arg
         _example = { param : d.head(arg) for param, arg in example.items() }
-        if unit.law(ctx, **_example): continue
-        return state, m.Something(_trim_counter_example(ctx, unit.law, example))
+        if unit.law(**_example): continue
+        return state, m.Something(_trim_counter_example(unit.law, example))
     return state, m.Nothing()
 
+###############################################################################
+# Spec constructors
+###############################################################################
 @dataclass
-class Test(Generic[P]):
-    name: str
-    count: int
-    unit: Callable[[Context, a.State], Tuple[a.State, m.Maybe[Dict[str, Any]]]]
-    unit_name: str
+class Spec: pass
 
-def test(name : str, count : int):
+@dataclass
+class Prop(Spec):
+    desc: str
+    unit: Callable[[a.State], Tuple[a.State, m.Maybe[Dict[str, Any]]]]
+
+def prop(desc : str, count : int):
     def _decorate(unit : Unit[P]):
-        _unit = partial(_find_counter_example, name, count, unit)
-        return Test(name, count, _unit, unit.law.__name__)
+        return Prop(desc, partial(_find_counter_example, desc, count, unit))
     return _decorate
 
-###############################################################################
-# Test runner
-###############################################################################
-class Suite:
-    def __init__(self, *tests : Test[P]):
-        self._tests = tests
+@dataclass
+class Conj(Spec):
+    specs : Tuple[Spec, ...]
 
-    def evaluate(self, args : List[str]) -> bool:
-        state = a.seed()
-        for test in self._tests:
-            with _context(test.unit_name) as ctx:
-                state, counter_example = test.unit(ctx, state)
-            if isinstance(counter_example, m.Nothing): continue
-            print(
-                'Test \"%s\" failed with the '
-                'following counter example:' % test.name
-            )
-            print(counter_example.value)
-            return False
-        print('All tests passed!')
-        return True
+def conj(*specs : Spec) -> Spec:
+    return Conj(specs)
+
+@dataclass
+class Disj(Spec):
+    specs : Tuple[Spec, ...]
+
+def disj(*specs : Spec) -> Spec:
+    return Disj(specs)
+
+@dataclass
+class Impl(Spec):
+    premise : Spec
+    conclusion : Spec
+
+def impl(premise : Spec, conclusion : Spec) -> Spec:
+    return Impl(premise, conclusion)
+
+###############################################################################
+# Spec evaluation
+###############################################################################
+def check(spec : Spec) -> bool:
+    def _visit(state : a.State, spec : Spec) -> Tuple[a.State, bool]:
+        match spec:
+            case Prop(desc, unit):
+                state, counter_example = unit(state)
+                match counter_example:
+                    case m.Nothing(): return state, True
+                    case m.Something(value):
+                        logging.error(
+                            'A unit-test of \"%s\" failed with the '
+                            'following counter example:\n%s' % (
+                                desc, value
+                            )
+                        )
+                        return state, False
+                    case _: assert False, 'Invariant'
+            case Conj(terms):
+                for term in terms:
+                    state, success = _visit(state, term)
+                    if success: continue
+                    return state, False
+                return state, True
+            case Disj(terms):
+                for term in terms:
+                    state, success = _visit(state, term)
+                    if not success: continue
+                    return state, True
+                return state, False
+            case Impl(premise, conclusion):
+                state, success = _visit(state, premise)
+                if not success: return state, False
+                return _visit(state, conclusion)
+            case _: assert False, 'Invariant'
+    _, success = _visit(a.seed(), spec)
+    temp_path = Path('.minigun')
+    if temp_path.exists(): shutil.rmtree(temp_path)
+    logging.info(
+        'All checks passed!'
+        if success else
+        'Some checks failed!'
+    )
+    return success
