@@ -1,0 +1,25 @@
+procs:
+  update: [make, html]
+flows:
+  default: [[update]]
+tasks:
+- desc: Build HTML
+  proc: update
+  flows: [default]
+  args: {}
+  inputs:
+  - source/index.rst
+  - source/minigun.rst
+  - source/reference.rst
+  - source/tutorial.rst
+  - ../minigun/__init__.py
+  - ../minigun/arbitrary.py
+  - ../minigun/domain.py
+  - ../minigun/generate.py
+  - ../minigun/maybe.py
+  - ../minigun/pretty.py
+  - ../minigun/shrink.py
+  - ../minigun/specify.py
+  - ../minigun/stream.py
+  outputs:
+  - build/html/index.html

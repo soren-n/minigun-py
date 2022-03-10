@@ -23,27 +23,24 @@ $ python3 -m pip install minigun-soren-n
 
 # Basic usage
 ```Python
-from minigun.testing import Context, Suite, test, domain
-from minigun.quantify import list_of, integer
+from minigun.testing import prop, domain, check
+import minigun.quantify as q
 
-@test('List length distributes over list concatenation'. 100)
-@domain(list_of(integer()), list_of(integer()))
-def _list_concat_length_dist(ctx : Context, xs : list[int], ys : list[int]):
+@prop('List length distributes over list concatenation'. 100)
+@domain(q.list_of(q.integer()), q.list_of(q.integer()))
+def _list_concat_length_dist(xs : list[int], ys : list[int]):
     return len(xs + ys) == len(xs) + len(ys)
 
 if __name__ == '__main__':
     import sys
-    tests = Suite(
-        _list_concat_length_dist
-    )
-    success = test.evaluate(sys.argv)
+    success = check(_list_concat_length_dist)
     sys.exit(0 if success else -1)
 ```
 At the top the relevant dependencies are imported.
 
-Then a specification for a property of list concatenation interacting with list length. The `domain` decorator defines the domain of the specification; here the specification is defined over two lists of integers. The `test` decorator defines a human-readable description of the specification, along with number of random test cases to be generated during a testing run.
+Then a specification for a property of list concatenation interacting with list length. The `domain` decorator defines the domain of the specification; here the specification is defined over two lists of integers. The `prop` decorator defines a human-readable description of the property, along with number of random test cases to be generated during checking of the property.
 
-The last section is an example of how to evaluation a specification.
+The last section is an example of how to check a specification.
 
 # Documentation
 TODO: Write and link to reference documentation
