@@ -4,6 +4,13 @@
 [![Discord](https://img.shields.io/discord/931473325543268373?label=discord)](https://discord.gg/bddF43Vk2q)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/soren-n)](https://github.com/sponsors/soren-n)
 
+# Notice
+This project is WIP, but almost done!
+
+- [x] Implemtation
+- [x] Documentation
+- [ ] Dependencies
+
 # Minigun
 A QuickCheck-like library for property-based unit-testing of Python programs.
 
@@ -21,29 +28,8 @@ Minigun is currently only supported for Python >=3.10, although it might work wi
 $ python3 -m pip install minigun-soren-n
 ```
 
-# Basic usage
-```Python
-from minigun.testing import prop, domain, check
-import minigun.quantify as q
-
-@prop('List length distributes over list concatenation'. 100)
-@domain(q.list_of(q.integer()), q.list_of(q.integer()))
-def _list_concat_length_dist(xs : list[int], ys : list[int]):
-    return len(xs + ys) == len(xs) + len(ys)
-
-if __name__ == '__main__':
-    import sys
-    success = check(_list_concat_length_dist)
-    sys.exit(0 if success else -1)
-```
-At the top the relevant dependencies are imported.
-
-Then a specification for a property of list concatenation interacting with list length. The `domain` decorator defines the domain of the specification; here the specification is defined over two lists of integers. The `prop` decorator defines a human-readable description of the property, along with number of random test cases to be generated during checking of the property.
-
-The last section is an example of how to check a specification.
-
 # Documentation
-TODO: Write and link to reference documentation
+A tutorial as well as reference documentation for the API can be found at [Read The Docs](https://minigun.readthedocs.io/en/latest/).
 
 # Examples
 The following projects use Minigun for testing:
