@@ -187,9 +187,9 @@ To do this with Minigun you can use the technique of template specifications (we
     S = TypeVar('S')
     A = TypeVar('A')
     def _stack(
-        initial : S,
         item_sampler : d.Domain[A],
         stack_sampler : d.Domain[S],
+        initial : S,
         length : Callable[[S], int],
         push : Callable[[S, A], S],
         pop : Callable[[S], tuple[A, S]]
@@ -238,8 +238,8 @@ To do this with Minigun you can use the technique of template specifications (we
 
     # A specification for the above implementation
     _stack_int = _stack(
-        [], d.int(), d.list(d.int()),
-        len, _push, _pop
+        d.int(), d.list(d.int()),
+        [], len, _push, _pop
     )
 
     if __name__ == '__main__':
