@@ -94,7 +94,7 @@ Lets start with a simple example where we define a law for an interface interact
 
 Declared at the top are the imports to the relevant dependencies of Minigun. When defining basic specifications, you should not need any other imports than those listed.
 
-Next a law is defined with the name :code:`_list_len_concat_add_dist`. It is decorated with a specification header of :code:`@prop` and :code:`@domain`; neither of which can be omitted when defining a specification.
+Next a law is defined with the name :code:`_list_len_concat_add_dist`. It is decorated with a specification header of :code:`@prop` and :code:`@context`; neither of which can be omitted when defining a specification.
 
 The :code:`@context` decorator will quantify the domain of the law; here positionally giving the parameters :code:`xs` and :code:`ys` the type :code:`list[int]` via :code:`d.list(d.int())`.
 
@@ -308,7 +308,7 @@ If we were to simply define the domain with the following direct translation of 
 
 .. code-block:: python
 
-    @domain(d.dict(d.int(), d.list(d.int())))
+    @context(d.dict(d.int(), d.list(d.int())))
 
 We would end up generating and testing with instances of dictionaries that do not represent valid directed graphs.
 
