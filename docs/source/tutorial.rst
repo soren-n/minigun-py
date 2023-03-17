@@ -494,7 +494,7 @@ You will not be able to compose domains for all datatypes using the combinators 
     import minigun.shrink as s
     import minigun.generate as g
     import minigun.domain as d
-    import typeset as st
+    import typeset as ts
 
     def your_shrinker(instance : YourType) -> s.Dissection[YourType]:
         def your_trimmer_1(instance : YourType) -> fs.Stream[YourType]:
@@ -513,7 +513,7 @@ You will not be able to compose domains for all datatypes using the combinators 
         state, instance = ...
         return state, your_shrinker(instance)
 
-    def your_printer(instance : YourType) -> st.Layout:
+    def your_printer(instance : YourType) -> ts.Layout:
         ...
 
     def your_domain() -> d.Domain[YourType]:
