@@ -410,7 +410,7 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
         def _pass(layout : ts.Layout) -> ts.Layout:
             return layout
         def _group(layout : ts.Layout) -> ts.Layout:
-            return ts.grp(ts.format('"(" <!&> $1 <!&> ")"', layout))
+            return ts.grp(ts.parse('"(" <!&> {0} <!&> ")"', layout))
         def _visit(
             wrap : Callable[[ts.Layout], ts.Layout],
             arith : Arith
@@ -418,26 +418,26 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
             match arith:
                 case Number(value): return ts.text(str(value))
                 case Plus(left, right):
-                    return wrap(ts.format(
-                        '$1 <!+> "+" <+> $2',
+                    return wrap(ts.parse(
+                        '{0} <!+> "+" <+> {1}',
                         _visit(_pass, left),
                         _visit(_pass, right)
                     ))
                 case Minus(left, right):
-                    return wrap(ts.format(
-                        '$1 <!+> "-" <+> $2',
+                    return wrap(ts.parse(
+                        '{0} <!+> "-" <+> {1}',
                         _visit(_pass, left),
                         _visit(_pass, right)
                     ))
                 case Times(left, right):
-                    return wrap(ts.format(
-                        '$1 <!+> "*" <+> $2',
+                    return wrap(ts.parse(
+                        '{0} <!+> "*" <+> {1}',
                         _visit(_group, left),
                         _visit(_group, right)
                     ))
                 case Divide(left, right):
-                    return wrap(ts.format(
-                        '$1 <!+> "/" <+> $2',
+                    return wrap(ts.parse(
+                        '{0} <!+> "/" <+> {1}',
                         _visit(_group, left),
                         _visit(_group, right)
                     ))
@@ -614,22 +614,22 @@ Let us consider the modeling of the stack example from earlier:
         def _visit_op(op : StackOp[T]) -> ts.Layout:
             match op:
                 case InitOp(after):
-                    return ts.format(
-                        'fix ($1 <+> "=" <+> "init()")',
+                    return ts.parse(
+                        'fix ({0} <+> "=" <+> "init()")',
                         ts.text(after)
                     )
                 case PushOp(before, after, item):
-                    return ts.format(
-                        'fix ($1 <+> "=" <+> "push(" <&> '
-                        '$2 <&> "," <+> $3 <&> ")")',
+                    return ts.parse(
+                        'fix ({0} <+> "=" <+> "push(" <&> '
+                        '{1} <&> "," <+> {2} <&> ")")',
                         ts.text(after),
                         ts.text(before),
                         _visit_value(item)
                     )
                 case PopOp(before, after, item):
-                    return ts.format(
-                        'fix ($1 <&> "," <+> $2 <+> "=" <+> '
-                        '"pop(" <&> $3 <&> ")")',
+                    return ts.parse(
+                        'fix ({0} <&> "," <+> {1} <+> "=" <+> '
+                        '"pop(" <&> {2} <&> ")")',
                         ts.text(after),
                         ts.text(item),
                         ts.text(before)
@@ -638,8 +638,8 @@ Let us consider the modeling of the stack example from earlier:
             match prog:
                 case []: return ts.null()
                 case [op, *prog1]:
-                    return ts.format(
-                        '$1 </> $2',
+                    return ts.parse(
+                        '{0} </> {1}',
                         _visit_op(op),
                         _visit_prog(prog1)
                     )
