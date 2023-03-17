@@ -245,7 +245,7 @@ def unfold(
     if len(trimmers) == 0:
         return value, cast(fs.Stream[Dissection[A]], fs.empty())
     trim, remain = trimmers[-1], trimmers[:-1]
-    return value, fs.map(partial(unfold, trim, *remain), trim(value))
+    return value, fs.map(lambda value: unfold(value, *remain), trim(value))
 
 ###############################################################################
 # Numbers

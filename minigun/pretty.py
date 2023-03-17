@@ -36,7 +36,7 @@ A = TypeVar('A')
 Printer = Callable[[A], ts.Layout]
 
 def render(layout : ts.Layout) -> _Str:
-    return layout
+    return ts.render(ts.compile(layout), 2, 80)
 
 ###############################################################################
 # Boolean
@@ -48,7 +48,7 @@ def bool() -> Printer[_Bool]:
     :rtype: `Printer[bool]`
     """
     def _printer(value):
-        return ts.word('True' if value else 'False')
+        return ts.text('True' if value else 'False')
     return _printer
 
 ###############################################################################
@@ -61,10 +61,10 @@ def int() -> Printer[_Int]:
     :rtype: `Printer[int]`
     """
     def _printer(value):
-        return ts.word('%d' % value)
+        return ts.text('%d' % value)
     return _printer
 
-def float(digits : _Int) -> Printer[_Float]:
+def float(digits: _Int = 2) -> Printer[_Float]:
     """Create a printer for values of type float.
 
     :param digits: The number of digits to print by the float printer.
@@ -78,7 +78,7 @@ def float(digits : _Int) -> Printer[_Float]:
     _format = '%%.%df' % digits
 
     def _printer(value):
-        return ts.word(_format % value)
+        return ts.text(_format % value)
     return _printer
 
 ###############################################################################
@@ -90,7 +90,7 @@ def str() -> Printer[_Str]:
     :return: A printer for values of type str.
     :rtype: `Printer[str]`
     """
-    return ts.word
+    return ts.text
 
 ###############################################################################
 # Tuples
@@ -107,13 +107,13 @@ def tuple(
     :rtype: `Printer[Tuple[A, B, ...]]`
     """
     def _printer(value):
-        def _wrap(body): return ts.parse('~$"(" <&> {0} <&> ~$")"', body)
+        def _wrap(body): return ts.parse('"(" <&> {0} <&> ")"', body)
         def _print(item): return item[0](item[1])
-        if len(value) == 0: return ts.word('()')
+        if len(value) == 0: return ts.text('()')
         items = zip(printers, value)
         body = _print(next(items))
         for item in items:
-            body = ts.parse('{0} <!&> ~$"," <+> {1}', body, _print(item))
+            body = ts.parse('{0} <!&> "," <+> {1}', body, _print(item))
         return _wrap(body)
     return _printer
 
@@ -132,11 +132,11 @@ def list(
     :rtype: `Printer[List[A]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('~$"[" <&> {0} <&> ~$"]"', body)
-        if len(values) == 0: return ts.word('[]')
+        def _wrap(body): return ts.parse('"[" <&> {0} <&> "]"', body)
+        if len(values) == 0: return ts.text('[]')
         body = printer(values[0])
         for value in values[1:]:
-            body = ts.parse('{0} <!&> ~$"," <+> {1}', body, printer(value))
+            body = ts.parse('{0} <!&> "," <+> {1}', body, printer(value))
         return _wrap(body)
     return _printer
 
@@ -160,18 +160,18 @@ def dict(
     :rtype: `Printer[Dict[K, V]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('~$"{" <&> {0} <&> ~$"}"', body)
+        def _wrap(body): return ts.parse('"{" <&> {0} <&> "}"', body)
         def _item(item):
             return ts.parse(
-                '{0} <!+> ~$":" <!+> {1}',
+                '{0} <!+> ":" <!+> {1}',
                 key_printer(item[0]),
                 value_printer(item[1])
             )
-        if len(values) == 0: return ts.word('{}')
+        if len(values) == 0: return ts.text('{}')
         items = values.items()
         body = _item(next(items))
         for item in items:
-            body = ts.parse('{0} <!&> ~$"," <+> {1}', body, _item(item))
+            body = ts.parse('{0} <!&> "," <+> {1}', body, _item(item))
         return _wrap(body)
     return _printer
 
@@ -190,12 +190,12 @@ def set(
     :rtype: `Printer[Set[A]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('~$"{" <&> {0} <&> ~$"}"', body)
-        if len(values) == 0: return ts.word('{}')
+        def _wrap(body): return ts.parse('"{" <&> {0} <&> "}"', body)
+        if len(values) == 0: return ts.text('{}')
         items = list(values)
         body = printer(items[0])
         for item in items[1:]:
-            body = ts.parse('{0} <!&> ~$"," <+> {1}', body, printer(item))
+            body = ts.parse('{0} <!&> "," <+> {1}', body, printer(item))
         return _wrap(body)
     return _printer
 
@@ -215,10 +215,10 @@ def maybe(
     """
     def _printer(maybe):
         match maybe:
-            case m.Nothing(): return ts.word('Nothing()')
+            case m.Nothing(): return ts.text('Nothing()')
             case m.Something(value):
                 return ts.parse(
-                    '~$"Something(" <&> {0} <&> ~$")"',
+                    '"Something(" <&> {0} <&> ")"',
                     printer(value)
                 )
     return _printer
@@ -256,6 +256,7 @@ def infer(T : type) -> m.Maybe[Printer[Any]]:
         item_printer = infer(get_args(T)[0])
         if isinstance(item_printer, m.Nothing): return m.Nothing()
         return m.Something(set(item_printer.value))
+    if T == _Bool: return m.Something(bool())
     if T == _Int: return m.Something(int())
     if T == _Float: return m.Something(float())
     if T == _Str: return m.Something(str())

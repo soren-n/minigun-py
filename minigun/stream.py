@@ -10,7 +10,6 @@ from typing import (
 )
 
 # Internal module dependencies
-from . import util as u
 from . import maybe as m
 
 ###############################################################################

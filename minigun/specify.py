@@ -15,6 +15,7 @@ from inspect import signature
 from functools import partial
 from tqdm.auto import trange
 from pathlib import Path
+import typeset as ts
 import secrets
 import logging
 import shutil
@@ -70,7 +71,7 @@ def _trim_counter_example(
     params : List[str],
     printers : Dict[str, p.Printer[Any]],
     example : Dict[str, s.Dissection[Any]]
-    ) -> p.Layout:
+    ) -> ts.Layout:
 
     printer = p.tuple(*[
         p.tuple(p.str(), printers[param])
@@ -80,7 +81,7 @@ def _trim_counter_example(
     def _is_counter_example(args : s.Dissection[Dict[str, Any]]) -> bool:
         return not law(**s.head(args))
 
-    def _search(args : s.Dissection[Dict[str, Any]]) -> p.Layout:
+    def _search(args : s.Dissection[Dict[str, Any]]) -> ts.Layout:
         arg_values, arg_streams = args
         while True:
             match fs.peek(fs.filter(_is_counter_example, arg_streams)):
@@ -102,8 +103,13 @@ def _find_counter_example(
     params : List[str],
     generators : Dict[str, g.Generator[Any]],
     printers : Dict[str, p.Printer[Any]]
-    ) -> Tuple[a.State, m.Maybe[p.Layout]]:
-    for _ in trange(count, desc = desc):
+    ) -> Tuple[a.State, m.Maybe[ts.Layout]]:
+    for _ in trange(
+        count,
+        desc = desc,
+        ascii = " *•",
+        bar_format = "{desc}: {bar} [{elapsed} < {remaining}]"
+        ):
         example : Dict[str, s.Dissection[Any]] = {}
         for param, arg_generator in generators.items():
             state, arg = arg_generator(state)
@@ -161,6 +167,21 @@ def prop(desc : str):
         # Done
         return _Prop(desc, 100, law, params, generators, printers)
     return _decorate
+
+@dataclass
+class _Neg(Spec):
+    spec : Spec
+
+def neg(spec : Spec) -> Spec:
+    """A constructor for the negation of a specfication.
+
+    :param spec: Term to be negated.
+    :type spec: `Spec`
+
+    :return: A negation of a specification.
+    :rtype: `Spec`
+    """
+    return _Neg(spec)
 
 @dataclass
 class _Conj(Spec):
@@ -241,8 +262,8 @@ def context(*lparams : d.Domain[Any], **kparams : d.Domain[Any]):
 ###############################################################################
 # Directory fixtures
 ###############################################################################
-def tempoary_path(dir_path : Optional[Path] = None) -> Path:
-    result = Path('.minigun', 'tempoary', secrets.token_hex(15))
+def temporary_path(dir_path : Optional[Path] = None) -> Path:
+    result = Path('.minigun', 'temporary', secrets.token_hex(15))
     if not result.parent.exists(): os.makedirs(result.parent)
     if dir_path and dir_path.exists(): shutil.copytree(dir_path, result)
     else: os.makedirs(result)
@@ -267,7 +288,11 @@ def check(spec : Spec) -> bool:
     :return: A boolean value representing whether the interfaces passed testing against their specification.
     :rtype: `bool`
     """
-    def _visit(state : a.State, spec : Spec) -> Tuple[a.State, bool]:
+    def _visit(
+        state : a.State,
+        spec : Spec,
+        neg : bool = False
+        ) -> Tuple[a.State, bool]:
         match spec:
             case _Prop(desc, count, law, params, generators, printers):
                 _generators : Dict[str, g.Generator[Any]] = {}
@@ -300,8 +325,15 @@ def check(spec : Spec) -> bool:
                     state, desc, count, law, params, _generators, _printers
                 )
                 match counter_example:
-                    case m.Nothing(): return state, True
+                    case m.Nothing():
+                        if not neg: return state, True
+                        logging.error(
+                            'Found no counter example for \"%s\" '
+                            'however one was expected!' % desc
+                        )
+                        return state, False
                     case m.Something(layout):
+                        if neg: return state, True
                         logging.error(
                             'A test case of \"%s\" failed with the '
                             'following counter example:\n%s' % (
@@ -309,6 +341,8 @@ def check(spec : Spec) -> bool:
                             )
                         )
                         return state, False
+            case _Neg(term):
+                return _visit(state, term, not neg)
             case _Conj(terms):
                 for term in terms:
                     state, success = _visit(state, term)
@@ -327,7 +361,7 @@ def check(spec : Spec) -> bool:
                 return _visit(state, conclusion)
             case _: assert False, 'Invariant'
     _, success = _visit(a.seed(), spec)
-    temp_path = Path('.minigun', 'tempoary')
+    temp_path = Path('.minigun', 'temporary')
     if temp_path.exists(): shutil.rmtree(temp_path)
     logging.info(
         'All checks passed!'

@@ -843,6 +843,7 @@ def infer(T : type) -> m.Maybe[Generator[Any]]:
         item_sampler = infer(get_args(T)[0])
         if isinstance(item_sampler, m.Nothing): return m.Nothing()
         return m.Something(set(item_sampler.value))
+    if T == _Bool: return m.Something(bool())
     if T == _Int: return m.Something(int())
     if T == _Float: return m.Something(float())
     if T == _Str: return m.Something(str())
