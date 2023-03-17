@@ -692,12 +692,11 @@ Let us consider the modeling of the stack example from earlier:
         pop : StackPop[T],
         prog : StackProg[T]
         ) -> bool:
-
         ...
 
 .. tip::
 
-    If you would like to see an example of modeling in the real world, I would like to plug one of my other projects; where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Python implementation of this project.
+    If you would like to see an example of modeling in the real world, I would again like to plug Typeset (one of my other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Python implementation of this project.
 
     `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
 
@@ -706,7 +705,7 @@ Summary
 
 Let us end this tutorial with a brief summary of what we covered:
 
-* Why we want to do testing.
+* Why we want to do testing, and what the problems are.
 * What property-based testing is, and what problems it solves.
 * QuickCheck is an API for property-based testing, and Minigun is an implementation of it.
 * Learned how to define basic specifications.
