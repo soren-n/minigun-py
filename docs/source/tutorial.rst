@@ -176,7 +176,7 @@ Template specifications
 -----------------------
 We might wish to capture certain concepts as specifications, and repurpose them by instantiating them for different implementations. For example we could wish to define specifications for queues, stacks or some network protocol, or more abstractly for concepts such as monoids or abelian groups.
 
-To do this with Minigun you can use the technique of template specifications (we could also call it parameterized specifications). Python being a programming language of course supports this out of the box via functions, so we can template (or parameterize) our specifications as we otherwise would.
+To do this with Minigun you can use the technique of template specifications (we could also call it parameterized or higher-kinded specifications). Python being a programming language of course supports this out of the box via functions, so we can template (or parameterize) our specifications as we otherwise would.
 
 .. code-block:: python
 
