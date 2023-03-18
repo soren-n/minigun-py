@@ -1,2 +1,2 @@
-typeset-soren-n>=1.0.2
+typeset-soren-n>=1.0.7
 tqdm>=4.65.0
