@@ -1,5 +1,6 @@
 from setuptools import find_packages, setup, Command
 from pathlib import Path
+import subprocess
 import sys
 import os
 
@@ -13,7 +14,7 @@ OTHER_URL = {
 EMAIL = 'sorennorbaek@gmail.com'
 AUTHOR = 'Soren Norbaek'
 REQUIRES_PYTHON = '>=3.10.1'
-REQUIRED = ['tqdm']
+REQUIRED = ['tqdm', 'typeset-soren-n']
 
 # Define long description
 readme_path = Path('README.md')
@@ -24,33 +25,6 @@ with readme_path.open('r', encoding = 'utf-8') as readme_file:
 init_path = Path('minigun/__init__.py')
 with init_path.open('r', encoding = 'utf-8') as init_file:
     VERSION = init_file.readline().split(' = ')[1][1:-2]
-
-# Upload command
-class UploadCommand(Command):
-    description = 'Build and publish the package.'
-    user_options = []
-
-    @staticmethod
-    def status(s): print('\033[1m{0}\033[0m'.format(s))
-    def initialize_options(self): pass
-    def finalize_options(self): pass
-
-    def run(self):
-        self.status('Removing previous builds ...')
-        try: os.removedirs(Path('dist'))
-        except: pass
-
-        self.status('Building Source and Wheel (universal) distribution ...')
-        os.system('{0} setup.py sdist bdist_wheel --universal'.format(sys.executable))
-
-        self.status('Uploading the package to PyPI via Twine ...')
-        os.system('twine upload dist/*')
-
-        self.status('Pushing git tags ...')
-        os.system('git tag v{0}'.format(VERSION))
-        os.system('git push --tags')
-
-        sys.exit()
 
 setup(
     name = NAME,
@@ -76,8 +50,5 @@ setup(
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.10'
-    ],
-    cmdclass = {
-        'upload': UploadCommand
-    }
+    ]
 )
