@@ -1,8 +1,5 @@
-from setuptools import find_packages, setup, Command
+from setuptools import find_packages, setup
 from pathlib import Path
-import subprocess
-import sys
-import os
 
 # Project metadata
 NAME = 'minigun-soren-n'
