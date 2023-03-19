@@ -51,6 +51,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v3
         with:
+          name: wheel
           path: ./dist
 
       - name: Test the wheel
@@ -82,6 +83,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v3
         with:
+          name: wheel
           path: ./dist
 
       - name: Publish to test PyPI
@@ -105,6 +107,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v3
         with:
+          name: wheel
           path: ./dist
 
       - name: Publish to PyPI
