@@ -18,7 +18,7 @@ jobs:
           python-version: 3.x
 
       - name: Install dependencies
-        run: >-
+        run: |
           python -m pip install pip --upgrade
           python -m pip install wheel
 
@@ -44,7 +44,7 @@ jobs:
           python-version: 3.x
 
       - name: Install dependencies
-        run: >-
+        run: |
           python -m pip install pip --upgrade
           python -m pip install twine
 
@@ -55,7 +55,7 @@ jobs:
           path: ./dist
 
       - name: Test the wheel
-        run: >-
+        run: |
           python -m pip install ./dist/*.whl
           cd ..
           python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
@@ -99,7 +99,7 @@ jobs:
           python-version: 3.x
 
       - name: Install dependencies
-        run: >-
+        run: |
           python -m pip install pip --upgrade
           python -m pip install twine
 
@@ -110,7 +110,7 @@ jobs:
           path: ./dist
 
       - name: Test the sdist
-        run: >-
+        run: |
           python -m pip install dist/*.gz
           python -m pip install -r requirements.txt
           cd ..
@@ -132,7 +132,7 @@ jobs:
           python-version: 3.x
 
       - name: Install dependencies
-        run: >-
+        run: |
           python -m pip install pip --upgrade
           python -m pip install twine
 
@@ -150,7 +150,7 @@ jobs:
 
   publish:
     name: Publish version
-    if: >-
+    if: |
       github.repository == 'soren-n/minigun-py' &&
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v')
