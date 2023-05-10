@@ -2,6 +2,7 @@ from typing import TypeVar, Callable, Tuple, List, Dict
 
 from minigun.specify import Spec, prop, context, check, conj
 import minigun.domain as d
+import minigun.order as o
 
 # The testing strategy for minigun is to exercise the bundled domains.
 # This will cover the following four areas of testing for each domain:
@@ -274,7 +275,7 @@ def _pos_black_list_unique(xs : List[int]) -> bool:
     xs1 = set(xs)
     return len(xs1.difference(xs)) == 0
 
-@context(d.list(d.int(), ordered = True))
+@context(d.list(d.int(), ordered = o.int))
 @prop('Ordered list items are sorted')
 def _pos_black_list_sorted(xs : List[int]) -> bool:
     if len(xs) == 0: return True

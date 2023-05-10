@@ -3,10 +3,10 @@ import typeset as ts
 from typing import (
     get_origin,
     get_args,
-    Any,
     TypeVar,
     Callable,
     Tuple,
+    Any,
     List,
     Dict,
     Set
@@ -96,7 +96,7 @@ def str() -> Printer[_Str]:
 # Tuples
 ###############################################################################
 def tuple(
-    *printers : Printer[Any]
+    *printers: Printer[Any]
     ) -> Printer[Tuple[Any, ...]]:
     """Create a printer of tuples over given value printers of type `A`, `B`, etc.
 
@@ -107,13 +107,13 @@ def tuple(
     :rtype: `Printer[Tuple[A, B, ...]]`
     """
     def _printer(value):
-        def _wrap(body): return ts.parse('"(" <&> {0} <&> ")"', body)
+        def _wrap(body): return ts.parse('"(" & {0} & ")"', body)
         def _print(item): return item[0](item[1])
         if len(value) == 0: return ts.text('()')
         items = zip(printers, value)
         body = _print(next(items))
         for item in items:
-            body = ts.parse('{0} <!&> "," <+> {1}', body, _print(item))
+            body = ts.parse('{0} !& "," + {1}', body, _print(item))
         return _wrap(body)
     return _printer
 
@@ -121,7 +121,7 @@ def tuple(
 # Lists
 ###############################################################################
 def list(
-    printer : Printer[A]
+    printer: Printer[A]
     ) -> Printer[List[A]]:
     """Create a printer for lists over a given type `A`.
 
@@ -132,11 +132,11 @@ def list(
     :rtype: `Printer[List[A]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('"[" <&> {0} <&> "]"', body)
+        def _wrap(body): return ts.parse('"[" & {0} & "]"', body)
         if len(values) == 0: return ts.text('[]')
         body = printer(values[0])
         for value in values[1:]:
-            body = ts.parse('{0} <!&> "," <+> {1}', body, printer(value))
+            body = ts.parse('{0} !& "," + {1}', body, printer(value))
         return _wrap(body)
     return _printer
 
@@ -146,8 +146,8 @@ def list(
 K = TypeVar('K')
 V = TypeVar('V')
 def dict(
-    key_printer : Printer[K],
-    value_printer : Printer[V]
+    key_printer: Printer[K],
+    value_printer: Printer[V]
     ) -> Printer[Dict[K, V]]:
     """Create a printer for dicts over a given key type `K` and value type `V`.
 
@@ -160,10 +160,10 @@ def dict(
     :rtype: `Printer[Dict[K, V]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('"{" <&> {0} <&> "}"', body)
+        def _wrap(body): return ts.parse('"{" & {0} & "}"', body)
         def _item(item):
             return ts.parse(
-                '{0} <!+> ":" <!+> {1}',
+                '{0} !+ ":" !+ {1}',
                 key_printer(item[0]),
                 value_printer(item[1])
             )
@@ -171,7 +171,7 @@ def dict(
         items = values.items()
         body = _item(next(items))
         for item in items:
-            body = ts.parse('{0} <!&> "," <+> {1}', body, _item(item))
+            body = ts.parse('{0} !& "," + {1}', body, _item(item))
         return _wrap(body)
     return _printer
 
@@ -179,7 +179,7 @@ def dict(
 # Sets
 ###############################################################################
 def set(
-    printer : Printer[A]
+    printer: Printer[A]
     ) -> Printer[Set[A]]:
     """Create a printer for sets over a given type `A`.
 
@@ -190,12 +190,12 @@ def set(
     :rtype: `Printer[Set[A]]`
     """
     def _printer(values):
-        def _wrap(body): return ts.parse('"{" <&> {0} <&> "}"', body)
+        def _wrap(body): return ts.parse('"{" & {0} & "}"', body)
         if len(values) == 0: return ts.text('{}')
         items = list(values)
         body = printer(items[0])
         for item in items[1:]:
-            body = ts.parse('{0} <!&> "," <+> {1}', body, printer(item))
+            body = ts.parse('{0} !& "," + {1}', body, printer(item))
         return _wrap(body)
     return _printer
 
@@ -203,7 +203,7 @@ def set(
 # Maybe
 ###############################################################################
 def maybe(
-    printer : Printer[A]
+    printer: Printer[A]
     ) -> Printer[m.Maybe[A]]:
     """Create a printer of maybe over a given type `A`.
 
@@ -218,7 +218,7 @@ def maybe(
             case m.Nothing(): return ts.text('Nothing()')
             case m.Something(value):
                 return ts.parse(
-                    '"Something(" <&> {0} <&> ")"',
+                    '"Something(" & {0} & ")"',
                     printer(value)
                 )
     return _printer
@@ -226,7 +226,7 @@ def maybe(
 ###############################################################################
 # Infer a printer
 ###############################################################################
-def infer(T : type) -> m.Maybe[Printer[Any]]:
+def infer(T: type) -> m.Maybe[Printer[Any]]:
     """Infer a printer of type `T` for a given type `T`.
 
     :param T: A type to infer a printer of.
@@ -235,24 +235,28 @@ def infer(T : type) -> m.Maybe[Printer[Any]]:
     :return: A maybe of printer of type T.
     :rtype: `minigun.maybe.Maybe[Printer[T]]`
     """
-    def _tuple(T : type) -> m.Maybe[Printer[Any]]:
+    def _maybe(T: type) -> m.Maybe[Printer[Any]]:
+        item_printer = infer(get_args(T)[0])
+        if isinstance(item_printer, m.Nothing): return m.Nothing()
+        return m.Something(maybe(item_printer.value))
+    def _tuple(T: type) -> m.Maybe[Printer[Any]]:
         item_printers : List[Printer[Any]] = []
         for item_T in get_args(T):
             item_printer = infer(item_T)
             if isinstance(item_printer, m.Nothing): return m.Nothing()
             item_printers.append(item_printer.value)
         return m.Something(tuple(*item_printers))
-    def _list(T : type) -> m.Maybe[Printer[Any]]:
+    def _list(T: type) -> m.Maybe[Printer[Any]]:
         item_printer = infer(get_args(T)[0])
         if isinstance(item_printer, m.Nothing): return m.Nothing()
         return m.Something(list(item_printer.value))
-    def _dict(T : type) -> m.Maybe[Printer[Any]]:
+    def _dict(T: type) -> m.Maybe[Printer[Any]]:
         key_printer = infer(get_args(T)[0])
         if isinstance(key_printer, m.Nothing): return m.Nothing()
         value_printer = infer(get_args(T)[1])
         if isinstance(value_printer, m.Nothing): return m.Nothing()
         return m.Something(dict(key_printer.value, value_printer.value))
-    def _set(T : type) -> m.Maybe[Printer[Any]]:
+    def _set(T: type) -> m.Maybe[Printer[Any]]:
         item_printer = infer(get_args(T)[0])
         if isinstance(item_printer, m.Nothing): return m.Nothing()
         return m.Something(set(item_printer.value))
@@ -260,6 +264,7 @@ def infer(T : type) -> m.Maybe[Printer[Any]]:
     if T == _Int: return m.Something(int())
     if T == _Float: return m.Something(float())
     if T == _Str: return m.Something(str())
+    if m.is_maybe(T): return _maybe(T)
     origin = get_origin(T)
     if origin != None:
         if origin == _Tuple: return _tuple(T)

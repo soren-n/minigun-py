@@ -40,14 +40,14 @@ Q = ParamSpec('Q')
 # Find and trim counter examples
 ###############################################################################
 def _merge_args(
-    args : Dict[str, s.Dissection[Any]]
+    args: Dict[str, s.Dissection[Any]]
     ) -> s.Dissection[Dict[str, Any]]:
     params = list(args.keys())
     param_count = len(params)
     def _shrink_values(
-        index : int,
-        args : Dict[str, s.Dissection[Any]],
-        streams : Dict[str, fs.Stream[s.Dissection[Any]]]
+        index: int,
+        args: Dict[str, s.Dissection[Any]],
+        streams: Dict[str, fs.Stream[s.Dissection[Any]]]
         ) -> fs.StreamResult[s.Dissection[Dict[str, Any]]]:
         if index == param_count: raise StopIteration
         param = params[index]
@@ -62,15 +62,15 @@ def _merge_args(
             partial(_shrink_values, index, args, _streams),
             partial(_shrink_values, _index, args, streams)
         )
-    heads = { param : s.head(arg) for param, arg in args.items() }
-    tails = { param : s.tail(arg) for param, arg in args.items() }
+    heads = { param: s.head(arg) for param, arg in args.items() }
+    tails = { param: s.tail(arg) for param, arg in args.items() }
     return heads, partial(_shrink_values, 0, args, tails)
 
 def _trim_counter_example(
-    law : Callable[P, bool],
-    params : List[str],
-    printers : Dict[str, p.Printer[Any]],
-    example : Dict[str, s.Dissection[Any]]
+    law: Callable[P, bool],
+    params: List[str],
+    printers: Dict[str, p.Printer[Any]],
+    example: Dict[str, s.Dissection[Any]]
     ) -> ts.Layout:
 
     printer = p.tuple(*[
@@ -78,10 +78,13 @@ def _trim_counter_example(
         for param in params
     ])
 
-    def _is_counter_example(args : s.Dissection[Dict[str, Any]]) -> bool:
-        return not law(**s.head(args))
+    def _apply(*args: P.args, **kwargs: P.kwargs) -> bool:
+        return law(*args, **kwargs)
 
-    def _search(args : s.Dissection[Dict[str, Any]]) -> ts.Layout:
+    def _is_counter_example(args: s.Dissection[Dict[str, Any]]) -> bool:
+        return not _apply(**s.head(args))
+
+    def _search(args: s.Dissection[Dict[str, Any]]) -> ts.Layout:
         arg_values, arg_streams = args
         while True:
             match fs.peek(fs.filter(_is_counter_example, arg_streams)):
@@ -96,14 +99,18 @@ def _trim_counter_example(
     return _search(_merge_args(example))
 
 def _find_counter_example(
-    state : a.State,
-    desc : str,
-    count : int,
-    law : Callable[P, bool],
-    params : List[str],
-    generators : Dict[str, g.Generator[Any]],
-    printers : Dict[str, p.Printer[Any]]
+    state: a.State,
+    desc: str,
+    count: int,
+    law: Callable[P, bool],
+    params: List[str],
+    generators: Dict[str, g.Generator[Any]],
+    printers: Dict[str, p.Printer[Any]]
     ) -> Tuple[a.State, m.Maybe[ts.Layout]]:
+
+    def _apply(*args: P.args, **kwargs: P.kwargs) -> bool:
+        return law(*args, **kwargs)
+
     for _ in trange(
         count,
         desc = desc,
@@ -115,7 +122,7 @@ def _find_counter_example(
             state, arg = arg_generator(state)
             example[param] = arg
         _example = { param : s.head(arg) for param, arg in example.items() }
-        if law(**_example): continue
+        if _apply(**_example): continue
         return state, m.Something(_trim_counter_example(
             law, params, printers, example
         ))
@@ -133,11 +140,11 @@ class _Prop(Spec, Generic[P]):
     desc: str
     count: int
     law: Callable[P, bool]
-    params : List[str]
+    params: List[str]
     generators: Dict[str, m.Maybe[g.Generator[Any]]]
     printers: Dict[str, m.Maybe[p.Printer[Any]]]
 
-def prop(desc : str):
+def prop(desc: str):
     """Decorator for property specfications.
 
     :param desc: A description of the decorated law.
@@ -146,7 +153,7 @@ def prop(desc : str):
     :return: A property specification.
     :rtype: `Spec`
     """
-    def _decorate(law : Callable[P, bool]):
+    def _decorate(law: Callable[P, bool]):
 
         # Law type signature
         sig = signature(law)
@@ -157,8 +164,8 @@ def prop(desc : str):
         }
 
         # Try to infer generators
-        generators : Dict[str, m.Maybe[g.Generator[Any]]] = {}
-        printers : Dict[str, m.Maybe[p.Printer[Any]]] = {}
+        generators: Dict[str, m.Maybe[g.Generator[Any]]] = {}
+        printers: Dict[str, m.Maybe[p.Printer[Any]]] = {}
         for param in params:
             param_type = param_types[param]
             generators[param] = g.infer(param_type)
@@ -170,9 +177,9 @@ def prop(desc : str):
 
 @dataclass
 class _Neg(Spec):
-    spec : Spec
+    spec: Spec
 
-def neg(spec : Spec) -> Spec:
+def neg(spec: Spec) -> Spec:
     """A constructor for the negation of a specfication.
 
     :param spec: Term to be negated.
@@ -185,9 +192,9 @@ def neg(spec : Spec) -> Spec:
 
 @dataclass
 class _Conj(Spec):
-    specs : Tuple[Spec, ...]
+    specs: Tuple[Spec, ...]
 
-def conj(*specs : Spec) -> Spec:
+def conj(*specs: Spec) -> Spec:
     """A constructor for the conjunction of specfications.
 
     :param specs: Terms of the conjunction.
@@ -200,9 +207,9 @@ def conj(*specs : Spec) -> Spec:
 
 @dataclass
 class _Disj(Spec):
-    specs : Tuple[Spec, ...]
+    specs: Tuple[Spec, ...]
 
-def disj(*specs : Spec) -> Spec:
+def disj(*specs: Spec) -> Spec:
     """A constructor for the disjunction of specfications.
 
     :param specs: Terms of the disjunction.
@@ -215,10 +222,10 @@ def disj(*specs : Spec) -> Spec:
 
 @dataclass
 class _Impl(Spec):
-    premise : Spec
-    conclusion : Spec
+    premise: Spec
+    conclusion: Spec
 
-def impl(premise : Spec, conclusion : Spec) -> Spec:
+def impl(premise: Spec, conclusion: Spec) -> Spec:
     """A constructor for the implication of two specfications.
 
     :param premise: The premise of the implication.
@@ -234,7 +241,7 @@ def impl(premise : Spec, conclusion : Spec) -> Spec:
 ###############################################################################
 # Overwrite defaults or define generators and printers for law parameters
 ###############################################################################
-def context(*lparams : d.Domain[Any], **kparams : d.Domain[Any]):
+def context(*lparams: d.Domain[Any], **kparams: d.Domain[Any]):
     """A decorator for defining domains of a property's parameters.
 
     :param lparam: Domains of positional parameters.
@@ -245,7 +252,7 @@ def context(*lparams : d.Domain[Any], **kparams : d.Domain[Any]):
     :return: A property specification.
     :rtype: `Spec`
     """
-    def _decorate(spec : Spec) -> Spec:
+    def _decorate(spec: Spec) -> Spec:
         match spec:
             case _Prop(desc, count, law, params, generators, printers):
                 _result = _Prop(desc, count, law, params, generators, printers)
@@ -262,14 +269,14 @@ def context(*lparams : d.Domain[Any], **kparams : d.Domain[Any]):
 ###############################################################################
 # Directory fixtures
 ###############################################################################
-def temporary_path(dir_path : Optional[Path] = None) -> Path:
+def temporary_path(dir_path: Optional[Path] = None) -> Path:
     result = Path('.minigun', 'temporary', secrets.token_hex(15))
     if not result.parent.exists(): os.makedirs(result.parent)
     if dir_path and dir_path.exists(): shutil.copytree(dir_path, result)
     else: os.makedirs(result)
     return result
 
-def permanent_path(dir_path : Optional[Path] = None) -> Path:
+def permanent_path(dir_path: Optional[Path] = None) -> Path:
     result = Path('.minigun', 'permanent', secrets.token_hex(15))
     if not result.parent.exists(): os.makedirs(result.parent)
     if dir_path and dir_path.exists(): shutil.copytree(dir_path, result)
@@ -279,7 +286,7 @@ def permanent_path(dir_path : Optional[Path] = None) -> Path:
 ###############################################################################
 # Specification evaluation
 ###############################################################################
-def check(spec : Spec) -> bool:
+def check(spec: Spec) -> bool:
     """Check an interface against its specification.
 
     :param spec: The specification to test against.
@@ -289,13 +296,13 @@ def check(spec : Spec) -> bool:
     :rtype: `bool`
     """
     def _visit(
-        state : a.State,
-        spec : Spec,
-        neg : bool = False
+        state: a.State,
+        spec: Spec,
+        neg: bool = False
         ) -> Tuple[a.State, bool]:
         match spec:
             case _Prop(desc, count, law, params, generators, printers):
-                _generators : Dict[str, g.Generator[Any]] = {}
+                _generators: Dict[str, g.Generator[Any]] = {}
                 for param, maybe_generator in generators.items():
                     match maybe_generator:
                         case m.Nothing():
@@ -308,7 +315,7 @@ def check(spec : Spec) -> bool:
                             return state, False
                         case m.Something(generator):
                             _generators[param] = generator
-                _printers : Dict[str, p.Printer[Any]] = {}
+                _printers: Dict[str, p.Printer[Any]] = {}
                 for param, maybe_printer in printers.items():
                     match maybe_printer:
                         case m.Nothing():

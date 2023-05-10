@@ -1,73 +1,56 @@
 # External module dependencies
 from dataclasses import dataclass
 from typing import (
-    overload,
-    Any,
+    get_origin,
+    get_args,
     TypeVar,
     ParamSpec,
+    TypeAlias,
     Generic,
-    Union,
     Callable,
+    Union,
+    Any,
     List
 )
 
 ###############################################################################
 # Maybe
 ###############################################################################
-A = TypeVar('A')
-B = TypeVar('B')
-C = TypeVar('C')
-D = TypeVar('D')
-
+T = TypeVar('T')
 P = ParamSpec('P')
 R = TypeVar('R')
 
 @dataclass
-class Nothing:
+class Nothing(Generic[T]):
     """Maybe instance that has no value."""
 
 @dataclass
-class Something(Generic[A]):
+class Something(Generic[T]):
     """Maybe instance that has a value.
 
     :param value: A value to wrap with Something.
     :type value: `A`
     """
-    value : A
+    value: T
 
 #: Abstract datatype for optional values
-Maybe = Union[Nothing, Something[A]]
+Maybe: TypeAlias = (
+    Nothing[T] |
+    Something[T]
+)
 
-@overload
-def map(
-    func : Callable[[], R]
-    ) -> Maybe[R]: ...
-@overload
-def map(
-    func : Callable[[A], R],
-    a_maybe : Maybe[A]
-    ) -> Maybe[R]: ...
-@overload
-def map(
-    func : Callable[[A, B], R],
-    a_maybe : Maybe[A],
-    b_maybe : Maybe[B]
-    ) -> Maybe[R]: ...
-@overload
-def map(
-    func : Callable[[A, B, C], R],
-    a_maybe : Maybe[A],
-    b_maybe : Maybe[B],
-    c_maybe : Maybe[C]
-    ) -> Maybe[R]: ...
-@overload
-def map(
-    func : Callable[[A, B, C, D], R],
-    a_maybe : Maybe[A],
-    b_maybe : Maybe[B],
-    c_maybe : Maybe[C],
-    d_maybe : Maybe[D]
-    ) -> Maybe[R]: ...
+def is_maybe(T: type):
+    origin = get_origin(T)
+    if origin is None:
+        if T == Nothing: return True
+        return T == Something
+    if not (origin is Union): return False
+    args = get_args(T)
+    if len(args) != 2: return False
+    if not (get_origin(args[0]) is Nothing): return False
+    if not (get_origin(args[1]) is Something): return False
+    return True
+
 def map(
     func : Callable[P, R],
     *maybes : Maybe[Any]
@@ -77,14 +60,16 @@ def map(
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
     :type func: `A x B x ... -> R`
     :param maybes: Input maybes over types `A`, `B`, etc. to map from.
-    :type maybes: `Tuple[Maybe[A], Maybe[B], ...]`
+    :type maybes: `Tuple[Maybe[T], Maybe[B], ...]`
 
     :return: A mapped output domain.
     :rtype: `Maybe[R]`
     """
+    def _apply(*args: P.args, **kwargs: P.kwargs) -> R:
+        return func(*args, **kwargs)
     values : List[Any] = []
     for maybe in maybes:
         match maybe:
             case Nothing(): return Nothing()
             case Something(value): values.append(value)
-    return Something(func(*values))
+    return Something(_apply(*values))
