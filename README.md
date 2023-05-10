@@ -5,13 +5,6 @@
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/soren-n)](https://github.com/sponsors/soren-n)
 [![Documentation Status](https://readthedocs.org/projects/minigun/badge/?version=latest)](https://minigun.readthedocs.io/en/latest/?badge=latest)
 
-# Notice
-This project is WIP, but almost done!
-
-- [x] Implemtation
-- [x] Documentation
-- [ ] Dependencies
-
 # Minigun
 A QuickCheck-like library for property-based unit-testing of Python programs.
 
