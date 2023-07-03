@@ -10,7 +10,7 @@ If you would like a bit of motivation as to why you should use a QuickCheck-like
 
 .. note::
 
-    If you wish to learn more about the subject beyond this tutorial, I can recommend Jan Midtgaard's `lecture materials <https://janmidtgaard.dk/quickcheck/index.html>`_; it is OCaml based but translates easily to other QuickCheck-like libraries for other languages, such as Minigun.
+    If you wish to learn more about the subject beyond this tutorial, I can recommend Jan Midtgaard's `lecture materials <https://janmidtgaard.dk/quickcheck/index.html>`_. It is OCaml based but translates easily to other QuickCheck-like libraries for other languages, such as Minigun.
 
 Installation
 ------------
@@ -26,29 +26,31 @@ First an introduction and perspectivation to the concept and history of property
 
 Why do we want to test software?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-At first software testing might seem paradoxical; what is the implementation of a program, if not an expression of the intended functionality? Why should we write additional code to express the intended functionality; it seems like a duplicate effort?
+At first software testing might seem paradoxical; what is the implementation of a program, if not an expression of the intended functionality? Why should we write additional code to express the intended functionality, it seems like a duplicate effort?
 
-From the perspective of a software developer, the discipline of testing and verification forces us to abstract away the functionality of software from its implementation details; there might be many possible implementations of a piece of software, but there should only be one definition of its functionality.
+From the perspective of a programmer, the discipline of testing and verification forces us to abstract away the functionality of software from its implementation details. Meaning, there might be many possible implementations of a piece of software, but there should only be one definition of its functionality.
 
-E.g. when authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without loosing functionality.
+When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without loosing functionality.
+
+Additinally, having a testing strategy improves the maintainability of our projects long term; making it possible to make larger changes to the codebase: confidently upgrading dependencies, large scale refactoring and rewrites, or sometimes even migrating to another language or platform. It encodes the semantics of our projects; _what_ they are supposed to do, in contrast to _how_ they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
 
 The problems with unit-testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Traditionally we do software testing by writing unit-test suites by hand. Since it is not tractable to test all input-output cases of an interface (both to write them, but also to evaluate them), we instead break these cases into classes based on some defintion of similarity. We then find representatives of these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being regularized with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
+Traditionally we do software testing by writing unit-tests by hand. Since it is not tractable to test all input-output cases of a program (both to write them, but also to evaluate them), we instead break these cases into classes based on some defintion of similarity. We then find representatives within these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being regularized with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
 
-This leads us to the first problem with hand written unit-tests; an implementation randomly picked from the set of all possible implementations of an interface, would most likely not be regularized. As such, a representative passing testing should on average not give us much confidence in our implementation; e.i. hand written unit-tests gives a very shallow level of testing.
+This leads us to the first problem with hand written unit-tests; an implementation randomly picked from the set of all possible implementations of an interface, would most likely not be regularized. As such, a representative passing testing, should on average not give us much confidence in our implementations; i.e. hand written unit-tests gives a very shallow level of testing.
 
-The second problem with hand written unit-tests is that they become a ball and chain around the interfaces we are developing; it makes it difficult to refactor them (which we would often need to do during development) because we need to rewrite a lot of tests whenever we do. This incentivizes us to either try to define good interfaces and tests prior to implementation, a.k.a. waterfall, or to wait with testing altogether until we are much further with the development, again not agile.
+The second problem with hand written unit-tests is that they become a ball and chain around the interfaces of the programs we are developing; it makes it difficult to refactor them (which we would often need to do during development) because we need to rewrite a lot of unit-tests whenever we do. This incentivizes us to either try to define good interfaces and tests prior to implementation, a.k.a. waterfall, or to wait with testing altogether until we are much further with the development, again not agile.
 
 Property-based testing is the solution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-The solution to the first problem is to realize that the before mentioned test case classes simply are the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
+The solution to the first problem is to realize that the before mentioned test case classes simply _are_ the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
 
-Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assisant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most software engineers have, and often further programmers are not even aware this is a possibility.
+Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assisant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most programmers have, and often further, programmers are not even aware this is a possibility.
 
-Property-based testing serves as a practical approximation towards what we do in formal verification. The random selection of test cases means, that with each evaluation of our testing strategy, we grow more confident in our implementation as more cases are covered.
+Property-based testing serves as a practical approximation towards what we do in formal verification. The random selection of test cases means, that with each evaluation of our testing strategy, we grow more confident in our implementation as more cases are shown to be covered.
 
-Regarding the second problem, property-based testing does not definitvely solve it; it is not solveable, we can not avoid having to write *some* testing code. But property-based testing does alleviate the second problem, since we do end up writing *much less* testing code; as such refactoring it or entirely scrapping it is less painful.
+Regarding the second problem, property-based testing does not definitvely solve it; in general it is not solveable, we can not avoid having to write *some* testing code. But property-based testing does alleviate the second problem, since we do end up writing *much less* testing code; as such refactoring it or entirely scrapping it is less painful.
 
 QuickCheck
 ^^^^^^^^^^
@@ -63,7 +65,7 @@ Implementations of QuickCheck-like libraries are now available for all major and
 QuickCheck implements utility for working with the following three concepts:
 
 :Generation:
-    The library provides implementations of random instance generators for the intrinsic types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom domains from for user defined types.
+    The library provides implementations of random instance generators for the intrinsic types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom domains.
 
 :Shrinking:
     Since a randomly generated input instance can be quite large, and it is only a small or specific part of the input that is causing the failure, we work with the concept of shrinking. The failing input instance is interatively shrunk or trimmed, until a smallest possible failing instance is found. Again, the library provides implementations for shrinkers of the intrinsic types of the target language; as well as utility and combinators for user defined shrinkers.
@@ -84,7 +86,7 @@ Lets start with a simple example where we define a law for an interface interact
 
     @context(d.list(d.int()), d.list(d.int()))
     @prop('Length distributes over concatenation via addition')
-    def _list_len_concat_add_dist(xs : list[int], ys : list[int]):
+    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
         return len(xs + ys) == len(xs) + len(ys)
 
     if __name__ == '__main__':
@@ -128,8 +130,8 @@ At last there is the executable section, where the implementation is checked aga
     .. code-block:: python
 
         @prop('Length distributes over concatenation via addition')
-        def _list_len_concat_add_dist(xs : list[int], ys : list[int]):
-            return len(xs + ys) == len(xs) + len(ys
+        def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
+            return len(xs + ys) == len(xs) + len(ys)
 
 Composing specifications
 ------------------------
@@ -152,11 +154,11 @@ A simple example of how to use :code:`conj`, is to extend our example from earli
     import minigun.domain as d
 
     @prop('Length distributes over concatenation via addition')
-    def _list_len_concat_add_dist(xs : list[int], ys : list[int]):
+    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
         return len(xs + ys) == len(xs) + len(ys)
 
     @prop('Reverse distributes over concatenation')
-    def _list_rev_concat_dist(xs : list[int], ys : list[int]):
+    def _list_rev_concat_dist(xs: list[int], ys: list[int]):
         return (
             list(reversed(xs + ys)) ==
             list(reversed(ys)) + list(reversed(xs))
@@ -187,34 +189,34 @@ To do this with Minigun you can use the technique of template specifications (we
     S = TypeVar('S')
     A = TypeVar('A')
     def _stack(
-        item_sampler : d.Domain[A],
-        stack_sampler : d.Domain[S],
-        initial : S,
-        length : Callable[[S], int],
-        push : Callable[[S, A], S],
-        pop : Callable[[S], tuple[A, S]]
+        item_sampler: d.Domain[A],
+        stack_sampler: d.Domain[S],
+        initial: S,
+        length: Callable[[S], int],
+        push: Callable[[S, A], S],
+        pop: Callable[[S], tuple[A, S]]
         ):
 
         @context(d.constant(initial))
         @prop('Initial stack is empty')
-        def _initial_empty(s : S):
+        def _initial_empty(s: S):
             return length(s) == 0
 
         @context(stack_sampler, item_sampler)
         @prop('Stack push increments size')
-        def _push_inc(s : S, a : A):
+        def _push_inc(s: S, a: A):
             return length(push(s, a)) == length(s) + 1
 
         @context(stack_sampler)
         @prop('Stack pop decrements size')
-        def _pop_dec(s : S):
+        def _pop_dec(s: S):
             if length(s) == 0: return True
             _, s1 = pop(s)
             return length(s) == length(s1) - 1
 
         @context(stack_sampler, item_sampler)
         @prop('Stack push and pop are inverse')
-        def _push_pop_inv(s : S, a : A):
+        def _push_pop_inv(s: S, a: A):
             b, t = pop(push(s, a))
             return a == b and s == t
 
@@ -226,12 +228,12 @@ To do this with Minigun you can use the technique of template specifications (we
         )
 
     # An implementation of an immutable stack of integers
-    def _push(xs : list[A], x : A) -> list[A]:
+    def _push(xs: list[A], x: A) -> list[A]:
         xs1 = xs.copy()
         xs1.append(x)
         return xs1
 
-    def _pop(xs : list[A]) -> tuple[A, list[A]]:
+    def _pop(xs: list[A]) -> tuple[A, list[A]]:
         xs1 = xs.copy()
         x = xs1.pop(-1)
         return x, xs1
@@ -252,7 +254,7 @@ What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code
 The above example is a naive and shallow specification for immutable stacks; it does not capture more complex interactions with the stack interface; and therefore does not challenge the implementation very deeply. A more complete specification would be to model programs over the stack interface; i.e. arbitrary sequences of applications of :code:`push` and :code:`pop`.
 
 .. note::
-    For Python implementations you generally do not need to go any deeper that the above example does (in the author's experience). It is mostly for native languages where you have to deal with concepts such as under- and over flows, and generally have more administrative implementation details to get right. But if you want to be more complete in your specifications, and want to go deeper, please checkout the section about Modeling.
+    For Python implementations you generally do not need to go any deeper that the above example does (in the author's experience). It is mostly for lower level languages where you have to deal with concepts such as under- and over flows, and generally have more administrative implementation details to get right regarding resource management. But if you want to be more complete in your specifications, and want to go deeper, please checkout the section about Modeling.
 
 Refining domains
 ----------------
@@ -269,7 +271,7 @@ As our first example, lets consider samplers for even and odd natural numbers, b
     import minigun.pretty as p
 
     def even_natural() -> d.Domain[int]:
-        def _impl(i : int) -> int:
+        def _impl(i: int) -> int:
             return i * 2
         return d.Domain(
             g.map(_impl, g.nat()),
@@ -277,7 +279,7 @@ As our first example, lets consider samplers for even and odd natural numbers, b
         )
 
     def odd_natural() -> d.Domain[int]:
-        def _impl(i : int) -> int:
+        def _impl(i: int) -> int:
             return ((i + 1) * 2) - 1
         return d.Domain(
             g.map(_impl, g.nat()),
@@ -292,12 +294,12 @@ To use our new samplers, we would instantiate them the same as we would other do
 
     @context(even_natural())
     @prop('Even natural numbers are even')
-    def _even_is_even(n : int):
+    def _even_is_even(n: int):
         return n % 2 == 0
 
     @context(odd_natural())
     @prop('Odd natural numbers are odd')
-    def _odd_is_odd(n : int):
+    def _odd_is_odd(n: int):
         return n % 2 == 1
 
 Bind
@@ -322,7 +324,7 @@ To generate valid instances we need to define a refined domain:
     import networkx as nx
     import typeset as ts
 
-    def graph_printer(data : Dict[int, List[int]]) -> ts.Layout:
+    def graph_printer(data: Dict[int, List[int]]) -> ts.Layout:
         graph = nx.Graph()
         graph.add_nodes_from(data.keys())
         for src, edges in data.items():
@@ -332,11 +334,11 @@ To generate valid instances we need to define a refined domain:
         plt.savefig(artifact_path)
         return ts.text(str(artifact_path))
 
-    def sized_directed_graph(size : int) -> d.Domain[Dict[int, List[int]]]:
+    def sized_directed_graph(size: int) -> d.Domain[Dict[int, List[int]]]:
         def _impl(
-            graph_data : List[List[bool]]
+            graph_data: List[List[bool]]
             ) -> Dict[int, List[int]]:
-            result : Dict[int, List[int]] = {}
+            result: Dict[int, List[int]] = {}
             for src_index, row_data in enumerate(graph_data):
                 result[src_index] = []
                 for dst_index, column_data in enumerate(row_data):
@@ -407,13 +409,13 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
     import typeset as ts
 
     def arith_printer() -> p.Printer[Arith]:
-        def _pass(layout : ts.Layout) -> ts.Layout:
+        def _pass(layout: ts.Layout) -> ts.Layout:
             return layout
-        def _group(layout : ts.Layout) -> ts.Layout:
+        def _group(layout: ts.Layout) -> ts.Layout:
             return ts.grp(ts.parse('"(" <!&> {0} <!&> ")"', layout))
         def _visit(
-            wrap : Callable[[ts.Layout], ts.Layout],
-            arith : Arith
+            wrap: Callable[[ts.Layout], ts.Layout],
+            arith: Arith
             ) -> ts.Layout:
             match arith:
                 case Number(value): return ts.text(str(value))
@@ -443,10 +445,10 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
                     ))
         return partial(_visit, _pass)
 
-    def sized_arith(size : int) -> d.Domain[Arith]:
+    def sized_arith(size: int) -> d.Domain[Arith]:
         assert 0 <= size
 
-        def _arith_generator(size : int) -> g.Generator[Arith]:
+        def _arith_generator(size: int) -> g.Generator[Arith]:
             if size == 0: return g.map(Number, g.int())
             _size = size // 2
             _sub_arith = _arith_generator(_size)
@@ -496,10 +498,10 @@ You will not be able to compose domains for all datatypes using the combinators 
     import minigun.domain as d
     import typeset as ts
 
-    def your_shrinker(instance : YourType) -> s.Dissection[YourType]:
-        def your_trimmer_1(instance : YourType) -> fs.Stream[YourType]:
+    def your_shrinker(instance: YourType) -> s.Dissection[YourType]:
+        def your_trimmer_1(instance: YourType) -> fs.Stream[YourType]:
             ...
-        def your_trimmer_2(instance : YourType) -> fs.Stream[YourType]:
+        def your_trimmer_2(instance: YourType) -> fs.Stream[YourType]:
             ...
         return s.unfold(
             instance,
@@ -509,11 +511,11 @@ You will not be able to compose domains for all datatypes using the combinators 
             your_trimmer_N
         )
 
-    def your_generator(state : a.State) -> g.Sample[YourType]:
+    def your_generator(state: a.State) -> g.Sample[YourType]:
         state, instance = ...
         return state, your_shrinker(instance)
 
-    def your_printer(instance : YourType) -> ts.Layout:
+    def your_printer(instance: YourType) -> ts.Layout:
         ...
 
     def your_domain() -> d.Domain[YourType]:
@@ -561,12 +563,12 @@ Let us consider the modeling of the stack example from earlier:
     def model_init() -> StackModel[T]:
         return []
 
-    def model_push(stack : StackModel[T], item : T) -> StackModel[T]:
+    def model_push(stack: StackModel[T], item: T) -> StackModel[T]:
         result = stack.copy()
         result.append(item)
         return result
 
-    def model_pop(stack : StackModel[T]) -> Tuple[StackModel[T], T]:
+    def model_pop(stack: StackModel[T]) -> Tuple[StackModel[T], T]:
         result = stack.copy()
         item = result.pop(-1)
         return result, item
@@ -577,11 +579,11 @@ Let us consider the modeling of the stack example from earlier:
 
     @dataclass
     class Constant(Value[T]):
-        value : T
+        value: T
 
     @dataclass
     class Variable(Value[T]):
-        name : str
+        name: str
 
     @dataclass
     class StackOp(Generic[T]): pass
@@ -605,13 +607,13 @@ Let us consider the modeling of the stack example from earlier:
     StackProg = List[StackOp[T]]
 
     def stack_prog_printer(
-        value_printer : p.Printer[T]
+        value_printer: p.Printer[T]
         ) -> p.Printer[StackProg[T]]:
-        def _visit_value(value : Value[T]) -> ts.Layout:
+        def _visit_value(value: Value[T]) -> ts.Layout:
             match value:
                 case Constant(value): return value_printer(value)
                 case Variable(name): return ts.text(name)
-        def _visit_op(op : StackOp[T]) -> ts.Layout:
+        def _visit_op(op: StackOp[T]) -> ts.Layout:
             match op:
                 case InitOp(after):
                     return ts.parse(
@@ -634,7 +636,7 @@ Let us consider the modeling of the stack example from earlier:
                         ts.text(item),
                         ts.text(before)
                     )
-        def _visit_prog(prog : StackProg[T]) -> ts.Layout:
+        def _visit_prog(prog: StackProg[T]) -> ts.Layout:
             match prog:
                 case []: return ts.null()
                 case [op, *prog1]:
@@ -646,30 +648,30 @@ Let us consider the modeling of the stack example from earlier:
         return _visit_prog
 
     def stack_prog_generator(
-        value_generator : g.Generator[T],
-        size : int
+        value_generator: g.Generator[T],
+        size: int
         ) -> g.Generator[StackProg[T]]:
-        def _trim(prog : StackProg[T]) -> fs.Stream[StackProg[T]]:
+        def _trim(prog: StackProg[T]) -> fs.Stream[StackProg[T]]:
             ...
-        def _visit(size : int, state : a.State) -> Tuple[a.State, StackProg[T]]:
+        def _visit(size: int, state: a.State) -> Tuple[a.State, StackProg[T]]:
             ...
-        def _impl(size : int, state : a.State) -> g.Sample[StackProg[T]]:
+        def _impl(size: int, state: a.State) -> g.Sample[StackProg[T]]:
             state, result = _visit(size, size)
             return state, s.unary(_trim, result)
         return _impl
 
     def sized_stack_prog(
-        value_domain : d.Domain[T],
-        size : int
+        value_domain: d.Domain[T],
+        size: int
         ) -> d.Domain[StackProg[T]]:
 
-        def _pop_op(size : int) -> g.Generator[StackProg[T]]:
+        def _pop_op(size: int) -> g.Generator[StackProg[T]]:
             def _cont(
                 prog :
                 ):
                 return prog + [ PopOp() ]
 
-        def _visit(size : int) -> g.Generator[StackProg[T]]:
+        def _visit(size: int) -> g.Generator[StackProg[T]]:
             if size <= 0: return _init_op()
             _size = size - 1
             return d.choice(
@@ -682,15 +684,15 @@ Let us consider the modeling of the stack example from earlier:
             stack_prog_printer(value_domain.print)
         )
 
-    def stack_prog(sampler : d.Domain[T]) -> d.Domain[StackProg[T]]:
+    def stack_prog(sampler: d.Domain[T]) -> d.Domain[StackProg[T]]:
         return d.bind(partial(sized_stack_prog, sampler), d.small_nat())
 
     # The evaluator
     def evaluator_stack_prog(
-        init : StackInit[T],
-        push : StackPush[T],
-        pop : StackPop[T],
-        prog : StackProg[T]
+        init: StackInit[T],
+        push: StackPush[T],
+        pop: StackPop[T],
+        prog: StackProg[T]
         ) -> bool:
         ...
 
@@ -707,7 +709,7 @@ Let us end this tutorial with a brief summary of what we covered:
 
 * Why we want to do testing, and what the problems are.
 * What property-based testing is, and what problems it solves.
-* QuickCheck is an API for property-based testing, and Minigun is an implementation of it.
+* QuickCheck is an conceptual framework for property-based testing, and Minigun is an implementation of it.
 * Learned how to define basic specifications.
 * Learned how to compose specifications.
 * Learned how to abstract over specifications.
