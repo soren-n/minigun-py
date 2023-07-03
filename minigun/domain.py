@@ -229,7 +229,6 @@ def bounded_list(
     lower_bound: _Int,
     upper_bound: _Int,
     domain: Domain[T],
-    unique: _Bool = False,
     ordered: Optional[o.Order[T]] = None
     ) -> Domain[List[T]]:
     """A domain for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
@@ -240,8 +239,6 @@ def bounded_list(
     :type upper_bound: `int`
     :param domain: A value domain from which list items are samples.
     :type domain: `Domain[T]`
-    :param unique: Flag for whether items of sampled lists should be unique.
-    :type unique: `bool` (default: `False`)
     :param ordering: Flag for whether items of sampled lists should be ordered.
     :type ordering: `bool` (default: `False`)
 
@@ -253,7 +250,6 @@ def bounded_list(
             lower_bound,
             upper_bound,
             domain.generate,
-            unique,
             ordered
         ),
         p.list(domain.print)
@@ -261,15 +257,12 @@ def bounded_list(
 
 def list(
     domain: Domain[T],
-    unique: _Bool = False,
     ordered: Optional[o.Order[T]] = None
     ) -> Domain[List[T]]:
     """A domain for lists over a given type `T`.
 
     :param domain: A value domain from which list items are samples.
     :type domain: `Domain[T]`
-    :param unique: Flag for whether items of sampled lists should be unique.
-    :type unique: `bool` (default: `False`)
     :param ordering: Flag for whether items of sampled lists should be ordered`.
     :type ordering: `bool` (default: `False`)
 
@@ -279,7 +272,6 @@ def list(
     return Domain(
         g.list(
             domain.generate,
-            unique,
             ordered
         ),
         p.list(domain.print)

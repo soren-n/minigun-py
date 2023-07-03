@@ -1,6 +1,5 @@
 # External module dependencies
 from typing import (
-    cast,
     get_origin,
     get_args,
     TypeVar,
@@ -393,7 +392,6 @@ def bounded_list(
     lower_bound: _Int,
     upper_bound: _Int,
     generator: Generator[T],
-    unique: _Bool = False,
     ordered: Optional[o.Order[T]] = None
     ) -> Generator[List[T]]:
     """A generator for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
@@ -404,8 +402,6 @@ def bounded_list(
     :type upper_bound: `int`
     :param generator: A value generator from which list items are sampled.
     :type generator: `Generator[T]`
-    :param unique: Flag for whether items of sampled lists should be unique.
-    :type unique: `bool` (default: `False`)
     :param ordering: Flag for whether items of sampled lists should be ordered.
     :type ordering: `bool` (default: `False`)
 
@@ -443,7 +439,6 @@ def bounded_list(
     def _dist(dissections: List[s.Dissection[T]]) -> s.Dissection[List[T]]:
         heads = [ s.head(dissection) for dissection in dissections ]
         tails = [ s.tail(dissection) for dissection in dissections ]
-        if unique: heads = _List(_Set(heads))
         if ordered: heads = o.sort(ordered, heads)
         return heads, fs.concat(
             partial(_shrink_length, 0, dissections),
@@ -460,15 +455,12 @@ def bounded_list(
 
 def list(
     generator: Generator[T],
-    unique: _Bool = False,
     ordered: Optional[o.Order[T]] = None
     ) -> Generator[List[T]]:
     """A generator for lists over a given type `T`.
 
     :param generator: A value generator from which list items are sampled.
     :type generator: `Generator[T]`
-    :param unique: Flag for whether items of sampled lists should be unique.
-    :type unique: `bool` (default: `False`)
     :param ordering: Flag for whether items of sampled lists should be ordered`.
     :type ordering: `bool` (default: `False`)
 
@@ -476,20 +468,17 @@ def list(
     :rtype: `Generator[List[T]]`
     """
     def _impl(upper_bound: _Int) -> Generator[List[T]]:
-        return bounded_list(0, upper_bound, generator, unique, ordered)
+        return bounded_list(0, upper_bound, generator, ordered)
     return bind(_impl, small_nat())
 
 def map_list(
     generators: _List[Generator[T]],
-    unique: _Bool = False,
     ordered: Optional[o.Order[T]] = None
     ) -> Generator[_List[T]]:
     """Composes lists of generators over a given type `T`, resulting in a generator of lists over the given type `T`.
 
     :param generators: A list of value generators from which value lists are sampled.
     :type generators: `List[Generator[T]]`
-    :param unique: Flag for whether items of sampled lists should be unique.
-    :type unique: `bool` (default: `False`)
     :param ordering: Flag for whether items of sampled lists should be ordered`.
     :type ordering: `bool` (default: `False`)
 
@@ -498,10 +487,30 @@ def map_list(
     """
     def _compose(*values: T) -> _List[T]:
         result = _List(values)
-        if unique: result = _List(_Set(result))
         if ordered: result = o.sort(ordered, result)
         return result
     return map(_compose, *generators)
+
+def list_append(
+    items_gen: Generator[_List[T]],
+    item_gen: Generator[T]
+    ) -> Generator[_List[T]]:
+    """Compose a lists generator over type `T` with a value generator of
+    type `T`, resulting in a list generator over the given type `T`, where a value has been sampled from the later generator and guaranteed to have been appended to output sampled lists.
+
+    :param items_gen: A generator from which lists are sampled.
+    :type items_gen: `Generator[List[T]]`
+    :param item_gen: A generator from which values are sampled.
+    :type item_gen: `Generator[T]`
+
+    :return: A generator of lists over type `T`.
+    :rtype: `Generator[List[T]]`
+    """
+    def _append(items: _List[T], item: T) -> _List[T]:
+        result = items.copy()
+        result.append(item)
+        return result
+    return map(_append, items_gen, item_gen)
 
 ###############################################################################
 # Dictionary
@@ -644,6 +653,29 @@ def map_dict(
         }
     return map(_compose, *[ generators[key] for key in keys ])
 
+def dict_insert(
+    kvs_gen: Generator[_Dict[K, V]],
+    key_gen: Generator[K],
+    value_gen: Generator[V]
+    ) -> Generator[_Dict[K, V]]:
+    """Compose a dict generator over types `K` and `V` with a key generator of the given type `K` and a value generator of the given type `V`, resulting in a generator of dicts over the types `K` and `V`, where a key and value has been sampled from the later generators and guaranteed to have been inserted into the output sampled dicts.
+
+    :param kvs_gen: A generator from which dicts are sampled.
+    :type kvs_gen: `Generator[Dict[K, V]]`
+    :param key_gen: A generator from which keys are sampled.
+    :type key_gen: `Generator[K]`
+    :param value_gen: A generator from which values are sampled.
+    :type value_gen: `Generator[V]`
+
+    :return: A generator of dicts over types `K` and `V`.
+    :rtype: `Generator[Dict[K, V]]`
+    """
+    def _insert(kvs: _Dict[K, V], key: K, value: V) -> _Dict[K, V]:
+        result = kvs.copy()
+        result[key] = value
+        return result
+    return map(_insert, kvs_gen, key_gen, value_gen)
+
 ###############################################################################
 # Sets
 ###############################################################################
@@ -717,7 +749,7 @@ def set(generator: Generator[T]) -> Generator[Set[T]]:
     :return: A generator of sets over type `T`.
     :rtype: `Generator[Set[T]]`
     """
-    def _impl(upper_bound : _Int) -> Generator[Set[T]]:
+    def _impl(upper_bound: _Int) -> Generator[Set[T]]:
         return bounded_set(0, upper_bound, generator)
     return bind(_impl, small_nat())
 
@@ -733,6 +765,26 @@ def map_set(
     :rtype: `Generator[Set[T]]`
     """
     return map(lambda values: _Set(_List(values)), *generators)
+
+def set_add(
+    items_gen: Generator[_Set[T]],
+    item_gen: Generator[T]
+    ) -> Generator[_Set[T]]:
+    """Compose a set generator over a type `T` with a value generator of type `T`, resulting in a generator of sets over the given type `T`, where a value has been sampled from the later generator and guaranteed to have been added to the output sampled sets.
+
+    :param items_gen: A generator from which sets are sampled.
+    :type items_gen: `Generator[Set[T]]`
+    :param item_gen: A generator from which values are sampled.
+    :type item_gen: `Generator[T]`
+
+    :return: A generator of output sets over type `T`.
+    :rtype: `Generator[Set[T]]`
+    """
+    def _add(items: _Set[T], item: T) -> _Set[T]:
+        result = items.copy()
+        result.add(item)
+        return result
+    return map(_add, items_gen, item_gen)
 
 ###############################################################################
 # Maybe
@@ -761,7 +813,7 @@ def maybe(
     return _impl
 
 ###############################################################################
-# Combinators
+# Choice combinators
 ###############################################################################
 def choice(*generators: Generator[T]) -> Generator[T]:
     """A generator of a type `T` composed of other generators of type `T`.
@@ -804,7 +856,24 @@ def one_of(
     :rtype: `Generator[T]`
     """
     def _select(index: _Int) -> T: return values[index]
-    return map(_select, int_range(0, len(values)))
+    return map(_select, int_range(0, len(values) - 1))
+
+def subset_of(
+    values: Set[T]
+    ) -> Generator[Set[T]]:
+    """A generator of a type `T` defined over a list of `T`, which will select a subset of the values of given set when sampled.
+
+    :param values: A set of values of type `T`.
+    :type values: `Set[T]`
+
+    :return: A set generator of type `T`.
+    :rtype: `Generator[Set[T]]`
+    """
+    _values = _List(values)
+    def _select(indices: Set[_Int]) -> Set[T]:
+        return _Set([ _values[index] for index in indices ])
+    count = len(_values)
+    return map(_select, bounded_set(0, count, int_range(0, count - 1)))
 
 ###############################################################################
 # Infer a generator

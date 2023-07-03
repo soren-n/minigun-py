@@ -71,7 +71,7 @@ QuickCheck implements utility for working with the following three concepts:
     Since a randomly generated input instance can be quite large, and it is only a small or specific part of the input that is causing the failure, we work with the concept of shrinking. The failing input instance is interatively shrunk or trimmed, until a smallest possible failing instance is found. Again, the library provides implementations for shrinkers of the intrinsic types of the target language; as well as utility and combinators for user defined shrinkers.
 
 :Printing:
-    Once a smallest failing input instance is found, we wish to be able to print it out in a user friendly way. For this the library provides pretty printers for intrinsic types of the target languages; as well as utility and combinators for user to defined pretty printers.
+    Once a smallest failing input instance is found, we wish to be able to print it out in a user friendly way. For this the library provides pretty printers for intrinsic types of the target languages; as well as utility and combinators for user defined pretty printers.
 
 These three concepts put together is usually called a strategy; in Minigun it is called a :code:`Domain[A]`, and the generation and shrinking is joined under one type of :code:`Generator[A]`.
 
@@ -189,8 +189,8 @@ To do this with Minigun you can use the technique of template specifications (we
     S = TypeVar('S')
     A = TypeVar('A')
     def _stack(
-        item_sampler: d.Domain[A],
-        stack_sampler: d.Domain[S],
+        item_domain: d.Domain[A],
+        stack_domain: d.Domain[S],
         initial: S,
         length: Callable[[S], int],
         push: Callable[[S, A], S],
@@ -202,19 +202,19 @@ To do this with Minigun you can use the technique of template specifications (we
         def _initial_empty(s: S):
             return length(s) == 0
 
-        @context(stack_sampler, item_sampler)
+        @context(stack_domain, item_domain)
         @prop('Stack push increments size')
         def _push_inc(s: S, a: A):
             return length(push(s, a)) == length(s) + 1
 
-        @context(stack_sampler)
+        @context(stack_domain)
         @prop('Stack pop decrements size')
         def _pop_dec(s: S):
             if length(s) == 0: return True
             _, s1 = pop(s)
             return length(s) == length(s1) - 1
 
-        @context(stack_sampler, item_sampler)
+        @context(stack_domain, item_domain)
         @prop('Stack push and pop are inverse')
         def _push_pop_inv(s: S, a: A):
             b, t = pop(push(s, a))
@@ -698,7 +698,7 @@ Let us consider the modeling of the stack example from earlier:
 
 .. tip::
 
-    If you would like to see an example of modeling in the real world, I would again like to plug Typeset (one of my other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Python implementation of this project.
+    If you would like to see an example of modeling in the real world, I would like to plug Typeset again (one of my other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Rust+Python implementation of this project.
 
     `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
 
@@ -709,7 +709,7 @@ Let us end this tutorial with a brief summary of what we covered:
 
 * Why we want to do testing, and what the problems are.
 * What property-based testing is, and what problems it solves.
-* QuickCheck is an conceptual framework for property-based testing, and Minigun is an implementation of it.
+* QuickCheck is a conceptual framework for property-based testing, and Minigun is an instantiation of it.
 * Learned how to define basic specifications.
 * Learned how to compose specifications.
 * Learned how to abstract over specifications.

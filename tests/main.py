@@ -269,12 +269,6 @@ def _pos_black_list_concat_length_add_dist(
     ) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
 
-@context(d.list(d.int(), unique = True))
-@prop('Unique list have no duplicate items')
-def _pos_black_list_unique(xs : List[int]) -> bool:
-    xs1 = set(xs)
-    return len(xs1.difference(xs)) == 0
-
 @context(d.list(d.int(), ordered = o.int))
 @prop('Ordered list items are sorted')
 def _pos_black_list_sorted(xs : List[int]) -> bool:
@@ -354,7 +348,6 @@ if __name__ == '__main__':
         _pos_black_list_remove_identity,
         _pos_black_list_remove_length_identity,
         _pos_black_list_concat_length_add_dist,
-        _pos_black_list_unique,
         _pos_black_list_sorted,
         _pos_black_dict_insert_identity,
         _pos_black_dict_remove_identity,

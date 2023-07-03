@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Tuple
 )
+from functools import partial
 import math
 
 # Internal module dependencies
@@ -20,6 +21,7 @@ _Bool = bool
 _Int = int
 _Float = float
 _Str = str
+_Map = map
 
 ###############################################################################
 # Shrink state
@@ -72,11 +74,32 @@ def map(
     """
     def _apply(*args: P.args, **kwargs: P.kwargs) -> R:
         return func(*args, **kwargs)
-    def _map(*dissections: Dissection[Any]) -> Dissection[R]:
-        return map(func, *dissections)
-    heads = [ head(dissection) for dissection in dissections ]
-    tails = [ tail(dissection) for dissection in dissections ]
-    return _apply(*heads), fs.map(_map, *tails)
+    def _combine(
+        input_dissections: list[Dissection[Any]]
+        ) -> Dissection[R]:
+        output_heads = [ head(dissection) for dissection in input_dissections ]
+        return _apply(*output_heads), _cartesian(input_dissections)
+    def _cartesian(
+        input_dissections: list[Dissection[Any]]
+        ) -> fs.Stream[Dissection[R]]:
+        past = len(input_dissections)
+        tails = [ tail(dissection) for dissection in input_dissections ]
+        def _shift_horizontal(
+            index: _Int
+            ) -> fs.Stream[Dissection[R]]:
+            if past <= index: return fs.empty()
+            def _shift_vertical(
+                next_dissection: Dissection[Any]
+                ) -> Dissection[R]:
+                next_dissections = input_dissections.copy()
+                next_dissections[index] = next_dissection
+                return _combine(next_dissections)
+            return fs.braid(
+                fs.map(_shift_vertical, tails[index]),
+                _shift_horizontal(index + 1)
+            )
+        return _shift_horizontal(0)
+    return _combine(list(dissections))
 
 def bind(
     func: Callable[P, Dissection[R]],
@@ -94,15 +117,35 @@ def bind(
     """
     def _apply(*args: P.args, **kwargs: P.kwargs) -> Dissection[R]:
         return func(*args, **kwargs)
-    def _bind(*dissections: Dissection[Any]) -> Dissection[R]:
-        return bind(func, *dissections)
-    heads = [ head(dissection) for dissection in dissections ]
-    tails = [ tail(dissection) for dissection in dissections ]
-    result_head, result_tail = _apply(*heads)
-    return result_head, fs.concat(
-        fs.map(_bind, *tails),
-        result_tail
-    )
+    def _combine(
+        input_dissections: list[Dissection[Any]]
+        ) -> Dissection[R]:
+        output_heads = [ head(dissection) for dissection in input_dissections ]
+        output_head, output_tail = _apply(*output_heads)
+        return output_head, fs.concat(
+            output_tail, _cartesian(input_dissections)
+        )
+    def _cartesian(
+        input_dissections: list[Dissection[Any]]
+        ) -> fs.Stream[Dissection[R]]:
+        past = len(input_dissections)
+        tails = [ tail(dissection) for dissection in input_dissections ]
+        def _shift_horizontal(
+            index: _Int
+            ) -> fs.Stream[Dissection[R]]:
+            if past <= index: return fs.empty()
+            def _shift_vertical(
+                next_dissection: Dissection[Any]
+                ) -> Dissection[R]:
+                next_dissections = input_dissections.copy()
+                next_dissections[index] = next_dissection
+                return _combine(next_dissections)
+            return fs.braid(
+                fs.map(_shift_vertical, tails[index]),
+                _shift_horizontal(index + 1)
+            )
+        return _shift_horizontal(0)
+    return _combine(list(dissections))
 
 def concat(
     left: Dissection[T],
@@ -181,10 +224,22 @@ def unfold(
     :return: A dissection of trimmed interations over the given value.
     :rtype: `Dissection[T]`
     """
-    if len(trimmers) == 0:
-        return value, cast(fs.Stream[Dissection[T]], fs.empty())
-    trim, remain = trimmers[-1], trimmers[:-1]
-    return value, fs.map(lambda value: unfold(value, *remain), trim(value))
+    _trimmers: list[Trimmer[T]] = list(trimmers)
+    dissections: list[Dissection[T]] = list()
+    for index, trimmer in enumerate(trimmers):
+        other_timmers = _trimmers[:index] + _trimmers[index+1:]
+        maybe_shrunk, shrunk_stream = fs.next(trimmer(value))
+        match maybe_shrunk:
+            case m.Nothing(): continue
+            case m.Something(shrunk):
+                dissections.append((shrunk, fs.map(
+                    lambda shrunk_more: unfold(
+                        shrunk_more,
+                        *other_timmers
+                    ),
+                    shrunk_stream
+                )))
+    return value, fs.from_list(dissections)
 
 ###############################################################################
 # Booleans

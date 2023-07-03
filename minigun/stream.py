@@ -1,4 +1,5 @@
 # External module dependencies
+from functools import partial
 from typing import (
     cast,
     Any,
@@ -93,11 +94,14 @@ def map(
         return _apply(*next_values), map(func, *next_streams)
     return _thunk
 
-def filter(pred : Callable[[T], bool], stream : Stream[T]) -> Stream[T]:
+def filter(
+    predicate: Callable[[T], bool],
+    stream: Stream[T]
+    ) -> Stream[T]:
     """Filter a stream of type `T`.
 
-    :param pred: A predicate on type `T`.
-    :type pred: `A -> bool`
+    :param predicate: A predicate on type `T`.
+    :type predicate: `A -> bool`
     :param stream: A stream of type `T` to be filtered.
     :type stream: `Stream[T]`
 
@@ -105,16 +109,16 @@ def filter(pred : Callable[[T], bool], stream : Stream[T]) -> Stream[T]:
     :rtype: `Stream[T]`
     """
     def _thunk() -> StreamResult[T]:
-        next_stream : Stream[T] = stream
+        next_stream: Stream[T] = stream
         while True:
             next_value, next_stream = next_stream()
-            if not pred(next_value): continue
-            return next_value, filter(pred, next_stream)
+            if not predicate(next_value): continue
+            return next_value, filter(predicate, next_stream)
     return _thunk
 
 def filter_map(
-    func : Callable[[T], m.Maybe[R]],
-    stream : Stream[T]
+    func: Callable[[T], m.Maybe[R]],
+    stream: Stream[T]
     ) -> Stream[R]:
     """Filter and map a stream of type `T` to a type `R`.
 
@@ -180,7 +184,7 @@ def singleton(value: T) -> Stream[T]:
         return value, cast(Stream[T], empty())
     return _thunk
 
-def prepend(value: T, stream : Stream[T]) -> Stream[T]:
+def prepend(value: T, stream: Stream[T]) -> Stream[T]:
     """Prepend a value of type `T` to a stream of type `T`.
 
     :param value: A value of type `T`.
@@ -232,3 +236,39 @@ def concat(left: Stream[T], right: Stream[T]) -> Stream[T]:
         except StopIteration:
             return right()
     return _thunk
+
+def braid(*streams: Stream[T]) -> Stream[T]:
+    """Braid multiple streams of type `T` together into a single stream of type `T`.
+
+    :param streams: Multiple streams of type `T`.
+    :type streams: `Tuple[Stream[T], ...]`
+
+    :return: A stream of type `T`.
+    :rtype: `Stream[T]`
+    """
+    def _impl(
+        streams: list[Stream[T]]
+        ) -> StreamResult[T]:
+        while len(streams) != 0:
+            try:
+                stream = streams.pop(0)
+                next_value, next_stream = stream()
+                streams.append(next_stream)
+                return next_value, partial(_impl, streams)
+            except: pass
+        raise StopIteration
+    return partial(_impl, list(streams))
+
+def from_list(items: list[T]) -> Stream[T]:
+    """Create a stream of type `T` from a list of type `T`.
+
+    :param items: A list of type `T`.
+    :type items: `List[T]`
+
+    :return: A stream of type `T`.
+    :rtype: `Stream[T]`
+    """
+    result: Stream[T] = empty()
+    for item in reversed(items):
+        result = prepend(item, result)
+    return result
