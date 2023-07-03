@@ -32,7 +32,7 @@ From the perspective of a programmer, the discipline of testing and verification
 
 When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without loosing functionality.
 
-Additinally, having a testing strategy improves the maintainability of our projects long term; making it possible to make larger changes to the codebase: confidently upgrading dependencies, large scale refactoring and rewrites, or sometimes even migrating to another language or platform. It encodes the semantics of our projects; _what_ they are supposed to do, in contrast to _how_ they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
+Additinally, having a testing strategy improves the maintainability of our projects long term; making it possible to make larger changes to the codebase: confidently upgrading dependencies, large scale refactoring and rewrites, or sometimes even migrating to another language or platform. It encodes the semantics of our projects; *what* they are supposed to do, in contrast to *how* they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
 
 The problems with unit-testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -44,7 +44,7 @@ The second problem with hand written unit-tests is that they become a ball and c
 
 Property-based testing is the solution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-The solution to the first problem is to realize that the before mentioned test case classes simply _are_ the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
+The solution to the first problem is to realize that the before mentioned test case classes simply *are* the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
 
 Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assisant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most programmers have, and often further, programmers are not even aware this is a possibility.
 
