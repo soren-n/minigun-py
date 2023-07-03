@@ -32,7 +32,7 @@ From the perspective of a programmer, the discipline of testing and verification
 
 When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without loosing functionality.
 
-Additinally, having a testing strategy improves the maintainability of our projects long term; making it possible to make larger changes to the codebase: confidently upgrading dependencies, large scale refactoring and rewrites, or sometimes even migrating to another language or platform. It encodes the semantics of our projects; *what* they are supposed to do, in contrast to *how* they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
+Additionally, having a testing strategy improves the maintainability of our projects long term; making it possible to make large changes to the codebase without loss of functionality: confidently upgrading dependencies, large scale refactoring and rewrites, sometimes even migrating to another language or platform. It encodes the semantics of our projects; *what* they are supposed to do, in contrast to *how* they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
 
 The problems with unit-testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
