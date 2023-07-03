@@ -412,7 +412,7 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
         def _pass(layout: ts.Layout) -> ts.Layout:
             return layout
         def _group(layout: ts.Layout) -> ts.Layout:
-            return ts.grp(ts.parse('"(" <!&> {0} <!&> ")"', layout))
+            return ts.grp(ts.parse('"(" !& {0} !& ")"', layout))
         def _visit(
             wrap: Callable[[ts.Layout], ts.Layout],
             arith: Arith
@@ -421,25 +421,25 @@ Now lets define a sampler for this abstract datatype :code:`Arith`:
                 case Number(value): return ts.text(str(value))
                 case Plus(left, right):
                     return wrap(ts.parse(
-                        '{0} <!+> "+" <+> {1}',
+                        '{0} !+ "+" + {1}',
                         _visit(_pass, left),
                         _visit(_pass, right)
                     ))
                 case Minus(left, right):
                     return wrap(ts.parse(
-                        '{0} <!+> "-" <+> {1}',
+                        '{0} !+ "-" + {1}',
                         _visit(_pass, left),
                         _visit(_pass, right)
                     ))
                 case Times(left, right):
                     return wrap(ts.parse(
-                        '{0} <!+> "*" <+> {1}',
+                        '{0} !+ "*" + {1}',
                         _visit(_group, left),
                         _visit(_group, right)
                     ))
                 case Divide(left, right):
                     return wrap(ts.parse(
-                        '{0} <!+> "/" <+> {1}',
+                        '{0} !+ "/" + {1}',
                         _visit(_group, left),
                         _visit(_group, right)
                     ))
@@ -617,21 +617,21 @@ Let us consider the modeling of the stack example from earlier:
             match op:
                 case InitOp(after):
                     return ts.parse(
-                        'fix ({0} <+> "=" <+> "init()")',
+                        'fix ({0} + "=" + "init()")',
                         ts.text(after)
                     )
                 case PushOp(before, after, item):
                     return ts.parse(
-                        'fix ({0} <+> "=" <+> "push(" <&> '
-                        '{1} <&> "," <+> {2} <&> ")")',
+                        'fix ({0} + "=" + "push(" & '
+                        '{1} & "," + {2} & ")")',
                         ts.text(after),
                         ts.text(before),
                         _visit_value(item)
                     )
                 case PopOp(before, after, item):
                     return ts.parse(
-                        'fix ({0} <&> "," <+> {1} <+> "=" <+> '
-                        '"pop(" <&> {2} <&> ")")',
+                        'fix ({0} & "," + {1} + "=" + '
+                        '"pop(" & {2} & ")")',
                         ts.text(after),
                         ts.text(item),
                         ts.text(before)
