@@ -11,7 +11,6 @@ OTHER_URL = {
 EMAIL = 'sorennorbaek@gmail.com'
 AUTHOR = 'Soren Norbaek'
 REQUIRES_PYTHON = '>=3.10.1'
-REQUIRED = ['tqdm', 'typeset-soren-n']
 
 # Define long description
 readme_path = Path('README.md')
@@ -22,6 +21,12 @@ with readme_path.open('r', encoding = 'utf-8') as readme_file:
 init_path = Path('minigun/__init__.py')
 with init_path.open('r', encoding = 'utf-8') as init_file:
     VERSION = init_file.readline().split(' = ')[1][1:-2]
+
+# Read requirements
+requirements_path = Path('requirements.txt')
+install_requires = []
+with open(requirements_path) as requirements_file:
+    install_requires = requirements_file.readlines()
 
 setup(
     name = NAME,
@@ -34,7 +39,7 @@ setup(
     author = AUTHOR,
     author_email = EMAIL,
     requires_python = REQUIRES_PYTHON,
-    install_requires = REQUIRED,
+    install_requires = install_requires,
     packages = find_packages(exclude = ["tests", "docs", "examples"]),
     entry_points = {},
     classifiers = [
