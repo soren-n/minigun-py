@@ -171,7 +171,10 @@ def dict(
         items = values.items()
         body = _item(next(items))
         for item in items:
-            body = ts.parse('{0} !& "," + {1}', body, _item(item))
+            body = ts.parse(
+                '{0} !& "," + {1}',
+                body, _item(item)
+            )
         return _wrap(body)
     return _printer
 
@@ -189,10 +192,10 @@ def set(
     :return: A printer of sets over type `A`.
     :rtype: `Printer[Set[A]]`
     """
-    def _printer(values):
+    def _printer(values: Set[A]) -> ts.Layout:
         def _wrap(body): return ts.parse('"{" & {0} & "}"', body)
         if len(values) == 0: return ts.text('{}')
-        items = list(values)
+        items = _List(values)
         body = printer(items[0])
         for item in items[1:]:
             body = ts.parse('{0} !& "," + {1}', body, printer(item))
@@ -213,7 +216,7 @@ def maybe(
     :return: A printer of maybe over type `A`.
     :rtype: `Printer[minigun.maybe.Maybe[A]]`
     """
-    def _printer(maybe):
+    def _printer(maybe: m.Maybe[A]) -> ts.Layout:
         match maybe:
             case m.Nothing(): return ts.text('Nothing()')
             case m.Something(value):
@@ -236,7 +239,7 @@ def infer(T: type) -> m.Maybe[Printer[Any]]:
     :rtype: `minigun.maybe.Maybe[Printer[T]]`
     """
     def _maybe(T: type) -> m.Maybe[Printer[Any]]:
-        item_printer = infer(get_args(T)[0])
+        item_printer = infer(m.get_domain(T))
         if isinstance(item_printer, m.Nothing): return m.Nothing()
         return m.Something(maybe(item_printer.value))
     def _tuple(T: type) -> m.Maybe[Printer[Any]]:

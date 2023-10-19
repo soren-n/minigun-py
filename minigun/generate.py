@@ -888,7 +888,7 @@ def infer(T: type) -> m.Maybe[Generator[Any]]:
     :rtype: `minigun.maybe.Maybe[Generator[T]]`
     """
     def _maybe(T: type) -> m.Maybe[Generator[Any]]:
-        item_sampler = infer(get_args(T)[0])
+        item_sampler = infer(m.get_domain(T))
         if isinstance(item_sampler, m.Nothing): return m.Nothing()
         return m.Something(maybe(item_sampler.value))
     def _tuple(T: type) -> m.Maybe[Generator[Any]]:

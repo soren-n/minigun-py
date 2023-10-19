@@ -51,6 +51,9 @@ def is_maybe(T: type):
     if not (get_origin(args[1]) is Something): return False
     return True
 
+def get_domain(T: type):
+    return get_args(get_args(T)[0])[0]
+
 def map(
     func : Callable[P, R],
     *maybes : Maybe[Any]
