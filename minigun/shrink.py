@@ -7,7 +7,6 @@ from typing import (
     Callable,
     Tuple
 )
-from functools import partial
 import math
 
 # Internal module dependencies
@@ -21,7 +20,6 @@ _Bool = bool
 _Int = int
 _Float = float
 _Str = str
-_Map = map
 
 ###############################################################################
 # Shrink state
