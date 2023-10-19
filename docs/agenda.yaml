@@ -17,7 +17,10 @@ tasks:
   - ../minigun/domain.py
   - ../minigun/generate.py
   - ../minigun/maybe.py
+  - ../minigun/order.py
   - ../minigun/pretty.py
+  - ../minigun/sample.py
+  - ../minigun/search.py
   - ../minigun/shrink.py
   - ../minigun/specify.py
   - ../minigun/stream.py
