@@ -12,9 +12,8 @@ from typing import (
 )
 from dataclasses import dataclass
 from inspect import signature
-from functools import partial
-from tqdm.auto import trange
 from pathlib import Path
+from tqdm import tqdm
 import typeset as ts
 import secrets
 import logging
@@ -25,8 +24,7 @@ import os
 from . import arbitrary as a
 from . import generate as g
 from . import domain as d
-from . import shrink as s
-from . import stream as fs
+from . import search as s
 from . import pretty as p
 from . import maybe as m
 
@@ -35,98 +33,6 @@ from . import maybe as m
 ###############################################################################
 P = ParamSpec('P')
 Q = ParamSpec('Q')
-
-###############################################################################
-# Find and trim counter examples
-###############################################################################
-def _merge_args(
-    args: Dict[str, s.Dissection[Any]]
-    ) -> s.Dissection[Dict[str, Any]]:
-    params = list(args.keys())
-    param_count = len(params)
-    def _shrink_values(
-        index: int,
-        args: Dict[str, s.Dissection[Any]],
-        streams: Dict[str, fs.Stream[s.Dissection[Any]]]
-        ) -> fs.StreamResult[s.Dissection[Dict[str, Any]]]:
-        if index == param_count: raise StopIteration
-        param = params[index]
-        _index = index + 1
-        try: next_arg, next_stream = streams[param]()
-        except StopIteration: return _shrink_values(_index, args, streams)
-        _args = args.copy()
-        _streams = streams.copy()
-        _args[param] = next_arg
-        _streams[param] = next_stream
-        return _merge_args(_args), fs.concat(
-            partial(_shrink_values, index, args, _streams),
-            partial(_shrink_values, _index, args, streams)
-        )
-    heads = { param: s.head(arg) for param, arg in args.items() }
-    tails = { param: s.tail(arg) for param, arg in args.items() }
-    return heads, partial(_shrink_values, 0, args, tails)
-
-def _trim_counter_example(
-    law: Callable[P, bool],
-    params: List[str],
-    printers: Dict[str, p.Printer[Any]],
-    example: Dict[str, s.Dissection[Any]]
-    ) -> ts.Layout:
-
-    printer = p.tuple(*[
-        p.tuple(p.str(), printers[param])
-        for param in params
-    ])
-
-    def _apply(*args: P.args, **kwargs: P.kwargs) -> bool:
-        return law(*args, **kwargs)
-
-    def _is_counter_example(args: s.Dissection[Dict[str, Any]]) -> bool:
-        return not _apply(**s.head(args))
-
-    def _search(args: s.Dissection[Dict[str, Any]]) -> ts.Layout:
-        arg_values, arg_streams = args
-        while True:
-            match fs.peek(fs.filter(_is_counter_example, arg_streams)):
-                case m.Something(next_args):
-                    arg_values, arg_streams = next_args
-                case m.Nothing():
-                    return printer(tuple([
-                        (param, arg_values[param])
-                        for param in params
-                    ]))
-
-    return _search(_merge_args(example))
-
-def _find_counter_example(
-    state: a.State,
-    desc: str,
-    count: int,
-    law: Callable[P, bool],
-    params: List[str],
-    generators: Dict[str, g.Generator[Any]],
-    printers: Dict[str, p.Printer[Any]]
-    ) -> Tuple[a.State, m.Maybe[ts.Layout]]:
-
-    def _apply(*args: P.args, **kwargs: P.kwargs) -> bool:
-        return law(*args, **kwargs)
-
-    for _ in trange(
-        count,
-        desc = desc,
-        ascii = " *•",
-        bar_format = "{desc}: {bar} [{elapsed} < {remaining}]"
-        ):
-        example : Dict[str, s.Dissection[Any]] = {}
-        for param, arg_generator in generators.items():
-            state, arg = arg_generator(state)
-            example[param] = arg
-        _example = { param : s.head(arg) for param, arg in example.items() }
-        if _apply(**_example): continue
-        return state, m.Something(_trim_counter_example(
-            law, params, printers, example
-        ))
-    return state, m.Nothing()
 
 ###############################################################################
 # Spec constructors
@@ -138,9 +44,9 @@ class Spec:
 @dataclass
 class _Prop(Spec, Generic[P]):
     desc: str
-    count: int
+    attempts: int
     law: Callable[P, bool]
-    params: List[str]
+    ordering: List[str]
     generators: Dict[str, m.Maybe[g.Generator[Any]]]
     printers: Dict[str, m.Maybe[p.Printer[Any]]]
 
@@ -286,6 +192,31 @@ def permanent_path(dir_path: Optional[Path] = None) -> Path:
 ###############################################################################
 # Specification evaluation
 ###############################################################################
+def _argument_pack_printer(
+    ordering: list[str],
+    printers: dict[str, p.Printer[Any]]
+    ) -> p.Printer[dict[str, Any]]:
+    def _printer(args: dict[str, Any]) -> ts.Layout:
+        param_printer = p.str()
+        def _wrap(body): return ts.parse('seq ("{" & nest {0} & "}")', body)
+        def _item(param):
+            arg = args[param]
+            arg_printer = printers[param]
+            return ts.parse(
+                'fix ({0} & ":" + {1})',
+                param_printer(param),
+                arg_printer(arg)
+            )
+        params = iter(ordering)
+        body = _item(next(params))
+        for param in params:
+            body = ts.parse(
+                '{0} !& "," + {1}',
+                body, _item(param)
+            )
+        return _wrap(body)
+    return _printer
+
 def check(spec: Spec) -> bool:
     """Check an interface against its specification.
 
@@ -301,7 +232,7 @@ def check(spec: Spec) -> bool:
         neg: bool = False
         ) -> Tuple[a.State, bool]:
         match spec:
-            case _Prop(desc, count, law, params, generators, printers):
+            case _Prop(desc, attempts, law, ordering, generators, printers):
                 _generators: Dict[str, g.Generator[Any]] = {}
                 for param, maybe_generator in generators.items():
                     match maybe_generator:
@@ -328,9 +259,22 @@ def check(spec: Spec) -> bool:
                             return state, False
                         case m.Something(printer):
                             _printers[param] = printer
-                state, counter_example = _find_counter_example(
-                    state, desc, count, law, params, _generators, _printers
+                printer = _argument_pack_printer(ordering, _printers)
+                progress = tqdm(
+                    range(attempts),
+                    desc = desc,
+                    ascii = " *•",
+                    bar_format = "{desc}: {bar} [{elapsed} < {remaining}]"
                 )
+                prev_attempt = 0
+                def _monitor(attempt: int) -> None:
+                    nonlocal prev_attempt
+                    progress.update(attempt - prev_attempt)
+                    prev_attempt = attempt
+                state, counter_example = s.find_counter_example(
+                    state, attempts, law, _generators, _monitor
+                )
+                progress.close()
                 match counter_example:
                     case m.Nothing():
                         if not neg: return state, True
@@ -339,12 +283,12 @@ def check(spec: Spec) -> bool:
                             'however one was expected!' % desc
                         )
                         return state, False
-                    case m.Something(layout):
+                    case m.Something(args):
                         if neg: return state, True
                         logging.error(
                             'A test case of \"%s\" failed with the '
                             'following counter example:\n%s' % (
-                                desc, p.render(layout)
+                                desc, p.render(printer(args))
                             )
                         )
                         return state, False
