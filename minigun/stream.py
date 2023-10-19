@@ -184,6 +184,19 @@ def singleton(value: T) -> Stream[T]:
         return value, cast(Stream[T], empty())
     return _thunk
 
+def constant(value: T) -> Stream[T]:
+    """Create a infinite stream containing a constant value.
+
+    :param value: A value of type `T`.
+    :type value: `T`
+
+    :return: A stream of type `T`.
+    :rtype: `Stream[T]`
+    """
+    def _thunk() -> StreamResult[T]:
+        return value, constant(value)
+    return _thunk
+
 def prepend(value: T, stream: Stream[T]) -> Stream[T]:
     """Prepend a value of type `T` to a stream of type `T`.
 
@@ -272,3 +285,21 @@ def from_list(items: list[T]) -> Stream[T]:
     for item in reversed(items):
         result = prepend(item, result)
     return result
+
+def to_list(stream: Stream[T], max_items: int) -> list[T]:
+    """Create a list of type `T` from a stream of type `T`.
+
+    :param stream: A stream of type `T`.
+    :type stream: `Stream[T]`
+
+    :return: A list of type `T`.
+    :rtype: `List[T]`
+    """
+    items: list[T] = list()
+    for _ in range(max_items):
+        maybe_item, stream = next(stream)
+        match maybe_item:
+            case m.Nothing(): break
+            case m.Something(item):
+                items.append(item)
+    return items
