@@ -17,9 +17,9 @@ If you would like a bit of motivation as to why you should use a QuickCheck-like
 If you wish to learn more about the subject, I can recommend Jan Midtgaard's [lecture materials](https://janmidtgaard.dk/quickcheck/index.html); it is OCaml based but translates easily to other QuickCheck-like libraries for other languages.
 
 # Install
-Minigun is currently only supported for Python >=3.10, although it might work with older versions. It is distributed with pip and can be installed with the following example command:
+Minigun is currently only supported for Python >=3.10. It is distributed with pip and can be installed with the following example command:
 ```
-$ python3 -m pip install minigun-soren-n
+$ pip install minigun-soren-n
 ```
 
 # Documentation

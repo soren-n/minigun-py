@@ -10,7 +10,7 @@ OTHER_URL = {
 }
 EMAIL = 'sorennorbaek@gmail.com'
 AUTHOR = 'Soren Norbaek'
-REQUIRES_PYTHON = '>=3.10.1'
+REQUIRES_PYTHON = '>=3.10'
 
 # Define long description
 readme_path = Path('README.md')
