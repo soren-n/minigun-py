@@ -13,8 +13,6 @@ from typing import (
 from dataclasses import dataclass
 from inspect import signature
 from pathlib import Path
-from tqdm import tqdm
-import typeset as ts
 import secrets
 import logging
 import shutil
@@ -65,7 +63,7 @@ def prop(desc: str):
         sig = signature(law)
         params = list(sig.parameters.keys())
         param_types = {
-            p.name : cast(type, p.annotation)
+            p.name: cast(type, p.annotation)
             for p in sig.parameters.values()
         }
 
@@ -192,31 +190,6 @@ def permanent_path(dir_path: Optional[Path] = None) -> Path:
 ###############################################################################
 # Specification evaluation
 ###############################################################################
-def _argument_pack_printer(
-    ordering: list[str],
-    printers: dict[str, p.Printer[Any]]
-    ) -> p.Printer[dict[str, Any]]:
-    def _printer(args: dict[str, Any]) -> ts.Layout:
-        param_printer = p.str()
-        def _wrap(body): return ts.parse('seq ("{" & nest {0} & "}")', body)
-        def _item(param):
-            arg = args[param]
-            arg_printer = printers[param]
-            return ts.parse(
-                'fix ({0} & ":" + {1})',
-                param_printer(param),
-                arg_printer(arg)
-            )
-        params = iter(ordering)
-        body = _item(next(params))
-        for param in params:
-            body = ts.parse(
-                '{0} !& "," + {1}',
-                body, _item(param)
-            )
-        return _wrap(body)
-    return _printer
-
 def check(spec: Spec) -> bool:
     """Check an interface against its specification.
 
@@ -259,23 +232,11 @@ def check(spec: Spec) -> bool:
                             return state, False
                         case m.Something(printer):
                             _printers[param] = printer
-                printer = _argument_pack_printer(ordering, _printers)
-                progress = tqdm(
-                    range(attempts),
-                    desc = desc,
-                    ascii = " *•",
-                    bar_format = "{desc}: {bar} [{elapsed} < {remaining}]"
+                printer = p.argument_pack(ordering, _printers)
+                state, maybe_counter_example = s.find_counter_example(
+                    state, attempts, law, _generators
                 )
-                prev_attempt = 0
-                def _monitor(attempt: int) -> None:
-                    nonlocal prev_attempt
-                    progress.update(attempt - prev_attempt)
-                    prev_attempt = attempt
-                state, counter_example = s.find_counter_example(
-                    state, attempts, law, _generators, _monitor
-                )
-                progress.close()
-                match counter_example:
+                match maybe_counter_example:
                     case m.Nothing():
                         if not neg: return state, True
                         logging.error(

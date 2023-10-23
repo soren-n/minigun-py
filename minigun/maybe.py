@@ -55,8 +55,8 @@ def get_domain(T: type):
     return get_args(get_args(T)[0])[0]
 
 def map(
-    func : Callable[P, R],
-    *maybes : Maybe[Any]
+    func: Callable[P, R],
+    *maybes: Maybe[Any]
     ) -> Maybe[R]:
     """A variadic map function of given input maybes over types `A`, `B`, etc. to an output maybe over type `R`.
 
@@ -70,7 +70,7 @@ def map(
     """
     def _apply(*args: P.args, **kwargs: P.kwargs) -> R:
         return func(*args, **kwargs)
-    values : List[Any] = []
+    values: List[Any] = []
     for maybe in maybes:
         match maybe:
             case Nothing(): return Nothing()

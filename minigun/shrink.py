@@ -93,7 +93,10 @@ def map(
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]),
+                cast(
+                    fs.Stream[Dissection[R]],
+                    fs.map(_shift_vertical, tails[index])
+                ),
                 _shift_horizontal(index + 1)
             )
         return _shift_horizontal(0)
@@ -139,11 +142,36 @@ def bind(
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]),
+                cast(
+                    fs.Stream[Dissection[R]],
+                    fs.map(_shift_vertical, tails[index])
+                ),
                 _shift_horizontal(index + 1)
             )
         return _shift_horizontal(0)
     return _combine(list(dissections))
+
+def filter(
+    predicate: Callable[[T], _Bool],
+    dissection: Dissection[T]
+    ) -> m.Maybe[Dissection[T]]:
+    """Filter a dissection of type `T`.
+
+    :param predicate: A predicate on type `T`.
+    :type predicate: `A -> bool`
+    :param dissection: A dissection of type `T` to be filtered.
+    :type dissection: `Dissection[T]`
+
+    :return: A dissection of type `T`.
+    :rtype: `Dissection[T]`
+    """
+    def _predicate(dissection: Dissection[T]) -> _Bool:
+        return predicate(head(dissection))
+
+    return fs.peek(cast(
+        fs.Stream[Dissection[T]],
+        fs.filter(_predicate, fs.singleton(dissection))
+    ))
 
 def concat(
     left: Dissection[T],
@@ -270,7 +298,7 @@ def int(target: _Int) -> Shrinker[_Int]:
             _value = current + _Int((value - current) / 2)
             return m.Something((_value, (_value, current)))
         return fs.unfold(_towards, (initial, target))
-    def _impl(value : _Int) -> Dissection[_Int]:
+    def _impl(value: _Int) -> Dissection[_Int]:
         return unfold(value, _trim)
     return _impl
 
@@ -285,7 +313,7 @@ def float(target: _Float) -> Shrinker[_Float]:
     """
     def _trim_integer_part(initial: _Float) -> fs.Stream[_Float]:
         def _towards(
-            state : Tuple[_Float, _Int]
+            state: Tuple[_Float, _Int]
             ) -> m.Maybe[Tuple[_Float, Tuple[_Float, _Int]]]:
             value, current = state
             value_f, value_i = math.modf(value)
@@ -295,7 +323,7 @@ def float(target: _Float) -> Shrinker[_Float]:
         return fs.unfold(_towards, (initial, _Int(target)))
     def _trim_fractional_part(initial: _Float) -> fs.Stream[_Float]:
         def _towards(
-            state : Tuple[_Int, _Float, _Float]
+            state: Tuple[_Int, _Float, _Float]
             ) -> m.Maybe[Tuple[_Float, Tuple[_Int, _Float, _Float]]]:
             count, value, current = state
             value_f, value_i = math.modf(value)

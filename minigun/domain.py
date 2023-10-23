@@ -20,7 +20,6 @@ from . import maybe as m
 ###############################################################################
 # Localizing intrinsics
 ###############################################################################
-_Bool = bool
 _Int = int
 _Float = float
 _Str = str
@@ -400,4 +399,30 @@ def maybe(
     return Domain(
         g.maybe(domain.generate),
         p.maybe(domain.print)
+    )
+
+###############################################################################
+# Argument packs
+###############################################################################
+def argument_pack(
+    ordering: List[_Str],
+    domains: Dict[_Str, Domain[Any]]
+    ) -> Domain[Dict[_Str, Any]]:
+    """A domain of argument packs over a given set of domains.
+
+    :param domains: A mapping from argument names to value domains.
+    :type domains: `Dict[str, Domain[Any]]`
+
+    :return: A domain of argument packs over the given domains.
+    :rtype: `Domain[Dict[str, Any]]`
+    """
+    return Domain(
+        g.argument_pack({
+            name: domain.generate
+            for name, domain in domains.items()
+        }),
+        p.argument_pack(ordering, {
+            name: domain.print
+            for name, domain in domains.items()
+        })
     )

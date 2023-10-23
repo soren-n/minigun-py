@@ -45,7 +45,7 @@ R = TypeVar('R')
 S = TypeVar('S')
 
 #: A sample taken from a generator over a type `T`
-Sample = Tuple[a.State, s.Dissection[T]]
+Sample = Tuple[a.State, m.Maybe[s.Dissection[T]]]
 
 #: A generator over a type `T`
 Generator = Callable[[a.State], Sample[T]]
@@ -67,9 +67,12 @@ def map(
     def _impl(state: a.State) -> Sample[R]:
         dissections: List[s.Dissection[Any]] = []
         for generator in generators:
-            state, dissection = generator(state)
-            dissections.append(dissection)
-        return state, s.map(func, *dissections)
+            state, maybe_dissection = generator(state)
+            match maybe_dissection:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(dissection):
+                    dissections.append(dissection)
+        return state, m.Something(s.map(func, *dissections))
     return _impl
 
 def bind(
@@ -91,9 +94,37 @@ def bind(
     def _impl(state: a.State) -> Sample[R]:
         values: List[Any] = []
         for generator in generators:
-            state, dissection = generator(state)
-            values.append(s.head(dissection))
+            state, maybe_dissection = generator(state)
+            match maybe_dissection:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(dissection):
+                    values.append(s.head(dissection))
         return _apply(*values)(state)
+    return _impl
+
+def filter(
+    predicate: Callable[[T], bool],
+    generator: Generator[T]
+    ) -> Generator[T]:
+    """Filter a generator of type `T`.
+
+    :param predicate: A predicate on type `T`.
+    :type predicate: `A -> bool`
+    :param generator: A generator of type `T` to be filtered.
+    :type generator: `Generator[T]`
+
+    :return: A generator of type `T`.
+    :rtype: `Generator[T]`
+    """
+    def _impl(state: a.State) -> Sample[T]:
+        state, maybe_dissection = generator(state)
+        match maybe_dissection:
+            case m.Nothing(): return state, m.Nothing()
+            case m.Something(dissection):
+                match s.filter(predicate, dissection):
+                    case m.Nothing(): return state, m.Nothing()
+                    case m.Something(dissection1):
+                        return state, m.Something(dissection1)
     return _impl
 
 ###############################################################################
@@ -109,7 +140,7 @@ def constant(value: T) -> Generator[T]:
     :rtype: `Generator[T]`
     """
     def _impl(state: a.State) -> Sample[T]:
-        return state, s.singleton(value)
+        return state, m.Something(s.singleton(value))
     return _impl
 
 ###############################################################################
@@ -134,7 +165,7 @@ def bool() -> Generator[_Bool]:
     """
     def _impl(state: a.State) -> Sample[_Bool]:
         state, result = a.bool(state)
-        return state, s.prepend(result, s.singleton(not result))
+        return state, m.Something(s.prepend(result, s.singleton(not result)))
     return _impl
 
 ###############################################################################
@@ -152,7 +183,7 @@ def small_nat() -> Generator[_Int]:
             10 if prop < 0.75 else
             100
         ))
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def nat() -> Generator[_Int]:
@@ -169,7 +200,7 @@ def nat() -> Generator[_Int]:
             1000 if prop < 0.95 else
             10000
         ))
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def big_nat() -> Generator[_Int]:
@@ -187,7 +218,7 @@ def big_nat() -> Generator[_Int]:
             10000 if prop < 0.95 else
             1000000
         ))
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def small_int() -> Generator[_Int]:
@@ -203,7 +234,7 @@ def small_int() -> Generator[_Int]:
             100
         )
         state, result = a.int(state, -bound, bound)
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def int() -> Generator[_Int]:
@@ -221,7 +252,7 @@ def int() -> Generator[_Int]:
             10000
         )
         state, result = a.int(state, -bound, bound)
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def big_int() -> Generator[_Int]:
@@ -240,7 +271,7 @@ def big_int() -> Generator[_Int]:
             1000000
         )
         state, result = a.int(state, -bound, bound)
-        return state, s.int(0)(result)
+        return state, m.Something(s.int(0)(result))
     return _impl
 
 def float() -> Generator[_Float]:
@@ -253,7 +284,7 @@ def float() -> Generator[_Float]:
         state, exponent = a.float(state, -15.0, 15.0)
         state, sign = a.bool(state)
         result = (1.0 if sign else -1.0) * math.exp(exponent)
-        return state, s.float(0.0)(result)
+        return state, m.Something(s.float(0.0)(result))
     return _impl
 
 ###############################################################################
@@ -277,7 +308,7 @@ def int_range(
         assert lower_bound <= upper_bound
         state, result = a.int(state, lower_bound, upper_bound)
         target = max(lower_bound, min(0, upper_bound))
-        return state, s.int(target)(result)
+        return state, m.Something(s.int(target)(result))
     return _impl
 
 ###############################################################################
@@ -287,7 +318,7 @@ def prop(bias: _Float) -> Generator[_Bool]:
     assert 0.0 <= bias and bias <= 1.0, 'Invariant'
     def _impl(state: a.State) -> Sample[_Bool]:
         state, roll = a.float(state, 0.0, 1.0)
-        return state, s.bool()(roll <= bias)
+        return state, m.Something(s.bool()(roll <= bias))
     return _impl
 
 ###############################################################################
@@ -317,7 +348,7 @@ def bounded_str(
         for _ in range(upper_bound - lower_bound):
             state, index = a.int(state, 0, len(alphabet) - 1)
             result += alphabet[index]
-        return state, s.str()(result)
+        return state, m.Something(s.str()(result))
     return _impl
 
 def str() -> Generator[_Str]:
@@ -336,7 +367,7 @@ def word() -> Generator[_Str]:
     :return: A generator of str.
     :rtype: `Generator[str]`
     """
-    def _impl(upper_bound : _Int) -> Generator[_Str]:
+    def _impl(upper_bound: _Int) -> Generator[_Str]:
         return bounded_str(0, upper_bound, string.ascii_letters)
     return bind(_impl, small_nat())
 
@@ -380,9 +411,12 @@ def tuple(
     def _impl(state: a.State) -> Sample[Tuple[Any, ...]]:
         values: List[s.Dissection[Any]] = []
         for generator in generators:
-            state, value = generator(state)
-            values.append(value)
-        return state, _dist(values)
+            state, maybe_value = generator(state)
+            match maybe_value:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(value):
+                    values.append(value)
+        return state, m.Something(_dist(values))
     return _impl
 
 ###############################################################################
@@ -448,9 +482,12 @@ def bounded_list(
         state, length = a.nat(state, lower_bound, upper_bound)
         result: List[s.Dissection[T]] = []
         for _ in range(length):
-            state, item = generator(state)
-            result.append(item)
-        return state, _dist(result)
+            state, maybe_item = generator(state)
+            match maybe_item:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(item):
+                    result.append(item)
+        return state, m.Something(_dist(result))
     return _impl
 
 def list(
@@ -610,10 +647,16 @@ def bounded_dict(
         state, size = a.nat(state, lower_bound, upper_bound)
         result: List[Tuple[s.Dissection[K], s.Dissection[V]]] = []
         for _ in range(size):
-            state, key = key_generator(state)
-            state, value = value_generator(state)
-            result.append((key, value))
-        return state, _dist(result)
+            state, maybe_key = key_generator(state)
+            match maybe_key:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(key):
+                    state, maybe_value = value_generator(state)
+                    match maybe_value:
+                        case m.Nothing(): return state, m.Nothing()
+                        case m.Something(value):
+                            result.append((key, value))
+        return state, m.Something(_dist(result))
     return _impl
 
 def dict(
@@ -735,9 +778,12 @@ def bounded_set(
         state, size = a.nat(state, lower_bound, upper_bound)
         result: List[s.Dissection[T]] = []
         for _ in range(size):
-            state, item = generator(state)
-            result.append(item)
-        return state, _dist(result)
+            state, maybe_item = generator(state)
+            match maybe_item:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(item):
+                    result.append(item)
+        return state, m.Something(_dist(result))
     return _impl
 
 def set(generator: Generator[T]) -> Generator[Set[T]]:
@@ -803,13 +849,70 @@ def maybe(
     def _something(value: T) -> m.Maybe[T]: return m.Something(value)
     def _impl(state: a.State) -> Sample[m.Maybe[T]]:
         state, p = a.probability(state)
-        if p < 0.05: return state, s.singleton(m.Nothing())
-        state, value = generator(state)
-        _value = s.map(_something, value)
-        return state, (s.head(_value), fs.map(
-            lambda dissection: s.append(dissection, m.Nothing()),
-            s.tail(_value)
-        ))
+        if p < 0.05: return state, m.Something( s.singleton(m.Nothing()))
+        state, maybe_value = generator(state)
+        match maybe_value:
+            case m.Nothing(): return state, m.Nothing()
+            case m.Something(value):
+                _value = s.map(_something, value)
+                return state, m.Something((s.head(_value), fs.map(
+                    lambda dissection: s.append(dissection, m.Nothing()),
+                    s.tail(_value)
+                )))
+    return _impl
+
+###############################################################################
+# Argument pack
+###############################################################################
+def argument_pack(
+    generators: Dict[_Str, Generator[Any]]
+    ) -> Generator[_Dict[_Str, Any]]:
+    """A generator for argument packs.
+
+    :param generators: Generator from which the arguments are sampled.
+    :type generators: `Dict[str, Generator[Any]]`
+
+    :return: A generator for argument packs.
+    :rtype: `Generator[Dict[str, Any]]`
+    """
+    def _shrink_args(
+        index: _Int,
+        dissections: List[Tuple[_Str, s.Dissection[Any]]],
+        streams: List[Tuple[_Str, fs.Stream[s.Dissection[Any]]]]
+        ) -> fs.StreamResult[s.Dissection[Dict[_Str, Any]]]:
+        if index == len(dissections): raise StopIteration
+        _index = index + 1
+        try: next_dissect, next_stream = streams[index][1]()
+        except StopIteration: return _shrink_args(_index, dissections, streams)
+        _dissections = dissections.copy()
+        _streams = streams.copy()
+        _dissections[index] = (_dissections[index][0], next_dissect)
+        _streams[index] = (_streams[index][0], next_stream)
+        return _dist(_dissections), fs.concat(
+            partial(_shrink_args, index, dissections, _streams),
+            partial(_shrink_args, _index, dissections, streams)
+        )
+    def _dist(
+        dissections: List[Tuple[_Str, s.Dissection[Any]]]
+        ) -> s.Dissection[Dict[_Str, Any]]:
+        heads = [
+            (dissection[0], s.head(dissection[1]))
+            for dissection in dissections
+        ]
+        tails = [
+            (dissection[0], s.tail(dissection[1]))
+            for dissection in dissections
+        ]
+        return _Dict(heads), partial(_shrink_args, 0, dissections, tails)
+    def _impl(state: a.State) -> Sample[Dict[_Str, Any]]:
+        result: List[Tuple[_Str, s.Dissection[Any]]] = []
+        for param, arg_generator in generators.items():
+            state, maybe_arg = arg_generator(state)
+            match maybe_arg:
+                case m.Nothing(): return state, m.Nothing()
+                case m.Something(arg):
+                    result.append((param, arg))
+        return state, m.Something(_dist(result))
     return _impl
 
 ###############################################################################
@@ -828,7 +931,7 @@ def choice(*generators: Generator[T]) -> Generator[T]:
     return bind(_impl, int_range(0, len(generators) - 1))
 
 def weighted_choice(
-    *weighted_generators : Tuple[_Int, Generator[T]]
+    *weighted_generators: Tuple[_Int, Generator[T]]
     ) -> Generator[T]:
     """A generator of a type `T` composed of other weighted generators of type `T`.
 

@@ -5,6 +5,7 @@ from typing import TypeVar
 from . import arbitrary as a
 from . import generate as g
 from . import stream as fs
+from . import maybe as m
 
 T = TypeVar('T')
 
@@ -13,7 +14,7 @@ def slice(
     max_width: int,
     max_depth: int,
     state: a.State
-    ) -> tuple[a.State, list[T]]:
+    ) -> tuple[a.State, m.Maybe[list[T]]]:
     """Sample a domain slice over a type `T`, outputting a list of values of type `T`, where the first value is randomly sampled from the given generator over `T`, and the following values in the list being a random path down through the shrink tree of that initially sampled value.
 
     :param generator: A generator over the type `T`.
@@ -25,15 +26,18 @@ def slice(
     :param state: The RNG state to sample with.
     :type state: `minigun.arbitrary.State`
 
-    :return: A tuple with the next RNG state and the sampled domain slice.
-    :rtype: `Tuple[minigun.arbitrary.State, List[T]]`
+    :return: A tuple with the next RNG state and the potentially sampled domain slice.
+    :rtype: `Tuple[minigun.arbitrary.State, minigun.maybe.Maybe[List[T]]]`
     """
-    state, dissection = generator(state)
-    items: list[T] = []
-    for _ in range(max_depth):
-        item, dissection_stream = dissection
-        items.append(item)
-        dissections = fs.to_list(dissection_stream, max_width)
-        if len(dissections) == 0: break
-        state, dissection = a.choice(state, dissections)
-    return state, items
+    state, maybe_dissection = generator(state)
+    match maybe_dissection:
+        case m.Nothing(): return state, m.Nothing()
+        case m.Something(dissection):
+            items: list[T] = []
+            for _ in range(max_depth):
+                item, dissection_stream = dissection
+                items.append(item)
+                dissections = fs.to_list(dissection_stream, max_width)
+                if len(dissections) == 0: break
+                state, dissection = a.choice(state, dissections)
+            return state, m.Something(items)

@@ -35,7 +35,7 @@ A = TypeVar('A')
 #: Printer datatype defined over a type parameter `A`.
 Printer = Callable[[A], ts.Layout]
 
-def render(layout : ts.Layout) -> _Str:
+def render(layout: ts.Layout) -> _Str:
     return ts.render(ts.compile(layout), 2, 80)
 
 ###############################################################################
@@ -227,6 +227,44 @@ def maybe(
     return _printer
 
 ###############################################################################
+# Argument pack
+###############################################################################
+def argument_pack(
+    ordering: _List[_Str],
+    printers: _Dict[_Str, Printer[Any]]
+    ) -> Printer[_Dict[_Str, Any]]:
+    """Create a printer for argument packs`.
+
+    :param ordering: The order of parameters in the argument pack.
+    :type ordering: `list[str]`
+    :param printers: Value printers with which arguments are printed.
+    :type printers: `dict[str, Printer[Any]]`
+
+    :return: A printer of parameter packs.
+    :rtype: `Printer[dict[str, Any]]`
+    """
+    def _printer(args: _Dict[_Str, Any]) -> ts.Layout:
+        param_printer = str()
+        def _wrap(body): return ts.parse('seq ("{" & nest {0} & "}")', body)
+        def _item(param):
+            arg = args[param]
+            arg_printer = printers[param]
+            return ts.parse(
+                'fix ("\\"" & {0} & "\\":") + {1}',
+                param_printer(param),
+                arg_printer(arg)
+            )
+        params = iter(ordering)
+        body = _item(next(params))
+        for param in params:
+            body = ts.parse(
+                '{0} !& "," + {1}',
+                body, _item(param)
+            )
+        return _wrap(body)
+    return _printer
+
+###############################################################################
 # Infer a printer
 ###############################################################################
 def infer(T: type) -> m.Maybe[Printer[Any]]:
@@ -243,7 +281,7 @@ def infer(T: type) -> m.Maybe[Printer[Any]]:
         if isinstance(item_printer, m.Nothing): return m.Nothing()
         return m.Something(maybe(item_printer.value))
     def _tuple(T: type) -> m.Maybe[Printer[Any]]:
-        item_printers : List[Printer[Any]] = []
+        item_printers: List[Printer[Any]] = []
         for item_T in get_args(T):
             item_printer = infer(item_T)
             if isinstance(item_printer, m.Nothing): return m.Nothing()
