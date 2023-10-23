@@ -19,7 +19,7 @@ If you wish to learn more about the subject, I can recommend Jan Midtgaard's [le
 # Install
 Minigun is currently only supported for Python >=3.10. It is distributed with pip and can be installed with the following example command:
 ```
-$ pip install minigun-soren-n
+pip install minigun-soren-n
 ```
 
 # Documentation
