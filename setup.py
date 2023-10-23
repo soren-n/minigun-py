@@ -30,7 +30,7 @@ with open(requirements_path) as requirements_file:
 
 setup(
     name = NAME,
-    license = 'MIT',
+    license = 'GPLv3',
     version = VERSION,
     description = DESCRIPTION,
     long_description = LONG_DESCRIPTION,
@@ -46,7 +46,7 @@ setup(
         'Development Status :: 4 - Beta',
         'Environment :: Console',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Operating System :: MacOS',
         'Operating System :: Microsoft',
         'Operating System :: POSIX :: Linux',
