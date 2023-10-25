@@ -927,6 +927,7 @@ def choice(*generators: Generator[T]) -> Generator[T]:
     :return: A generator of type `T`.
     :rtype: `Generator[T]`
     """
+    assert len(generators) != 0
     def _impl(index: _Int) -> Generator[T]: return generators[index]
     return bind(_impl, int_range(0, max(0, len(generators) - 1)))
 
@@ -941,6 +942,7 @@ def weighted_choice(
     :return: A generator of type `T`.
     :rtype: `Generator[T]`
     """
+    assert len(weighted_generators) != 0
     weights, choices = _Map(_List, zip(*weighted_generators))
     def _impl(state: a.State) -> Sample[T]:
         state, generator = a.weighted_choice(state, weights, choices)
@@ -958,6 +960,7 @@ def one_of(
     :return: A generator of type `T`.
     :rtype: `Generator[T]`
     """
+    assert len(values) != 0
     def _select(index: _Int) -> T: return values[index]
     return map(_select, int_range(0, max(0, len(values) - 1)))
 
@@ -972,6 +975,7 @@ def subset_of(
     :return: A set generator of type `T`.
     :rtype: `Generator[Set[T]]`
     """
+    assert len(values) != 0
     _values = _List(values)
     def _select(indices: Set[_Int]) -> Set[T]:
         return _Set([ _values[index] for index in indices ])
