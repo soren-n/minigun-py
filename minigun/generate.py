@@ -928,7 +928,7 @@ def choice(*generators: Generator[T]) -> Generator[T]:
     :rtype: `Generator[T]`
     """
     def _impl(index: _Int) -> Generator[T]: return generators[index]
-    return bind(_impl, int_range(0, len(generators) - 1))
+    return bind(_impl, int_range(0, max(0, len(generators) - 1)))
 
 def weighted_choice(
     *weighted_generators: Tuple[_Int, Generator[T]]
@@ -959,7 +959,7 @@ def one_of(
     :rtype: `Generator[T]`
     """
     def _select(index: _Int) -> T: return values[index]
-    return map(_select, int_range(0, len(values) - 1))
+    return map(_select, int_range(0, max(0, len(values) - 1)))
 
 def subset_of(
     values: Set[T]
@@ -976,7 +976,9 @@ def subset_of(
     def _select(indices: Set[_Int]) -> Set[T]:
         return _Set([ _values[index] for index in indices ])
     count = len(_values)
-    return map(_select, bounded_set(0, count, int_range(0, count - 1)))
+    return map(_select, bounded_set(
+        0, count, int_range(0, max(0, count - 1))
+    ))
 
 ###############################################################################
 # Infer a generator
