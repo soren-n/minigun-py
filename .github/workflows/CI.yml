@@ -3,63 +3,55 @@ name: Build and publish
 on: [push, pull_request]
 
 jobs:
-  build_wheel:
-    name: Build wheel
+  build_distribution:
+    name: Build distribution
 
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-      fail-fast: false
 
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
-      - name: Build wheel
-        run: uv build --wheel
+      - name: Set up Python
+        run: uv python install
 
-      - name: Upload wheel
+      - name: Build distribution
+        run: uv build --sdist
+
+      - name: Upload distribution
         uses: actions/upload-artifact@v4
         with:
-          name: wheel
-          path: ./dist/*.whl
+          name: sdist
+          path: ./dist/*.tar.gz
 
-  check_wheel:
-    name: Check wheel
+  check_distribution:
+    name: Check distribution
 
-    needs: [build_wheel]
+    needs: [build_distribution]
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-      fail-fast: false
-
     steps:
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install
 
       - name: Install dependencies
         run: uv pip install twine
 
-      - name: Download wheel
+      - name: Download distribution
         uses: actions/download-artifact@v4
         with:
-          name: wheel
+          name: sdist
           path: ./dist
 
-      - name: Test the wheel
+      - name: Test the distribution
         run: |
-          find ./dist/*.whl -maxdepth 1 -type f | xargs uv pip install
+          find ./dist/*.tar.gz -maxdepth 1 -type f | xargs uv pip install
           cd ..
           uv run python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
 
@@ -69,14 +61,14 @@ jobs:
   test_publish:
     name: Test publish version
 
-    needs: [check_wheel]
+    needs: [check_distribution]
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download wheel
+      - name: Download distribution
         uses: actions/download-artifact@v4
         with:
-          name: wheel
+          name: sdist
           path: ./dist
 
       - name: Publish to test PyPI
