@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "tqdm>=4.67.1",
-    "typeset-soren-n>=2.0.6",
+    "typeset-soren-n>=2.0.8",
 ]
 
 [project.urls]
