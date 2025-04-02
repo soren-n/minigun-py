@@ -38,9 +38,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Set up Python
-        run: |
-          uv python install
-          uv sync
+        run: uv python install
 
       - name: Download distribution
         uses: actions/download-artifact@v4
@@ -50,6 +48,7 @@ jobs:
 
       - name: Test the distribution
         run: |
+          uv venv
           find ./dist/*.tar.gz -maxdepth 1 -type f | xargs uv pip install
           cd ..
           uv run python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
