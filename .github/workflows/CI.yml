@@ -72,7 +72,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: wheel
+          name: sdist
           path: ./dist
 
       - name: Publish to PyPI
