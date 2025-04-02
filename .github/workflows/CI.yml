@@ -59,6 +59,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
@@ -72,7 +75,7 @@ jobs:
           path: ./dist
 
       - name: Publish to test PyPI
-        run: uv publish --token ${{ secrets.TEST_PYPI_API_TOKEN }} --index "https://test.pypi.org/legacy/"
+        run: uv publish --token ${{ secrets.TEST_PYPI_API_TOKEN }} --index testpypi
 
   publish:
     name: Publish version
