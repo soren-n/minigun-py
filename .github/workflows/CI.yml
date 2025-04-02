@@ -52,31 +52,6 @@ jobs:
           find ./dist/*.tar.gz -maxdepth 1 -type f | xargs uv pip install
           uv run python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
 
-  test_publish:
-    name: Test publish version
-
-    needs: [check_distribution]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Download distribution
-        uses: actions/download-artifact@v4
-        with:
-          name: sdist
-          path: ./dist
-
-      - name: Publish to test PyPI
-        run: uv publish --token ${{ secrets.TEST_PYPI_API_TOKEN }} --index testpypi
-
   publish:
     name: Publish version
     if: |
@@ -84,7 +59,7 @@ jobs:
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v')
 
-    needs: [test_publish]
+    needs: [check_distribution]
     runs-on: ubuntu-latest
 
     steps:
