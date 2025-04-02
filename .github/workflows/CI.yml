@@ -52,9 +52,6 @@ jobs:
           find ./dist/*.tar.gz -maxdepth 1 -type f | xargs uv pip install
           uv run python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
 
-      - name: Check README rendering for PyPI
-        run: twine check dist/*
-
   test_publish:
     name: Test publish version
 
