@@ -72,7 +72,7 @@ jobs:
           path: ./dist
 
       - name: Publish to test PyPI
-        run: uv publish --token ${{ secrets.TEST_PYPI_API_TOKEN }} --index testpypi
+        run: uv publish --token ${{ secrets.TEST_PYPI_API_TOKEN }} --index "https://test.pypi.org/legacy/"
 
   publish:
     name: Publish version
