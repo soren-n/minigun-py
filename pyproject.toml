@@ -1,7 +1,7 @@
 [project]
-name = "minigun"
+name = "minigun-soren-n"
 description = "A library for property-based testing of Python programs"
-version = "0.4.0"
+dynamic = ["version"]
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
@@ -44,8 +44,12 @@ test = "tests.main:test"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.setuptools]
+[tool.hatch.version]
+path = "minigun/__init__.py"
+
+[tool.hatch.build.targets.sdist]
 packages = ["minigun"]
 
-[tool.setuptools.package-data]
-"minigun" = ["*"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["minigun"]
