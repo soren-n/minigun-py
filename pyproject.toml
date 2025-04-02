@@ -1,0 +1,51 @@
+[project]
+name = "minigun"
+description = "A library for property-based testing of Python programs"
+version = "0.4.0"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Soren Norbaek", email = "sorennorbaek@gmail.com" }
+]
+keywords = [
+    "property-based testing",
+    "testing",
+    "python",
+]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Environment :: Console",
+]
+dependencies = [
+    "tqdm>=4.67.1",
+    "typeset-soren-n>=2.0.6",
+]
+
+[project.urls]
+Repository = "https://github.com/soren-n/minigun"
+Documentation = "https://minigun.readthedocs.io/en/stable/"
+"Bug Tracker" = "https://github.com/soren-n/minigun/issues"
+
+[dependency-groups]
+dev = [
+    "sphinx>=8.2.3",
+    "sphinx-rtd-theme>=3.0.2",
+]
+
+[project.scripts]
+test = "tests.main:test"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.setuptools]
+packages = ["minigun"]
+
+[tool.setuptools.package-data]
+"minigun" = ["*"]

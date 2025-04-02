@@ -1,6 +1,9 @@
 from typing import List
 from minigun.specify import prop, neg, conj, check
 
+###############################################################################
+# Negative properties
+###############################################################################
 @prop('bool value not equal to negated value')
 def _fail_bool_neg_eq(a: bool):
     return a == (not a)
@@ -16,11 +19,17 @@ def _fail_list_reverse_conc_dist(xs : List[int], ys : List[int]):
         list(reversed(xs)) + list(reversed(ys))
     )
 
-if __name__ == '__main__':
-    import sys
-    success = check(conj(
+###############################################################################
+# Running test suite
+###############################################################################
+def test():
+    return check(conj(
         neg(_fail_bool_neg_eq),
         neg(_fail_int_add_mul_assoc),
         neg(_fail_list_reverse_conc_dist)
     ))
+
+if __name__ == '__main__':
+    import sys
+    success = test()
     sys.exit(0 if success else -1)

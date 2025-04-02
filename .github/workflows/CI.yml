@@ -8,25 +8,25 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v3
+      - name: Check out
+        uses: actions/checkout@v4
 
-      - name: Set up Python version
-        uses: actions/setup-python@v4
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: 3.x
-
-      - name: Install dependencies
-        run: |
-          python -m pip install pip --upgrade
-          python -m pip install wheel
+          python-version: ${{ matrix.python-version }}
 
       - name: Build wheel
-        run: python setup.py bdist_wheel --universal
+        run: uv build --wheel
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wheel
           path: ./dist/*.whl
@@ -37,28 +37,31 @@ jobs:
     needs: [build_wheel]
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+
     steps:
-      - name: Set up Python version
-        uses: actions/setup-python@v4
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: 3.x
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          python -m pip install pip --upgrade
-          python -m pip install twine
+        run: uv pip install twine
 
       - name: Download wheel
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: wheel
           path: ./dist
 
       - name: Test the wheel
         run: |
-          find ./dist/*.whl -maxdepth 1 -type f | xargs python -m pip install
+          find ./dist/*.whl -maxdepth 1 -type f | xargs uv pip install
           cd ..
-          python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
+          uv run python -c "import minigun, sys; print(minigun.__version__); sys.exit(0)"
 
       - name: Check README rendering for PyPI
         run: twine check dist/*
@@ -70,18 +73,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set up Python version
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.x
-
-      - name: Install dependencies
-        run: |
-          python -m pip install pip --upgrade
-          python -m pip install twine
-
       - name: Download wheel
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: wheel
           path: ./dist
@@ -105,7 +98,7 @@ jobs:
 
     steps:
       - name: Download wheel
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: wheel
           path: ./dist
