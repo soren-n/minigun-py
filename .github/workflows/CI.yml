@@ -40,9 +40,6 @@ jobs:
       - name: Set up Python
         run: uv python install
 
-      - name: Install dependencies
-        run: uv pip install twine
-
       - name: Download distribution
         uses: actions/download-artifact@v4
         with:
@@ -65,6 +62,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install
+
       - name: Download distribution
         uses: actions/download-artifact@v4
         with:
@@ -72,11 +75,7 @@ jobs:
           path: ./dist
 
       - name: Publish to test PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
+        run: uv publish -t ${{ secrets.TEST_PYPI_API_TOKEN }} --repository-url https://test.pypi.org/legacy/ --skip-existing
 
   publish:
     name: Publish version
@@ -89,6 +88,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install
+
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
@@ -96,6 +101,4 @@ jobs:
           path: ./dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish -t ${{ secrets.PYPI_API_TOKEN }}
