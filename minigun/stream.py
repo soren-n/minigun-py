@@ -2,63 +2,59 @@
 from functools import partial
 from typing import (
     cast,
-    Any,
-    TypeVar,
-    ParamSpec,
     Optional,
     Callable,
-    Tuple
+    Any
 )
-
-# Internal module dependencies
-from . import maybe as m
+from returns.maybe import (
+    Maybe,
+    Nothing,
+    Some
+)
 
 ###############################################################################
 # Persistent streams
 ###############################################################################
-T = TypeVar('T')
-P = ParamSpec('P')
-R = TypeVar('R')
 
-Thunk = Callable[[], R]
+type Thunk[R] = Callable[[], R]
 
 #: StreamResult datatype defined over a type parameter `T`.
-StreamResult = Tuple[T, 'Stream[T]']
+type StreamResult[T] = tuple[T, 'Stream[T]']
 
 #: Stream datatype defined over a type parameter `T`.
-Stream = Thunk[StreamResult[T]]
+type Stream[T] = Thunk[StreamResult[T]]
 
-def next(stream: Stream[T]) -> Tuple[m.Maybe[T], Stream[T]]:
+def next[T](stream: Stream[T]) -> tuple[Maybe[T], Stream[T]]:
     """Get the next head and tail of the stream, if a next head exists.
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
 
     :return: A tuple of maybe the head of stream and the tail of stream.
-    :rtype: `Tuple[minigun.maybe.Maybe[T], Stream[T]]`
+    :rtype: `tuple[returns.maybe.Maybe[T], Stream[T]]`
     """
     try:
         next_value, next_stream = stream()
-        return m.Something(next_value), next_stream
+        return Some(next_value), next_stream
     except StopIteration:
-        return m.Nothing(), stream
+        return Nothing, stream
 
-def peek(stream: Stream[T]) -> m.Maybe[T]:
+def peek[T](stream: Stream[T]) -> Maybe[T]:
     """Peek the next head of the stream, if a next head exists.
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
 
     :return: Maybe of the head of the stream.
-    :rtype: `minigun.maybe.Maybe[T]`
+    :rtype: `returns.maybe.Maybe[T]`
     """
     try:
         next_value, _ = stream()
-        return m.Something(next_value)
+        return Some(next_value)
     except StopIteration:
-        return m.Nothing()
+        return Nothing
 
-def is_empty(stream: Stream[T]) -> bool:
+def is_empty[T](stream: Stream[T]) -> bool:
     """Check if the stream is empty.
 
     :param stream: A stream of type `T`.
@@ -73,7 +69,7 @@ def is_empty(stream: Stream[T]) -> bool:
     except StopIteration:
         return True
 
-def map(
+def map[**P, R](
     func: Callable[P, R],
     *streams: Stream[Any]
     ) -> Stream[R]:
@@ -82,19 +78,17 @@ def map(
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
     :type func: `A x B x ... -> R`
     :param streams: Input streams over types `A`, `B`, etc. to map from.
-    :type streams: `Tuple[Stream[A], Stream[B], ...]`
+    :type streams: `tuple[Stream[A], Stream[B], ...]`
 
     :return: A mapped output stream.
     :rtype: `Stream[R]`
     """
-    def _apply(*args: P.args, **kwargs: P.kwargs) -> R:
-        return func(*args, **kwargs)
     def _thunk() -> StreamResult[R]:
         next_values, next_streams = zip(*[stream() for stream in streams])
-        return _apply(*next_values), map(func, *next_streams)
+        return func(*next_values), map(func, *next_streams)
     return _thunk
 
-def filter(
+def filter[T](
     predicate: Callable[[T], bool],
     stream: Stream[T]
     ) -> Stream[T]:
@@ -116,14 +110,14 @@ def filter(
             return next_value, filter(predicate, next_stream)
     return _thunk
 
-def filter_map(
-    func: Callable[[T], m.Maybe[R]],
+def filter_map[T, R](
+    func: Callable[[T], Maybe[R]],
     stream: Stream[T]
     ) -> Stream[R]:
     """Filter and map a stream of type `T` to a type `R`.
 
     :param func: A function on type `T` to a maybe value of type `R`.
-    :type func: `A -> minigun.maybe.Maybe[R]`
+    :type func: `A -> returns.maybe.Maybe[R]`
     :param stream: A stream of type `T` to be filtered.
     :type stream: `Stream[T]`
 
@@ -134,20 +128,21 @@ def filter_map(
         next_stream = stream
         while True:
             next_value, next_stream = next_stream()
-            _next_value = func(next_value)
-            if isinstance(_next_value, m.Nothing): continue
-            return _next_value.value, filter_map(func, next_stream)
+            match func(next_value):
+                case Maybe.empty: continue
+                case Some(_next_value):
+                    return _next_value, filter_map(func, next_stream)
+                case _: assert False, 'Invariant'
     return _thunk
 
-S = TypeVar('S')
-def unfold(
-    func: Callable[[S], m.Maybe[Tuple[T, S]]],
+def unfold[T, S](
+    func: Callable[[S], Maybe[tuple[T, S]]],
     init: S
     ) -> Stream[T]:
     """Create a stream of a type `T` unfolded from a function over a state of type `S`.
 
     :param func: A function that maybe produces a value of type `T` over given a state of type `S`.
-    :type func: `S -> minigun.maybe.Maybe[Tuple[T, S]]`
+    :type func: `S -> returns.maybe.Maybe[tuple[T, S]]`
     :param init: An initial value of type `S`.
     :type init: `S`
 
@@ -155,13 +150,14 @@ def unfold(
     :rtype: `Stream[T]`
     """
     def _thunk() -> StreamResult[T]:
-        result = func(init)
-        if isinstance(result, m.Nothing): raise StopIteration
-        value, state = result.value
-        return value, unfold(func, state)
+        match func(init):
+            case Maybe.empty: raise StopIteration
+            case Some((value, state)):
+                return value, unfold(func, state)
+            case _: assert False, 'Invariant'
     return _thunk
 
-def empty(_dummy: Optional[T] = None) -> Stream[T]:
+def empty[T](_dummy: Optional[T] = None) -> Stream[T]:
     """Create an empty stream of type `T`.
 
     :return: An empty stream of type `T`.
@@ -171,7 +167,7 @@ def empty(_dummy: Optional[T] = None) -> Stream[T]:
         raise StopIteration
     return _thunk
 
-def singleton(value: T) -> Stream[T]:
+def singleton[T](value: T) -> Stream[T]:
     """Create a stream containing only one value, is empty after that value.
 
     :param value: A value of type `T`.
@@ -184,7 +180,7 @@ def singleton(value: T) -> Stream[T]:
         return value, cast(Stream[T], empty())
     return _thunk
 
-def constant(value: T) -> Stream[T]:
+def constant[T](value: T) -> Stream[T]:
     """Create a infinite stream containing a constant value.
 
     :param value: A value of type `T`.
@@ -197,7 +193,7 @@ def constant(value: T) -> Stream[T]:
         return value, constant(value)
     return _thunk
 
-def prepend(value: T, stream: Stream[T]) -> Stream[T]:
+def prepend[T](value: T, stream: Stream[T]) -> Stream[T]:
     """Prepend a value of type `T` to a stream of type `T`.
 
     :param value: A value of type `T`.
@@ -212,7 +208,7 @@ def prepend(value: T, stream: Stream[T]) -> Stream[T]:
         return value, stream
     return _thunk
 
-def append(stream: Stream[T], value: T) -> Stream[T]:
+def append[T](stream: Stream[T], value: T) -> Stream[T]:
     """Append a value of type `T` to a stream of type `T`.
 
     :param stream: A stream of type `T`.
@@ -231,7 +227,7 @@ def append(stream: Stream[T], value: T) -> Stream[T]:
             return value, cast(Stream[T], empty())
     return _thunk
 
-def concat(left: Stream[T], right: Stream[T]) -> Stream[T]:
+def concat[T](left: Stream[T], right: Stream[T]) -> Stream[T]:
     """Concatenate two streams of type `T`.
 
     :param left: A stream of type `T`.
@@ -250,11 +246,11 @@ def concat(left: Stream[T], right: Stream[T]) -> Stream[T]:
             return right()
     return _thunk
 
-def braid(*streams: Stream[T]) -> Stream[T]:
+def braid[T](*streams: Stream[T]) -> Stream[T]:
     """Braid multiple streams of type `T` together into a single stream of type `T`.
 
     :param streams: Multiple streams of type `T`.
-    :type streams: `Tuple[Stream[T], ...]`
+    :type streams: `tuple[Stream[T], ...]`
 
     :return: A stream of type `T`.
     :rtype: `Stream[T]`
@@ -272,11 +268,11 @@ def braid(*streams: Stream[T]) -> Stream[T]:
         raise StopIteration
     return partial(_impl, list(streams))
 
-def from_list(items: list[T]) -> Stream[T]:
+def from_list[T](items: list[T]) -> Stream[T]:
     """Create a stream of type `T` from a list of type `T`.
 
     :param items: A list of type `T`.
-    :type items: `List[T]`
+    :type items: `list[T]`
 
     :return: A stream of type `T`.
     :rtype: `Stream[T]`
@@ -286,20 +282,20 @@ def from_list(items: list[T]) -> Stream[T]:
         result = prepend(item, result)
     return result
 
-def to_list(stream: Stream[T], max_items: int) -> list[T]:
+def to_list[T](stream: Stream[T], max_items: int) -> list[T]:
     """Create a list of type `T` from a stream of type `T`.
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
 
     :return: A list of type `T`.
-    :rtype: `List[T]`
+    :rtype: `list[T]`
     """
     items: list[T] = list()
     for _ in range(max_items):
         maybe_item, stream = next(stream)
         match maybe_item:
-            case m.Nothing(): break
-            case m.Something(item):
-                items.append(item)
+            case Maybe.empty: break
+            case Some(item): items.append(item)
+            case _: assert False, 'Invariant'
     return items

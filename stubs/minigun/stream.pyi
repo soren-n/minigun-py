@@ -1,0 +1,53 @@
+from typing import Any, Callable
+
+from returns.maybe import Maybe
+
+type Thunk[R] = Callable[[], R]
+
+type StreamResult[T] = tuple[T, 'Stream[T]']
+
+type Stream[T] = Thunk[StreamResult[T]]
+
+def next[T](stream: Stream[T]) -> tuple[Maybe[T], Stream[T]]: ...
+
+def peek[T](stream: Stream[T]) -> Maybe[T]: ...
+
+def is_empty[T](stream: Stream[T]) -> bool: ...
+
+def map[**P, R](
+    func: Callable[P, R],
+    *streams: Stream[Any]
+    ) -> Stream[R]: ...
+
+def filter[T](
+    predicate: Callable[[T], bool],
+    stream: Stream[T]
+    ) -> Stream[T]: ...
+
+def filter_map[T, R](
+    func: Callable[[T], Maybe[R]],
+    stream: Stream[T]
+    ) -> Stream[R]: ...
+
+def unfold[T, S](
+    func: Callable[[S], Maybe[tuple[T, S]]],
+    init: S
+    ) -> Stream[T]: ...
+
+def empty[T](_dummy: T | None = None) -> Stream[T]: ...
+
+def singleton[T](value: T) -> Stream[T]: ...
+
+def constant[T](value: T) -> Stream[T]: ...
+
+def prepend[T](value: T, stream: Stream[T]) -> Stream[T]: ...
+
+def append[T](stream: Stream[T], value: T) -> Stream[T]: ...
+
+def concat[T](left: Stream[T], right: Stream[T]) -> Stream[T]: ...
+
+def braid[T](*streams: Stream[T]) -> Stream[T]: ...
+
+def from_list[T](items: list[T]) -> Stream[T]: ...
+
+def to_list[T](stream: Stream[T], max_items: int) -> list[T]: ...

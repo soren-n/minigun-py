@@ -1,5 +1,10 @@
-from typing import List
-from minigun.specify import prop, neg, conj, check
+# Internal imports
+from minigun.specify import (
+    prop,
+    neg,
+    conj,
+    check
+)
 
 ###############################################################################
 # Negative properties
@@ -13,7 +18,7 @@ def _fail_int_add_mul_assoc(a: int, b: int, c: int):
     return c * (a + b) == (c * a) + b
 
 @prop('list reverse does not distribute with concatenate')
-def _fail_list_reverse_conc_dist(xs : List[int], ys : List[int]):
+def _fail_list_reverse_conc_dist(xs : list[int], ys : list[int]):
     return (
         list(reversed(xs + ys)) ==
         list(reversed(xs)) + list(reversed(ys))

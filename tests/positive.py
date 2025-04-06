@@ -1,9 +1,20 @@
-from typing import TypeVar, Callable, Tuple, List, Dict
+# External imports
+from typing import (
+    TypeVar,
+    Callable
+)
+from returns.maybe import Maybe
 
-from minigun.specify import Spec, prop, context, check, conj
+# Internal imports
+from minigun.specify import (
+    Spec,
+    prop,
+    context,
+    check,
+    conj
+)
 import minigun.domain as d
 import minigun.order as o
-import minigun.maybe as m
 
 # The testing strategy for minigun is to exercise the bundled domains.
 # This will cover the following four areas of testing for each domain:
@@ -222,18 +233,18 @@ _list_concat_moniod = _operator_moniod(
 )
 
 @context(d.list(d.int()), d.int())
-@prop('List append identity')
+@prop('list append identity')
 def _pos_black_list_append_identity(
-    xs: List[int],
+    xs: list[int],
     x: int
     ) -> bool:
     xs.append(x)
     return xs[-1] == x
 
 @context(d.list(d.int()), d.int())
-@prop('List append length identity')
+@prop('list append length identity')
 def _pos_black_list_append_length_identity(
-    xs: List[int],
+    xs: list[int],
     x: int
     ) -> bool:
     xs1 = xs.copy()
@@ -241,9 +252,9 @@ def _pos_black_list_append_length_identity(
     return len(xs1) == len(xs) + 1
 
 @context(d.list(d.int()), d.int())
-@prop('List remove identity')
+@prop('list remove identity')
 def _pos_black_list_remove_identity(
-    xs: List[int],
+    xs: list[int],
     x: int
     ) -> bool:
     xs1 = xs.copy()
@@ -252,9 +263,9 @@ def _pos_black_list_remove_identity(
     return xs == xs1
 
 @context(d.list(d.int()), d.int())
-@prop('List remove length identity')
+@prop('list remove length identity')
 def _pos_black_list_remove_length_identity(
-    xs: List[int],
+    xs: list[int],
     x: int
     ) -> bool:
     xs.append(x)
@@ -263,16 +274,16 @@ def _pos_black_list_remove_length_identity(
     return len(xs1) == len(xs) - 1
 
 @context(d.list(d.int()), d.list(d.int()))
-@prop('List length concat distributes with add')
+@prop('list length concat distributes with add')
 def _pos_black_list_concat_length_add_dist(
-    xs: List[int],
-    ys: List[int]
+    xs: list[int],
+    ys: list[int]
     ) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
 
 @context(d.list(d.int(), ordered = o.int))
 @prop('Ordered list items are sorted')
-def _pos_black_list_sorted(xs: List[int]) -> bool:
+def _pos_black_list_sorted(xs: list[int]) -> bool:
     if len(xs) == 0: return True
     return all([ xs[i] <= xs[i+1] for i in range(len(xs)-1) ])
 
@@ -282,7 +293,7 @@ def _pos_black_list_sorted(xs: List[int]) -> bool:
 @context(d.dict(d.int(), d.int()), d.int(), d.int())
 @prop('Dictionary insert identity')
 def _pos_black_dict_insert_identity(
-    kvs: Dict[int, int],
+    kvs: dict[int, int],
     k: int,
     v: int
     ) -> bool:
@@ -292,7 +303,7 @@ def _pos_black_dict_insert_identity(
 @context(d.dict(d.int(), d.int()), d.int(), d.int())
 @prop('Dictionary remove identity')
 def _pos_black_dict_remove_identity(
-    kvs: Dict[int, int],
+    kvs: dict[int, int],
     k: int,
     v: int
     ) -> bool:
@@ -316,20 +327,20 @@ def _pos_white_domain_infer_str(v: str) -> bool:
     return type(v) == str
 
 @prop('Domain infer tuple')
-def _pos_white_domain_infer_tuple(v: Tuple[int]) -> bool:
+def _pos_white_domain_infer_tuple(v: tuple[int]) -> bool:
     return type(v) == tuple
 
 @prop('Domain infer list')
-def _pos_white_domain_infer_list(bs: List[int]) -> bool:
+def _pos_white_domain_infer_list(bs: list[int]) -> bool:
     return type(bs) == list
 
 @prop('Domain infer dict')
-def _pos_white_domain_infer_dict(kvs: Dict[int, int]) -> bool:
+def _pos_white_domain_infer_dict(kvs: dict[int, int]) -> bool:
     return type(kvs) == dict
 
 @prop('Domain inter maybe')
-def _pos_white_domain_infer_maybe(mi: m.Maybe[int]) -> bool:
-    return m.is_maybe(type(mi))
+def _pos_white_domain_infer_maybe(mi: Maybe[int]) -> bool:
+    return type(mi) == Maybe
 
 ###############################################################################
 # Running test suite

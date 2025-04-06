@@ -1,20 +1,23 @@
 # External module dependencies
-from typing import TypeVar
+from returns.maybe import (
+    Maybe,
+    Nothing,
+    Some
+)
 
 # Internal module dependencies
-from . import arbitrary as a
-from . import generate as g
-from . import stream as fs
-from . import maybe as m
+from . import (
+    arbitrary as a,
+    generate as g,
+    stream as fs
+)
 
-T = TypeVar('T')
-
-def slice(
+def slice[T](
     generator: g.Generator[T],
     max_width: int,
     max_depth: int,
     state: a.State
-    ) -> tuple[a.State, m.Maybe[list[T]]]:
+    ) -> tuple[a.State, Maybe[list[T]]]:
     """Sample a domain slice over a type `T`, outputting a list of values of type `T`, where the first value is randomly sampled from the given generator over `T`, and the following values in the list being a random path down through the shrink tree of that initially sampled value.
 
     :param generator: A generator over the type `T`.
@@ -27,12 +30,12 @@ def slice(
     :type state: `minigun.arbitrary.State`
 
     :return: A tuple with the next RNG state and the potentially sampled domain slice.
-    :rtype: `Tuple[minigun.arbitrary.State, minigun.maybe.Maybe[List[T]]]`
+    :rtype: `tuple[minigun.arbitrary.State, returns.maybe.Maybe[list[T]]]`
     """
     state, maybe_dissection = generator(state)
     match maybe_dissection:
-        case m.Nothing(): return state, m.Nothing()
-        case m.Something(dissection):
+        case Maybe.empty: return state, Nothing
+        case Some(dissection):
             items: list[T] = []
             for _ in range(max_depth):
                 item, dissection_stream = dissection
@@ -40,4 +43,5 @@ def slice(
                 dissections = fs.to_list(dissection_stream, max_width)
                 if len(dissections) == 0: break
                 state, dissection = a.choice(state, dissections)
-            return state, m.Something(items)
+            return state, Some(items)
+        case _: assert False, 'Invariant'

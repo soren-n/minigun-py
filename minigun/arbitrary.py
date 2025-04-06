@@ -1,29 +1,29 @@
 # External module dependencies
 from typing import (
-    Any,
-    TypeVar,
-    NewType,
     Optional,
-    Tuple,
-    List
+    Any
 )
 import random
 
 ###############################################################################
 # Localizing intrinsics
 ###############################################################################
-_Bool = bool
-_Int = int
-_Float = float
+from builtins import (
+    bool as _bool,
+    int as _int,
+    float as _float,
+    list as _list,
+    tuple as _tuple
+)
 
 ###############################################################################
 # PRNG state
 ###############################################################################
 
 #: A state from which to generate a random value.
-State = NewType('State', Tuple[Any, ...])
+type State = _tuple[Any, ...]
 
-def seed(value: Optional[_Int] = None) -> State:
+def seed(value: Optional[_int] = None) -> State:
     """Constructor to seed an initial state for Minigun's PRNG module.
 
     :param value: An optional integer to be used as the seed.
@@ -33,12 +33,12 @@ def seed(value: Optional[_Int] = None) -> State:
     :rtype: `State`
     """
     random.seed(value)
-    return State(random.getstate())
+    return random.getstate()
 
 ###############################################################################
 # Boolean
 ###############################################################################
-def bool(state: State) -> Tuple[State, _Bool]:
+def bool(state: State) -> _tuple[State, _bool]:
     """ Generate a random boolean value.
 
     :param state: A state from which to generate a random value.
@@ -49,16 +49,16 @@ def bool(state: State) -> Tuple[State, _Bool]:
     """
     random.setstate(state)
     result = random.randint(0, 1) == 1
-    return State(random.getstate()), result
+    return random.getstate(), result
 
 ###############################################################################
 # Numbers
 ###############################################################################
 def nat(
     state: State,
-    lower_bound: _Int,
-    upper_bound: _Int
-    ) -> Tuple[State, _Int]:
+    lower_bound: _int,
+    upper_bound: _int
+    ) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`0 <= n <= bound`.
 
     :param state: A state from which to generate a random value.
@@ -76,13 +76,13 @@ def nat(
     if lower_bound == upper_bound: return state, upper_bound
     random.setstate(state)
     result = random.randint(lower_bound, upper_bound)
-    return State(random.getstate()), result
+    return random.getstate(), result
 
 def int(
     state: State,
-    lower_bound: _Int,
-    upper_bound: _Int
-    ) -> Tuple[State, _Int]:
+    lower_bound: _int,
+    upper_bound: _int
+    ) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
 
     :param state: A state from which to generate a random value.
@@ -99,9 +99,9 @@ def int(
     if lower_bound == upper_bound: return state, lower_bound
     random.setstate(state)
     result = random.randint(lower_bound, upper_bound)
-    return State(random.getstate()), result
+    return random.getstate(), result
 
-def probability(state: State) -> Tuple[State, _Float]:
+def probability(state: State) -> _tuple[State, _float]:
     """Generate a random float value :code:`n` in the range :code:`0.0 <= n <= 1.0`.
 
     :param state: A state from which to generate a random value.
@@ -112,13 +112,13 @@ def probability(state: State) -> Tuple[State, _Float]:
     """
     random.setstate(state)
     result = random.uniform(0.0, 1.0)
-    return State(random.getstate()), result
+    return random.getstate(), result
 
 def float(
     state: State,
-    lower_bound: _Float,
-    upper_bound: _Float
-    ) -> Tuple[State, _Float]:
+    lower_bound: _float,
+    upper_bound: _float
+    ) -> _tuple[State, _float]:
     """Generate a random float value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
 
     :param state: A state from which to generate a random value.
@@ -129,54 +129,53 @@ def float(
     :type upper_bound: `float`
 
     :return: A tuple of a modified state taken after random generation and a generated random value.
-    :rtype: `Tuple[State, float]`
+    :rtype: `tuple[State, float]`
     """
     assert lower_bound <= upper_bound
     if lower_bound == upper_bound: return state, upper_bound
     random.setstate(state)
     result = random.uniform(lower_bound, upper_bound)
-    return State(random.getstate()), result
+    return random.getstate(), result
 
 ###############################################################################
 # Sequences
 ###############################################################################
-A = TypeVar('A')
-def weighted_choice(
+def weighted_choice[T](
     state: State,
-    weights: List[_Int],
-    choices: List[A]
-    ) -> Tuple[State, A]:
+    weights: _list[_int],
+    choices: _list[T]
+    ) -> _tuple[State, T]:
     """Select a random item from a list of weighted choices.
 
     :param state: A state from which to generate a random value.
     :type state: `State`
     :param choices: A list of items to choose from, must have same length as `weights`.
-    :type choices: `List[A]`
+    :type choices: `List[T]`
     :param weights: A list of chances for each item in `choices`, must have same length as `choices`.
     :type weights: `List[int]`
 
     :return: A tuple of a modified state taken after random choice of a random item.
-    :rtype: `Tuple[State, A]`
+    :rtype: `tuple[State, T]`
     """
     assert len(choices) > 0
     assert len(choices) == len(weights)
     if len(choices) == 1: return state, choices[0]
     random.setstate(state)
     result = random.choices(choices, weights, k = 1)[0]
-    return State(random.getstate()), result
+    return random.getstate(), result
 
-def choice(
+def choice[T](
     state: State,
-    choices: List[A]
-    ) -> Tuple[State, A]:
+    choices: _list[T]
+    ) -> tuple[State, T]:
     """Select a random item from a list of choices.
 
     :param state: A state from which to generate a random value.
     :type state: `State`
     :param choices: A list of items to choose from.
-    :type choices: `List[A]`
+    :type choices: `List[T]`
 
     :return: A tuple of a modified state taken after random choice of a random item.
-    :rtype: `Tuple[State, A]`
+    :rtype: `tuple[State, T]`
     """
     return weighted_choice(state, [1] * len(choices), choices)

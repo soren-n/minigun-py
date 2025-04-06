@@ -1,14 +1,13 @@
 # External module dependencies
 from typing import (
     cast,
-    Any,
-    ParamSpec,
-    Generic,
-    List,
-    Dict,
-    Tuple,
     Callable,
-    Optional
+    Optional,
+    Any
+)
+from returns.maybe import (
+    Maybe,
+    Some
 )
 from dataclasses import dataclass
 from inspect import signature
@@ -19,18 +18,13 @@ import shutil
 import os
 
 # Internal module dependencies
-from . import arbitrary as a
-from . import generate as g
-from . import domain as d
-from . import search as s
-from . import pretty as p
-from . import maybe as m
-
-###############################################################################
-# Type variables
-###############################################################################
-P = ParamSpec('P')
-Q = ParamSpec('Q')
+from . import (
+    arbitrary as a,
+    generate as g,
+    domain as d,
+    search as s,
+    pretty as p
+)
 
 ###############################################################################
 # Spec constructors
@@ -40,15 +34,15 @@ class Spec:
     """Representation of a specification."""
 
 @dataclass
-class _Prop(Spec, Generic[P]):
+class _Prop[**P](Spec):
     desc: str
     attempts: int
     law: Callable[P, bool]
-    ordering: List[str]
-    generators: Dict[str, m.Maybe[g.Generator[Any]]]
-    printers: Dict[str, m.Maybe[p.Printer[Any]]]
+    ordering: list[str]
+    generators: dict[str, Maybe[g.Generator[Any]]]
+    printers: dict[str, Maybe[p.Printer[Any]]]
 
-def prop(desc: str):
+def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
     """Decorator for property specfications.
 
     :param desc: A description of the decorated law.
@@ -57,19 +51,19 @@ def prop(desc: str):
     :return: A property specification.
     :rtype: `Spec`
     """
-    def _decorate(law: Callable[P, bool]):
+    def _decorate(law: Callable[P, bool]) -> Spec:
 
         # Law type signature
         sig = signature(law)
         params = list(sig.parameters.keys())
         param_types = {
-            p.name: cast(type, p.annotation)
-            for p in sig.parameters.values()
+            param.name: cast(type, param.annotation)
+            for param in sig.parameters.values()
         }
 
         # Try to infer generators
-        generators: Dict[str, m.Maybe[g.Generator[Any]]] = {}
-        printers: Dict[str, m.Maybe[p.Printer[Any]]] = {}
+        generators: dict[str, Maybe[g.Generator[Any]]] = {}
+        printers: dict[str, Maybe[p.Printer[Any]]] = {}
         for param in params:
             param_type = param_types[param]
             generators[param] = g.infer(param_type)
@@ -96,7 +90,7 @@ def neg(spec: Spec) -> Spec:
 
 @dataclass
 class _Conj(Spec):
-    specs: Tuple[Spec, ...]
+    specs: tuple[Spec, ...]
 
 def conj(*specs: Spec) -> Spec:
     """A constructor for the conjunction of specfications.
@@ -111,7 +105,7 @@ def conj(*specs: Spec) -> Spec:
 
 @dataclass
 class _Disj(Spec):
-    specs: Tuple[Spec, ...]
+    specs: tuple[Spec, ...]
 
 def disj(*specs: Spec) -> Spec:
     """A constructor for the disjunction of specfications.
@@ -145,13 +139,16 @@ def impl(premise: Spec, conclusion: Spec) -> Spec:
 ###############################################################################
 # Overwrite defaults or define generators and printers for law parameters
 ###############################################################################
-def context(*lparams: d.Domain[Any], **kparams: d.Domain[Any]):
+def context(
+    *lparams: d.Domain[Any],
+    **kparams: d.Domain[Any]
+    ) -> Callable[[Spec], Spec]:
     """A decorator for defining domains of a property's parameters.
 
     :param lparam: Domains of positional parameters.
-    :type lparam: Tuple[`minigun.domain.Domain[Any]`, ...]
+    :type lparam: tuple[`minigun.domain.Domain[Any]`, ...]
     :param kparam: Domains of keyword parameters.
-    :type kparam: `Dict[str, 'minigun.domain.Domain[Any]]`
+    :type kparam: `dict[str, 'minigun.domain.Domain[Any]]`
 
     :return: A property specification.
     :rtype: `Spec`
@@ -161,11 +158,11 @@ def context(*lparams: d.Domain[Any], **kparams: d.Domain[Any]):
             case _Prop(desc, count, law, params, generators, printers):
                 _result = _Prop(desc, count, law, params, generators, printers)
                 for param, domain in zip(params[:len(params)], lparams):
-                    _result.generators[param] = m.Something(domain.generate)
-                    _result.printers[param] = m.Something(domain.print)
+                    _result.generators[param] = Some(domain.generate)
+                    _result.printers[param] = Some(domain.print)
                 for param, domain in kparams.items():
-                    _result.generators[param] = m.Something(domain.generate)
-                    _result.printers[param] = m.Something(domain.print)
+                    _result.generators[param] = Some(domain.generate)
+                    _result.printers[param] = Some(domain.print)
                 return _result
             case _: assert False, 'Invariant'
     return _decorate
@@ -203,13 +200,13 @@ def check(spec: Spec) -> bool:
         state: a.State,
         spec: Spec,
         neg: bool = False
-        ) -> Tuple[a.State, bool]:
+        ) -> tuple[a.State, bool]:
         match spec:
             case _Prop(desc, attempts, law, ordering, generators, printers):
-                _generators: Dict[str, g.Generator[Any]] = {}
+                _generators: dict[str, g.Generator[Any]] = {}
                 for param, maybe_generator in generators.items():
                     match maybe_generator:
-                        case m.Nothing():
+                        case Maybe.empty:
                             logging.error(
                                 'No generator was inferred or defined '
                                 'for parameter \"%s\" of property \"%s\"' % (
@@ -217,12 +214,13 @@ def check(spec: Spec) -> bool:
                                 )
                             )
                             return state, False
-                        case m.Something(generator):
+                        case Some(generator):
                             _generators[param] = generator
-                _printers: Dict[str, p.Printer[Any]] = {}
+                        case _: assert False, 'Invariant'
+                _printers: dict[str, p.Printer[Any]] = {}
                 for param, maybe_printer in printers.items():
                     match maybe_printer:
-                        case m.Nothing():
+                        case Maybe.empty:
                             logging.error(
                                 'No printer was inferred or defined '
                                 'for parameter \"%s\" of property \"%s\"' % (
@@ -230,21 +228,22 @@ def check(spec: Spec) -> bool:
                                 )
                             )
                             return state, False
-                        case m.Something(printer):
+                        case Some(printer):
                             _printers[param] = printer
+                        case _: assert False, 'Invariant'
                 printer = p.argument_pack(ordering, _printers)
                 state, maybe_counter_example = s.find_counter_example(
                     state, attempts, law, _generators
                 )
                 match maybe_counter_example:
-                    case m.Nothing():
+                    case Maybe.empty:
                         if not neg: return state, True
                         logging.error(
                             'Found no counter example for \"%s\" '
                             'however one was expected!' % desc
                         )
                         return state, False
-                    case m.Something(args):
+                    case Some(args):
                         if neg: return state, True
                         logging.error(
                             'A test case of \"%s\" failed with the '
@@ -253,6 +252,7 @@ def check(spec: Spec) -> bool:
                             )
                         )
                         return state, False
+                    case _: assert False, 'Invariant'
             case _Neg(term):
                 return _visit(state, term, not neg)
             case _Conj(terms):

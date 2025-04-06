@@ -1,16 +1,13 @@
 # External module dependencies
 from typing import (
-    TypeVar,
     Callable,
-    Iterator,
-    List
+    Iterator
 )
 from enum import Enum
 
 ###############################################################################
 # Total order
 ###############################################################################
-T = TypeVar('T')
 
 class Total(Enum):
     Eq = 'Eq'
@@ -18,19 +15,21 @@ class Total(Enum):
     Gt = 'Gt'
 
 #: A function defining a total order over a type `T`
-Order = Callable[[T, T], Total]
+type Order[T] = Callable[[T, T], Total]
 
 ###############################################################################
-# Localizing intrinsics
+# Localizing builtins
 ###############################################################################
-_Int = int
-_Float = float
-_Str = str
+from builtins import (
+    int as _int,
+    float as _float,
+    str as _str,
+)
 
 ###############################################################################
 # Orders
 ###############################################################################
-def int(left: _Int, right: _Int) -> Total:
+def int(left: _int, right: _int) -> Total:
     """A total order over `int`.
 
     :param left: An instance of `int`.
@@ -46,7 +45,7 @@ def int(left: _Int, right: _Int) -> Total:
     if left < right: return Total.Lt
     return Total.Gt
 
-def float(epsilon: _Float) -> Order[_Float]:
+def float(epsilon: _float) -> Order[_float]:
     """A total order over `float` given a epsilon.
 
     :param epsilon: An epsilon value to use in modulo comparison.
@@ -56,14 +55,14 @@ def float(epsilon: _Float) -> Order[_Float]:
     :rtype: `Order[float]`
     """
 
-    def _compare(left: _Float, right: _Float) -> Total:
+    def _compare(left: _float, right: _float) -> Total:
         delta = left - right
         if delta < epsilon: return Total.Eq
         if left < right: return Total.Lt
         return Total.Gt
     return _compare
 
-def str(left: _Str, right: _Str) -> Total:
+def str(left: _str, right: _str) -> Total:
     """A total order over `str`.
 
     :param left: An instance of `str`.
@@ -82,20 +81,20 @@ def str(left: _Str, right: _Str) -> Total:
 ###############################################################################
 # Selection sort using medians of medians
 ###############################################################################
-def sort(order: Order[T], items: List[T]) -> list[T]:
+def sort[T](order: Order[T], items: list[T]) -> list[T]:
     """A sorting function for lists over a given type `T`, using a given total order of the given type `T`.
 
     :param order: A function defining a total order over the given type `T`.
     :type order: `Order[T]`
     :param items: A list of elements over the given type `T`.
-    :type items: `List[T]`
+    :type items: `list[T]`
 
     :return: A sorted list over type `T`.
-    :rtype: `List[T]`
+    :rtype: `list[T]`
     """
 
-    def _median(items: List[T]) -> T:
-        def _chunks(items: List[T], size: _Int) -> Iterator[List[T]]:
+    def _median(items: list[T]) -> T:
+        def _chunks(items: list[T], size: _int) -> Iterator[list[T]]:
             for offset in range(0, len(items), size):
                 yield items[offset:offset+size]
         def _sort2(a: T, b: T) -> tuple[T, T]:
@@ -120,7 +119,7 @@ def sort(order: Order[T], items: List[T]) -> list[T]:
             b, c = _sort2(b, c)
             a, b = _sort2(a, b)
             return a, b, c, d, e
-        def _brute(chunk: List[T]) -> T:
+        def _brute(chunk: list[T]) -> T:
             match len(chunk):
                 case 1: return chunk[0]
                 case 2: return _sort2(*chunk)[0]
@@ -132,9 +131,9 @@ def sort(order: Order[T], items: List[T]) -> list[T]:
             items = [ _brute(chunk) for chunk in _chunks(items, 5) ]
         return _brute(items)
 
-    def _partition(items: List[T], pivot: T) -> tuple[List[T], List[T]]:
-        xs: List[T] = list()
-        ys: List[T] = list()
+    def _partition(items: list[T], pivot: T) -> tuple[list[T], list[T]]:
+        xs: list[T] = list()
+        ys: list[T] = list()
         for item in items:
             match order(pivot, item):
                 case Total.Eq: continue
@@ -143,8 +142,8 @@ def sort(order: Order[T], items: List[T]) -> list[T]:
         return xs, ys
 
     if len(items) <= 1: return items
-    result: List[T] = list()
-    stack: List[List[T]] = [items]
+    result: list[T] = list()
+    stack: list[list[T]] = [items]
     while len(stack) != 0:
         items = stack.pop(-1)
         if len(items) <= 1:

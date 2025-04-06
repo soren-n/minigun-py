@@ -1,36 +1,37 @@
 # External module dependencies
 from dataclasses import dataclass
+from returns.maybe import Maybe
 from typing import (
-    Any,
-    TypeVar,
-    Generic,
     Optional,
-    Tuple,
-    List,
-    Dict,
-    Set
+    Any
 )
 
 # Internal module dependencies
-from . import generate as g
-from . import pretty as p
-from . import order as o
-from . import maybe as m
+from . import (
+    generate as g,
+    pretty as p,
+    order as o
+)
 
 ###############################################################################
-# Localizing intrinsics
+# Localizing builtins
 ###############################################################################
-_Int = int
-_Float = float
-_Str = str
+from builtins import (
+    bool as _bool,
+    int as _int,
+    float as _float,
+    str as _str,
+    dict as _dict,
+    list as _list,
+    set as _set,
+    tuple as _tuple
+)
 
 ###############################################################################
 # Domain
 ###############################################################################
-T = TypeVar('T')
-
 @dataclass
-class Domain(Generic[T]):
+class Domain[T]:
     """A domain datatype over a type `T`.
 
     :param generate: A generator over a type `T`.
@@ -44,7 +45,7 @@ class Domain(Generic[T]):
 ###############################################################################
 # Boolean
 ###############################################################################
-def bool():
+def bool() -> Domain[_bool]:
     """A domain for booleans.
 
     :return: A domain of bool.
@@ -58,7 +59,7 @@ def bool():
 ###############################################################################
 # Numbers
 ###############################################################################
-def small_nat() -> Domain[_Int]:
+def small_nat() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`0 <= n <= 100`.
 
     :return: A domain of int.
@@ -69,7 +70,7 @@ def small_nat() -> Domain[_Int]:
         p.int()
     )
 
-def nat() -> Domain[_Int]:
+def nat() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`0 <= n <= 10000`.
 
     :return: A domain of int.
@@ -80,7 +81,7 @@ def nat() -> Domain[_Int]:
         p.int()
     )
 
-def big_nat() -> Domain[_Int]:
+def big_nat() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`0 <= n <= 1000000`.
 
     :return: A domain of int.
@@ -91,7 +92,7 @@ def big_nat() -> Domain[_Int]:
         p.int()
     )
 
-def small_int() -> Domain[_Int]:
+def small_int() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`-100 <= n <= 100`.
 
     :return: A domain of int.
@@ -102,7 +103,7 @@ def small_int() -> Domain[_Int]:
         p.int()
     )
 
-def int() -> Domain[_Int]:
+def int() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`-10000 <= n <= 10000`.
 
     :return: A domain of int.
@@ -113,7 +114,7 @@ def int() -> Domain[_Int]:
         p.int()
     )
 
-def big_int() -> Domain[_Int]:
+def big_int() -> Domain[_int]:
     """A domain for integers :code:`n` in the range :code:`-1000000 <= n <= 1000000`.
 
     :return: A domain of int.
@@ -124,7 +125,7 @@ def big_int() -> Domain[_Int]:
         p.int()
     )
 
-def float() -> Domain[_Float]:
+def float() -> Domain[_float]:
     """A domain for floats :code:`n` in the range :code:`-e^15 <= n <= e^15`.
 
     :return: A domain of float.
@@ -139,9 +140,9 @@ def float() -> Domain[_Float]:
 # Ranges
 ###############################################################################
 def int_range(
-    lower_bound: _Int,
-    upper_bound: _Int
-    ) -> Domain[_Int]:
+    lower_bound: _int,
+    upper_bound: _int
+    ) -> Domain[_int]:
     """A domain for indices :code:`i` in the range :code:`lower_bound <= i <= upper_bound`.
 
     :param lower_bound: A min bound for the sampled value, must be less than or equal to `upper_bound`.
@@ -161,10 +162,10 @@ def int_range(
 # Strings
 ###############################################################################
 def bounded_str(
-    lower_bound: _Int,
-    upper_bound: _Int,
-    alphabet: _Str
-    ) -> Domain[_Str]:
+    lower_bound: _int,
+    upper_bound: _int,
+    alphabet: _str
+    ) -> Domain[_str]:
     """A domain for strings over a given alphabet with bounded length :code:`l` in the range :code:`lower_bound <= l <= upper_bound`.
 
     :param lower_bound: A min bound for the length of the sampled value, must be less than or equal to `upper_bound`.
@@ -182,7 +183,7 @@ def bounded_str(
         p.str()
     )
 
-def str() -> Domain[_Str]:
+def str() -> Domain[_str]:
     """A domain for strings over all printable ascii characters.
 
     :return: A domain of str.
@@ -193,7 +194,7 @@ def str() -> Domain[_Str]:
         p.str()
     )
 
-def word() -> Domain[_Str]:
+def word() -> Domain[_str]:
     """A domain for strings over ascii alphabet characters.
 
     :return: A domain of str.
@@ -207,14 +208,14 @@ def word() -> Domain[_Str]:
 ###############################################################################
 # Tuples
 ###############################################################################
-def tuple(*domains: Domain[Any]) -> Domain[Tuple[Any, ...]]:
+def tuple(*domains: Domain[Any]) -> Domain[_tuple[Any, ...]]:
     """A domain of tuples over given value generators of type `A`, `B`, etc.
 
     :param domains: Value domains over types `A`, `B`, etc. to generate tuple values from.
-    :type domain: `Tuple[Domain[A], Domain[B], ...]`
+    :type domain: `tuple[Domain[A], Domain[B], ...]`
 
     :return: A domain of tuples over types `A`, `B`, etc.
-    :rtype: `Domain[Tuple[A, B, ...]]`
+    :rtype: `Domain[tuple[A, B, ...]]`
     """
     return Domain(
         g.tuple(*[domain.generate for domain in domains]),
@@ -224,12 +225,12 @@ def tuple(*domains: Domain[Any]) -> Domain[Tuple[Any, ...]]:
 ###############################################################################
 # List
 ###############################################################################
-def bounded_list(
-    lower_bound: _Int,
-    upper_bound: _Int,
+def bounded_list[T](
+    lower_bound: _int,
+    upper_bound: _int,
     domain: Domain[T],
     ordered: Optional[o.Order[T]] = None
-    ) -> Domain[List[T]]:
+    ) -> Domain[_list[T]]:
     """A domain for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
 
     :param lower_bound: A min bound for the length of the sampled list, must be less than or equal to `upper_bound`.
@@ -242,7 +243,7 @@ def bounded_list(
     :type ordering: `bool` (default: `False`)
 
     :return: A domain of lists over type `T`.
-    :rtype: `Domain[List[T]]`
+    :rtype: `Domain[list[T]]`
     """
     return Domain(
         g.bounded_list(
@@ -254,10 +255,10 @@ def bounded_list(
         p.list(domain.print)
     )
 
-def list(
+def list[T](
     domain: Domain[T],
     ordered: Optional[o.Order[T]] = None
-    ) -> Domain[List[T]]:
+    ) -> Domain[_list[T]]:
     """A domain for lists over a given type `T`.
 
     :param domain: A value domain from which list items are samples.
@@ -266,7 +267,7 @@ def list(
     :type ordering: `bool` (default: `False`)
 
     :return: A domain of lists over type `T`.
-    :rtype: `Domain[List[T]]`
+    :rtype: `Domain[list[T]]`
     """
     return Domain(
         g.list(
@@ -279,14 +280,12 @@ def list(
 ###############################################################################
 # Dictionary
 ###############################################################################
-K = TypeVar('K')
-V = TypeVar('V')
-def bounded_dict(
-    lower_bound: _Int,
-    upper_bound: _Int,
+def bounded_dict[K, V](
+    lower_bound: _int,
+    upper_bound: _int,
     key_domain: Domain[K],
     value_domain: Domain[V]
-    ) -> Domain[Dict[K, V]]:
+    ) -> Domain[_dict[K, V]]:
     """A domain for dicts over a given key type `K` and value type `V` with bounded size :code:`s` in the range :code:`0 <= lower_bound <= s <= upper_bound`.
 
     :param lower_bound: A min bound for the size of the sampled dict, must be less than or equal to `upper_bound`.
@@ -299,7 +298,7 @@ def bounded_dict(
     :type value_domain: `Domain[V]`
 
     :return: A domain of dicts over key type `K` and value type `V`.
-    :rtype: `Domain[Dict[K, V]]`
+    :rtype: `Domain[dict[K, V]]`
     """
     return Domain(
         g.bounded_dict(
@@ -314,10 +313,10 @@ def bounded_dict(
         )
     )
 
-def dict(
+def dict[K, V](
     key_domain: Domain[K],
     value_domain: Domain[V]
-    ) -> Domain[Dict[K, V]]:
+    ) -> Domain[_dict[K, V]]:
     """A domain for dicts over a given key type `K` and value type `V`.
 
     :param key_domain: A key domain from which dict keys are samples.
@@ -326,7 +325,7 @@ def dict(
     :type value_domain: `Domain[V]`
 
     :return: A domain of dicts over key type `K` and value type `V`.
-    :rtype: `Domain[Dict[K, V]]`
+    :rtype: `Domain[dict[K, V]]`
     """
     return Domain(
         g.dict(
@@ -342,11 +341,11 @@ def dict(
 ###############################################################################
 # Sets
 ###############################################################################
-def bounded_set(
-    lower_bound: _Int,
-    upper_bound: _Int,
+def bounded_set[T](
+    lower_bound: _int,
+    upper_bound: _int,
     domain: Domain[T]
-    ) -> Domain[Set[T]]:
+    ) -> Domain[_set[T]]:
     """A domain for sets over a given type `T` with bounded size :code:`s` in the range :code:`0 <= lower_bound <= s <= upper_bound`.
 
     :param lower_bound: A min bound for the size of the sampled set, must be less than or equal to `upper_bound`.
@@ -357,7 +356,7 @@ def bounded_set(
     :type domain: `Domain[T]`
 
     :return: A domain of sets over type `T`.
-    :rtype: `Domain[Set[T]]`
+    :rtype: `Domain[set[T]]`
     """
     return Domain(
         g.bounded_set(
@@ -368,14 +367,14 @@ def bounded_set(
         p.set(domain.print)
     )
 
-def set(domain: Domain[T]) -> Domain[Set[T]]:
+def set[T](domain: Domain[T]) -> Domain[_set[T]]:
     """A domain for sets over a given type `T`.
 
     :param domain: A value domain from which set items are samples.
     :type domain: `Domain[T]`
 
     :return: A domain of sets over type `T`.
-    :rtype: `Domain[Set[T]]`
+    :rtype: `Domain[set[T]]`
     """
     return Domain(
         g.set(domain.generate),
@@ -385,16 +384,16 @@ def set(domain: Domain[T]) -> Domain[Set[T]]:
 ###############################################################################
 # Maybe
 ###############################################################################
-def maybe(
+def maybe[T](
     domain: Domain[T]
-    ) -> Domain[m.Maybe[T]]:
+    ) -> Domain[Maybe[T]]:
     """A domain of maybe over a given type `T`.
 
     :param domain: A value domain to map maybe over.
     :type domain: `Domain[T]`
 
     :return: A domain of maybe over type `T`.
-    :rtype: `Domain[minigun.maybe.Maybe[T]]`
+    :rtype: `Domain[returns.maybe.Maybe[T]]`
     """
     return Domain(
         g.maybe(domain.generate),
@@ -405,16 +404,16 @@ def maybe(
 # Argument packs
 ###############################################################################
 def argument_pack(
-    ordering: List[_Str],
-    domains: Dict[_Str, Domain[Any]]
-    ) -> Domain[Dict[_Str, Any]]:
+    ordering: _list[_str],
+    domains: _dict[_str, Domain[Any]]
+    ) -> Domain[_dict[_str, Any]]:
     """A domain of argument packs over a given set of domains.
 
     :param domains: A mapping from argument names to value domains.
-    :type domains: `Dict[str, Domain[Any]]`
+    :type domains: `dict[str, Domain[Any]]`
 
     :return: A domain of argument packs over the given domains.
-    :rtype: `Domain[Dict[str, Any]]`
+    :rtype: `Domain[dict[str, Any]]`
     """
     return Domain(
         g.argument_pack({

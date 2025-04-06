@@ -1,40 +1,41 @@
 # External module dependencies
 from typing import (
     cast,
-    Any,
-    TypeVar,
-    ParamSpec,
     Callable,
-    Tuple
+    Any
+)
+from returns.maybe import (
+    Maybe,
+    Nothing,
+    Some
 )
 import math
 
 # Internal module dependencies
-from . import maybe as m
 from . import stream as fs
 
 ###############################################################################
-# Localizing intrinsics
+# Localizing builtins
 ###############################################################################
-_Bool = bool
-_Int = int
-_Float = float
-_Str = str
+from builtins import (
+    bool as _bool,
+    int as _int,
+    float as _float,
+    str as _str,
+    tuple as _tuple
+)
 
 ###############################################################################
 # Shrink state
 ###############################################################################
-T = TypeVar('T')
-P = ParamSpec('P')
-R = TypeVar('R')
 
 #: Dissection datatype defined over a type parameter `T`.
-Dissection = Tuple[T, fs.Stream['Dissection[T]']]
+type Dissection[T] = _tuple[T, fs.Stream['Dissection[T]']]
 
 #: Shrinker datatype defined over a type parameter `T.
-Shrinker = Callable[[T], Dissection[T]]
+type Shrinker[T] = Callable[[T], Dissection[T]]
 
-def head(dissection: Dissection[T]) -> T:
+def head[T](dissection: Dissection[T]) -> T:
     """Get dissection head.
 
     :param dissection: A dissection to get the head from.
@@ -45,7 +46,7 @@ def head(dissection: Dissection[T]) -> T:
     """
     return dissection[0]
 
-def tail(dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
+def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     """Get dissection tail.
 
     :param dissection: A dissection to get the tail from.
@@ -56,7 +57,7 @@ def tail(dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     """
     return dissection[1]
 
-def map(
+def map[**P, R](
     func: Callable[P, R],
     *dissections: Dissection[Any]
     ) -> Dissection[R]:
@@ -65,7 +66,7 @@ def map(
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
     :type func: `A x B x ... -> R`
     :param dissections: Input dissections over types `A`, `B`, etc. to map from.
-    :type dissections: `Tuple[Dissection[A], Dissection[B], ...]`
+    :type dissections: `tuple[Dissection[A], Dissection[B], ...]`
 
     :return: A mapped output dissection.
     :rtype: `Dissection[R]`
@@ -83,7 +84,7 @@ def map(
         past = len(input_dissections)
         tails = [ tail(dissection) for dissection in input_dissections ]
         def _shift_horizontal(
-            index: _Int
+            index: _int
             ) -> fs.Stream[Dissection[R]]:
             if past <= index: return fs.empty()
             def _shift_vertical(
@@ -102,7 +103,7 @@ def map(
         return _shift_horizontal(0)
     return _combine(list(dissections))
 
-def bind(
+def bind[**P, R](
     func: Callable[P, Dissection[R]],
     *dissections: Dissection[Any]
     ) -> Dissection[R]:
@@ -111,7 +112,7 @@ def bind(
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output dissection of type `R`.
     :type func: `A x B x ... -> Dissection[R]`
     :param dissections: Input dissections over types `A`, `B`, etc. to map from.
-    :type dissections: `Tuple[Dissection[A], Dissection[B], ...]`
+    :type dissections: `tuple[Dissection[A], Dissection[B], ...]`
 
     :return: A bound output dissection.
     :rtype: `Dissection[R]`
@@ -132,7 +133,7 @@ def bind(
         past = len(input_dissections)
         tails = [ tail(dissection) for dissection in input_dissections ]
         def _shift_horizontal(
-            index: _Int
+            index: _int
             ) -> fs.Stream[Dissection[R]]:
             if past <= index: return fs.empty()
             def _shift_vertical(
@@ -151,10 +152,10 @@ def bind(
         return _shift_horizontal(0)
     return _combine(list(dissections))
 
-def filter(
-    predicate: Callable[[T], _Bool],
+def filter[T](
+    predicate: Callable[[T], _bool],
     dissection: Dissection[T]
-    ) -> m.Maybe[Dissection[T]]:
+    ) -> Maybe[Dissection[T]]:
     """Filter a dissection of type `T`.
 
     :param predicate: A predicate on type `T`.
@@ -165,7 +166,7 @@ def filter(
     :return: A dissection of type `T`.
     :rtype: `Dissection[T]`
     """
-    def _predicate(dissection: Dissection[T]) -> _Bool:
+    def _predicate(dissection: Dissection[T]) -> _bool:
         return predicate(head(dissection))
 
     return fs.peek(cast(
@@ -173,7 +174,7 @@ def filter(
         fs.filter(_predicate, fs.singleton(dissection))
     ))
 
-def concat(
+def concat[T](
     left: Dissection[T],
     right: Dissection[T]
     ) -> Dissection[T]:
@@ -189,7 +190,7 @@ def concat(
     """
     return left[0], fs.append(left[1], right)
 
-def prepend(value: T, dissection: Dissection[T]) -> Dissection[T]:
+def prepend[T](value: T, dissection: Dissection[T]) -> Dissection[T]:
     """Prepend a value to a dissection.
 
     :param value: The value to be prepended.
@@ -202,7 +203,7 @@ def prepend(value: T, dissection: Dissection[T]) -> Dissection[T]:
     """
     return value, fs.singleton(dissection)
 
-def append(dissection: Dissection[T], value: T) -> Dissection[T]:
+def append[T](dissection: Dissection[T], value: T) -> Dissection[T]:
     """Append a value to a dissection.
 
     :param dissection: The dissection to be appended to.
@@ -215,7 +216,7 @@ def append(dissection: Dissection[T], value: T) -> Dissection[T]:
     """
     return dissection[0], fs.append(dissection[1], singleton(value))
 
-def singleton(value: T) -> Dissection[T]:
+def singleton[T](value: T) -> Dissection[T]:
     """A singleton dissection containing a single unshrinkable value.
 
     :param value: An unshrinkable value.
@@ -231,12 +232,12 @@ def singleton(value: T) -> Dissection[T]:
 ###############################################################################
 
 #: A timmer over a type `T`
-Trimmer = Callable[[T], fs.Stream[T]]
+type Trimmer[T] = Callable[[T], fs.Stream[T]]
 
 ###############################################################################
 # Unfold trimmers
 ###############################################################################
-def unfold(
+def unfold[T](
     value: T,
     *trimmers: Trimmer[T]
     ) -> Dissection[T]:
@@ -256,8 +257,8 @@ def unfold(
         other_timmers = _trimmers[:index] + _trimmers[index+1:]
         maybe_shrunk, shrunk_stream = fs.next(trimmer(value))
         match maybe_shrunk:
-            case m.Nothing(): continue
-            case m.Something(shrunk):
+            case Maybe.empty: continue
+            case Some(shrunk):
                 dissections.append((shrunk, fs.map(
                     lambda shrunk_more: unfold(
                         shrunk_more,
@@ -265,22 +266,23 @@ def unfold(
                     ),
                     shrunk_stream
                 )))
+            case _: assert False, 'Invariant'
     return value, fs.from_list(dissections)
 
 ###############################################################################
 # Booleans
 ###############################################################################
-def bool() -> Shrinker[_Bool]:
-    def _trim(initial: _Bool) -> fs.Stream[_Bool]:
+def bool() -> Shrinker[_bool]:
+    def _trim(initial: _bool) -> fs.Stream[_bool]:
         return fs.singleton(not initial)
-    def _impl(value: _Bool) -> Dissection[_Bool]:
+    def _impl(value: _bool) -> Dissection[_bool]:
         return unfold(value, _trim)
     return _impl
 
 ###############################################################################
 # Numbers
 ###############################################################################
-def int(target: _Int) -> Shrinker[_Int]:
+def int(target: _int) -> Shrinker[_int]:
     """A shrinker for integers which shrinks towards a given target.
 
     :param target: A target value to shrink towards.
@@ -289,20 +291,20 @@ def int(target: _Int) -> Shrinker[_Int]:
     :return: A shrinker of int.
     :rtype: `Shrinker[T]`
     """
-    def _trim(initial: _Int) -> fs.Stream[_Int]:
+    def _trim(initial: _int) -> fs.Stream[_int]:
         def _towards(
-            state: Tuple[_Int, _Int]
-            ) -> m.Maybe[Tuple[_Int, Tuple[_Int, _Int]]]:
+            state: tuple[_int, _int]
+            ) -> Maybe[tuple[_int, tuple[_int, _int]]]:
             value, current = state
-            if current == value: return m.Nothing()
-            _value = current + _Int((value - current) / 2)
-            return m.Something((_value, (_value, current)))
+            if current == value: return Nothing
+            _value = current + _int((value - current) / 2)
+            return Some((_value, (_value, current)))
         return fs.unfold(_towards, (initial, target))
-    def _impl(value: _Int) -> Dissection[_Int]:
+    def _impl(value: _int) -> Dissection[_int]:
         return unfold(value, _trim)
     return _impl
 
-def float(target: _Float) -> Shrinker[_Float]:
+def float(target: _float) -> Shrinker[_float]:
     """A shrinker for floats which takes a target to shrink towards.
 
     :param target: A target value to shrink towards.
@@ -311,28 +313,28 @@ def float(target: _Float) -> Shrinker[_Float]:
     :return: A shrinker of float.
     :rtype: `Shrinker[float]`
     """
-    def _trim_integer_part(initial: _Float) -> fs.Stream[_Float]:
+    def _trim_integer_part(initial: _float) -> fs.Stream[_float]:
         def _towards(
-            state: Tuple[_Float, _Int]
-            ) -> m.Maybe[Tuple[_Float, Tuple[_Float, _Int]]]:
+            state: tuple[_float, _int]
+            ) -> Maybe[tuple[_float, tuple[_float, _int]]]:
             value, current = state
             value_f, value_i = math.modf(value)
-            if current == _Int(value_i): return m.Nothing()
-            _value = current + value_f + _Int((value_i - current) / 2)
-            return m.Something((_value, (_value, current)))
-        return fs.unfold(_towards, (initial, _Int(target)))
-    def _trim_fractional_part(initial: _Float) -> fs.Stream[_Float]:
+            if current == _int(value_i): return Nothing
+            _value = current + value_f + _int((value_i - current) / 2)
+            return Some((_value, (_value, current)))
+        return fs.unfold(_towards, (initial, _int(target)))
+    def _trim_fractional_part(initial: _float) -> fs.Stream[_float]:
         def _towards(
-            state: Tuple[_Int, _Float, _Float]
-            ) -> m.Maybe[Tuple[_Float, Tuple[_Int, _Float, _Float]]]:
+            state: tuple[_int, _float, _float]
+            ) -> Maybe[tuple[_float, tuple[_int, _float, _float]]]:
             count, value, current = state
             value_f, value_i = math.modf(value)
-            if count == 0: return m.Nothing()
-            if current == value_f: return m.Nothing()
+            if count == 0: return Nothing
+            if current == value_f: return Nothing
             _value = value_i + current + ((value_f - current) / 2)
-            return m.Something((_value, (count - 1, _value, current)))
+            return Some((_value, (count - 1, _value, current)))
         return fs.unfold(_towards, (10, initial, math.modf(target)[0]))
-    def _impl(value: _Float) -> Dissection[_Float]:
+    def _impl(value: _float) -> Dissection[_float]:
         return unfold(
             value,
             _trim_integer_part,
@@ -343,19 +345,19 @@ def float(target: _Float) -> Shrinker[_Float]:
 ###############################################################################
 # String
 ###############################################################################
-def str() -> Shrinker[_Str]:
+def str() -> Shrinker[_str]:
     """A shrinker for strings.
 
     :return: A shrinker of str.
     :rtype: `Shrinker[str]`
     """
-    def _trim(initial: _Str) -> fs.Stream[_Str]:
+    def _trim(initial: _str) -> fs.Stream[_str]:
         past = len(initial)
-        def _towards(index: _Int) -> m.Maybe[Tuple[_Str, _Int]]:
-            if index == past: return m.Nothing()
+        def _towards(index: _int) -> Maybe[tuple[_str, _int]]:
+            if index == past: return Nothing
             _value = initial[:index] + initial[index + 1:]
-            return m.Something((_value, index + 1))
+            return Some((_value, index + 1))
         return fs.unfold(_towards, 0)
-    def _impl(value: _Str) -> Dissection[_Str]:
+    def _impl(value: _str) -> Dissection[_str]:
         return unfold(value, _trim)
     return _impl
