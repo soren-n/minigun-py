@@ -57,8 +57,8 @@ def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     """
     return dissection[1]
 
-def map[**P, R](
-    func: Callable[P, R],
+def map[*Ts, R](
+    func: Callable[[*Ts], R],
     *dissections: Dissection[Any]
     ) -> Dissection[R]:
     """A variadic map function of given input dissections over types `A`, `B`, etc. to an output dissection over type `R`.
@@ -71,13 +71,17 @@ def map[**P, R](
     :return: A mapped output dissection.
     :rtype: `Dissection[R]`
     """
-    def _apply(*args: P.args, **kwargs: P.kwargs) -> R:
-        return func(*args, **kwargs)
+
+    assert len(dissections) == func.__code__.co_argcount, (
+        f"Function {func.__name__} expected {func.__code__.co_argcount} "
+        f"arguments, but got {len(dissections)} dissections."
+    )
+
     def _combine(
         input_dissections: list[Dissection[Any]]
         ) -> Dissection[R]:
         output_heads = [ head(dissection) for dissection in input_dissections ]
-        return _apply(*output_heads), _cartesian(input_dissections)
+        return func(*output_heads), _cartesian(input_dissections)
     def _cartesian(
         input_dissections: list[Dissection[Any]]
         ) -> fs.Stream[Dissection[R]]:
@@ -94,17 +98,14 @@ def map[**P, R](
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
             return fs.braid(
-                cast(
-                    fs.Stream[Dissection[R]],
-                    fs.map(_shift_vertical, tails[index])
-                ),
+                fs.map(_shift_vertical, tails[index]),
                 _shift_horizontal(index + 1)
             )
         return _shift_horizontal(0)
     return _combine(list(dissections))
 
-def bind[**P, R](
-    func: Callable[P, Dissection[R]],
+def bind[*Ts, R](
+    func: Callable[[*Ts], Dissection[R]],
     *dissections: Dissection[Any]
     ) -> Dissection[R]:
     """A variadic bind function of given input dissections over types `A`, `B`, etc. to an output dissection over type `R`.
@@ -117,13 +118,17 @@ def bind[**P, R](
     :return: A bound output dissection.
     :rtype: `Dissection[R]`
     """
-    def _apply(*args: P.args, **kwargs: P.kwargs) -> Dissection[R]:
-        return func(*args, **kwargs)
+
+    assert len(dissections) == func.__code__.co_argcount, (
+        f"Function {func.__name__} expected {func.__code__.co_argcount} "
+        f"arguments, but got {len(dissections)} dissections."
+    )
+
     def _combine(
         input_dissections: list[Dissection[Any]]
         ) -> Dissection[R]:
         output_heads = [ head(dissection) for dissection in input_dissections ]
-        output_head, output_tail = _apply(*output_heads)
+        output_head, output_tail = func(*output_heads)
         return output_head, fs.concat(
             output_tail, _cartesian(input_dissections)
         )
@@ -143,10 +148,7 @@ def bind[**P, R](
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
             return fs.braid(
-                cast(
-                    fs.Stream[Dissection[R]],
-                    fs.map(_shift_vertical, tails[index])
-                ),
+                fs.map(_shift_vertical, tails[index]),
                 _shift_horizontal(index + 1)
             )
         return _shift_horizontal(0)
@@ -169,10 +171,9 @@ def filter[T](
     def _predicate(dissection: Dissection[T]) -> _bool:
         return predicate(head(dissection))
 
-    return fs.peek(cast(
-        fs.Stream[Dissection[T]],
+    return fs.peek(
         fs.filter(_predicate, fs.singleton(dissection))
-    ))
+    )
 
 def concat[T](
     left: Dissection[T],
@@ -259,11 +260,13 @@ def unfold[T](
         match maybe_shrunk:
             case Maybe.empty: continue
             case Some(shrunk):
-                dissections.append((shrunk, fs.map(
-                    lambda shrunk_more: unfold(
+                def _mapping(shrunk_more: T) -> Dissection[T]:
+                    return unfold(
                         shrunk_more,
                         *other_timmers
-                    ),
+                    )
+                dissections.append((shrunk, fs.map(
+                    _mapping,
                     shrunk_stream
                 )))
             case _: assert False, 'Invariant'
