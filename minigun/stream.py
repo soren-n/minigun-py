@@ -1,4 +1,5 @@
 # External module dependencies
+from inspect import signature
 from functools import partial
 from typing import (
     cast,
@@ -83,9 +84,18 @@ def map[**P, R](
     :return: A mapped output stream.
     :rtype: `Stream[R]`
     """
+
+    func_signature = signature(func)
+    argument_count = len(func_signature.parameters)
+    assert len(streams) == argument_count, (
+        f'Function {func.__name__} expected {argument_count} '
+        f'arguments, but got {len(streams)} streams.'
+    )
+
     def _thunk() -> StreamResult[R]:
         next_values, next_streams = zip(*[stream() for stream in streams])
         return func(*next_values), map(func, *next_streams)
+
     return _thunk
 
 def filter[T](

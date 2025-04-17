@@ -1,4 +1,5 @@
 # External module dependencies
+from inspect import signature
 from typing import (
     get_origin,
     get_args,
@@ -63,6 +64,14 @@ def map[**P, R](
     :return: A mapped output generator.
     :rtype: `Generator[R]`
     """
+
+    func_signature = signature(func)
+    argument_count = len(func_signature.parameters)
+    assert len(generators) == argument_count, (
+        f'Function {func.__name__} expected {argument_count} '
+        f'arguments, but got {len(generators)} generators.'
+    )
+
     def _impl(state: a.State) -> Sample[R]:
         dissections: _list[s.Dissection[Any]] = []
         for generator in generators:
@@ -73,6 +82,7 @@ def map[**P, R](
                     dissections.append(dissection)
                 case _: assert False, 'Invariant'
         return state, Some(s.map(func, *dissections))
+
     return _impl
 
 def bind[**P, R](
@@ -89,6 +99,14 @@ def bind[**P, R](
     :return: A bound output generator.
     :rtype: `Generator[R]`
     """
+
+    func_signature = signature(func)
+    argument_count = len(func_signature.parameters)
+    assert len(generators) == argument_count, (
+        f'Function {func.__name__} expected {argument_count} '
+        f'arguments, but got {len(generators)} generators.'
+    )
+
     def _impl(state: a.State) -> Sample[R]:
         values: _list[Any] = []
         for generator in generators:
@@ -99,6 +117,7 @@ def bind[**P, R](
                     values.append(s.head(dissection))
                 case _: assert False, 'Invariant'
         return func(*values)(state)
+
     return _impl
 
 def filter[T](
