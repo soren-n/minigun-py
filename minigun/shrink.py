@@ -1,5 +1,8 @@
 # External module dependencies
-from inspect import signature
+from inspect import (
+    signature,
+    Parameter
+)
 from typing import (
     cast,
     Callable,
@@ -73,9 +76,13 @@ def map[*Ts, R](
     :rtype: `Dissection[R]`
     """
 
-    func_signature = signature(func)
-    argument_count = len(func_signature.parameters)
-    assert len(dissections) == argument_count, (
+    func_parameters = signature(func).parameters
+    argument_count = len(func_parameters)
+    func_is_variadic = any(
+        parameter.kind == Parameter.VAR_POSITIONAL
+        for parameter in func_parameters.values()
+    )
+    assert len(dissections) == argument_count or func_is_variadic, (
         f'Function {func.__name__} expected {argument_count} '
         f'arguments, but got {len(dissections)} dissections.'
     )
@@ -122,9 +129,13 @@ def bind[*Ts, R](
     :rtype: `Dissection[R]`
     """
 
-    func_signature = signature(func)
-    argument_count = len(func_signature.parameters)
-    assert len(dissections) == argument_count, (
+    func_parameters = signature(func).parameters
+    argument_count = len(func_parameters)
+    func_is_variadic = any(
+        parameter.kind == Parameter.VAR_POSITIONAL
+        for parameter in func_parameters.values()
+    )
+    assert len(dissections) == argument_count or func_is_variadic, (
         f'Function {func.__name__} expected {argument_count} '
         f"arguments, but got {len(dissections)} dissections."
     )

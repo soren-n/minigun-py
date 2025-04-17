@@ -1,5 +1,8 @@
 # External module dependencies
-from inspect import signature
+from inspect import (
+    signature,
+    Parameter
+)
 from typing import (
     get_origin,
     get_args,
@@ -65,9 +68,13 @@ def map[**P, R](
     :rtype: `Generator[R]`
     """
 
-    func_signature = signature(func)
-    argument_count = len(func_signature.parameters)
-    assert len(generators) == argument_count, (
+    func_parameters = signature(func).parameters
+    argument_count = len(func_parameters)
+    func_is_variadic = any(
+        parameter.kind == Parameter.VAR_POSITIONAL
+        for parameter in func_parameters.values()
+    )
+    assert len(generators) == argument_count or func_is_variadic, (
         f'Function {func.__name__} expected {argument_count} '
         f'arguments, but got {len(generators)} generators.'
     )
@@ -100,9 +107,13 @@ def bind[**P, R](
     :rtype: `Generator[R]`
     """
 
-    func_signature = signature(func)
-    argument_count = len(func_signature.parameters)
-    assert len(generators) == argument_count, (
+    func_parameters = signature(func).parameters
+    argument_count = len(func_parameters)
+    func_is_variadic = any(
+        parameter.kind == Parameter.VAR_POSITIONAL
+        for parameter in func_parameters.values()
+    )
+    assert len(generators) == argument_count or func_is_variadic, (
         f'Function {func.__name__} expected {argument_count} '
         f'arguments, but got {len(generators)} generators.'
     )
