@@ -15,6 +15,7 @@ from minigun.specify import (
 )
 import minigun.domain as d
 import minigun.order as o
+import minigun.util as u
 
 # The testing strategy for minigun is to exercise the bundled domains.
 # This will cover the following four areas of testing for each domain:
@@ -338,9 +339,9 @@ def _pos_white_domain_infer_list(bs: list[int]) -> bool:
 def _pos_white_domain_infer_dict(kvs: dict[int, int]) -> bool:
     return type(kvs) == dict
 
-@prop('Domain inter maybe')
+@prop('Domain infer maybe')
 def _pos_white_domain_infer_maybe(mi: Maybe[int]) -> bool:
-    return type(mi) == Maybe
+    return u.is_maybe(type(mi))
 
 ###############################################################################
 # Running test suite
