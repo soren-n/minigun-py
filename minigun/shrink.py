@@ -1,4 +1,5 @@
 # External module dependencies
+from inspect import signature
 from typing import (
     cast,
     Callable,
@@ -72,9 +73,11 @@ def map[*Ts, R](
     :rtype: `Dissection[R]`
     """
 
-    assert len(dissections) == func.__code__.co_argcount, (
-        f"Function {func.__name__} expected {func.__code__.co_argcount} "
-        f"arguments, but got {len(dissections)} dissections."
+    func_signature = signature(func)
+    argument_count = len(func_signature.parameters)
+    assert len(dissections) == argument_count, (
+        f'Function {func.__name__} expected {argument_count} '
+        f'arguments, but got {len(dissections)} dissections.'
     )
 
     def _combine(
@@ -119,8 +122,10 @@ def bind[*Ts, R](
     :rtype: `Dissection[R]`
     """
 
-    assert len(dissections) == func.__code__.co_argcount, (
-        f"Function {func.__name__} expected {func.__code__.co_argcount} "
+    func_signature = signature(func)
+    argument_count = len(func_signature.parameters)
+    assert len(dissections) == argument_count, (
+        f'Function {func.__name__} expected {argument_count} '
         f"arguments, but got {len(dissections)} dissections."
     )
 
