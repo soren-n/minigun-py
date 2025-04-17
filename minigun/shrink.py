@@ -83,7 +83,7 @@ def map[*Ts, R](
         for parameter in func_parameters.values()
     )
     assert len(dissections) == argument_count or func_is_variadic, (
-        f'Function {func.__name__} expected {argument_count} '
+        f'Function {func} expected {argument_count} '
         f'arguments, but got {len(dissections)} dissections.'
     )
 
@@ -136,7 +136,7 @@ def bind[*Ts, R](
         for parameter in func_parameters.values()
     )
     assert len(dissections) == argument_count or func_is_variadic, (
-        f'Function {func.__name__} expected {argument_count} '
+        f'Function {func} expected {argument_count} '
         f"arguments, but got {len(dissections)} dissections."
     )
 

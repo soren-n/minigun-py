@@ -75,7 +75,7 @@ def map[**P, R](
         for parameter in func_parameters.values()
     )
     assert len(generators) == argument_count or func_is_variadic, (
-        f'Function {func.__name__} expected {argument_count} '
+        f'Function {func} expected {argument_count} '
         f'arguments, but got {len(generators)} generators.'
     )
 
@@ -114,7 +114,7 @@ def bind[**P, R](
         for parameter in func_parameters.values()
     )
     assert len(generators) == argument_count or func_is_variadic, (
-        f'Function {func.__name__} expected {argument_count} '
+        f'Function {func} expected {argument_count} '
         f'arguments, but got {len(generators)} generators.'
     )
 

@@ -95,7 +95,7 @@ def map[**P, R](
         for parameter in func_parameters.values()
     )
     assert len(streams) == argument_count or func_is_variadic, (
-        f'Function {func.__name__} expected {argument_count} '
+        f'Function {func} expected {argument_count} '
         f'arguments, but got {len(streams)} streams.'
     )
 
