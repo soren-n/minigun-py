@@ -1,4 +1,5 @@
 # External module dependencies
+from functools import reduce
 import typeset as ts
 from returns.maybe import (
     Maybe,
@@ -38,6 +39,40 @@ type Printer[T] = Callable[[T], ts.Layout]
 
 def render(layout: ts.Layout) -> _str:
     return ts.render(ts.compile(layout), 2, 80)
+
+###############################################################################
+# Helper functions
+###############################################################################
+
+def _delim(*layouts: ts.Layout) -> ts.Layout:
+    if len(layouts) == 0: return ts.null()
+    if len(layouts) == 1: return layouts[0]
+    return reduce(
+        lambda result, layout: ts.parse(
+            '{0} !& "," + {1}',
+            result, layout
+        ),
+        layouts[1:],
+        layouts[0]
+    )
+
+def _group(layout: ts.Layout) -> ts.Layout:
+    return ts.parse(
+        'grp ("(" & nest (seq {0}) & ")")',
+        layout
+    )
+
+def _scope(layout: ts.Layout) -> ts.Layout:
+    return ts.parse(
+        'grp ("{" & nest (seq {0}) & "}")',
+        layout
+    )
+
+def _box(layout: ts.Layout) -> ts.Layout:
+    return ts.parse(
+        'grp ("[" & nest (seq {0}) & "]")',
+        layout
+    )
 
 ###############################################################################
 # Boolean
@@ -108,16 +143,10 @@ def tuple(
     :rtype: `Printer[Tuple[A, B, ...]]`
     """
     def _printer(value: _tuple[Any, ...]) -> ts.Layout:
-        def _wrap(body: ts.Layout) -> ts.Layout:
-            return ts.parse('"(" & {0} & ")"', body)
-        def _print(printer: Printer[Any], value: Any) -> ts.Layout:
+        def _item(printer: Printer[Any], value: Any) -> ts.Layout:
             return printer(value)
         if len(value) == 0: return ts.text('()')
-        items = zip(printers, value)
-        body = _print(*next(items))
-        for item in items:
-            body = ts.parse('{0} !& "," + {1}', body, _print(*item))
-        return _wrap(body)
+        return _group(_delim(*map(_item, *zip(printers, value))))
     return _printer
 
 ###############################################################################
@@ -135,13 +164,8 @@ def list[T](
     :rtype: `Printer[List[T]]`
     """
     def _printer(values: _list[T]) -> ts.Layout:
-        def _wrap(body: ts.Layout) -> ts.Layout:
-            return ts.parse('"[" & {0} & "]"', body)
         if len(values) == 0: return ts.text('[]')
-        body = printer(values[0])
-        for value in values[1:]:
-            body = ts.parse('{0} !& "," + {1}', body, printer(value))
-        return _wrap(body)
+        return _box(_delim(*map(printer, values)))
     return _printer
 
 ###############################################################################
@@ -162,23 +186,14 @@ def dict[K, V](
     :rtype: `Printer[Dict[K, V]]`
     """
     def _printer(values: _dict[K, V]) -> ts.Layout:
-        def _wrap(body: ts.Layout) -> ts.Layout:
-            return ts.parse('"{" & {0} & "}"', body)
         def _item(key: K, value: V) -> ts.Layout:
             return ts.parse(
-                '{0} !+ ":" !+ {1}',
+                'grp ({0} !& ":" !+ {1})',
                 key_printer(key),
                 value_printer(value)
             )
         if len(values) == 0: return ts.text('{}')
-        items = iter(_list(values.items()))
-        body = _item(*next(items))
-        for item in items:
-            body = ts.parse(
-                '{0} !& "," + {1}',
-                body, _item(*item)
-            )
-        return _wrap(body)
+        return _scope(_delim(*map(_item, *values.items())))
     return _printer
 
 ###############################################################################
@@ -196,14 +211,8 @@ def set[T](
     :rtype: `Printer[Set[T]]`
     """
     def _printer(values: _set[T]) -> ts.Layout:
-        def _wrap(body: ts.Layout) -> ts.Layout:
-            return ts.parse('"{" & {0} & "}"', body)
         if len(values) == 0: return ts.text('{}')
-        items = _list(values)
-        body = printer(items[0])
-        for item in items[1:]:
-            body = ts.parse('{0} !& "," + {1}', body, printer(item))
-        return _wrap(body)
+        return _scope(_delim(*map(printer, values)))
     return _printer
 
 ###############################################################################
@@ -226,7 +235,7 @@ def maybe[T](
                 return ts.text('Nothing')
             case Some(value):
                 return ts.parse(
-                    '"Something(" & {0} & ")"',
+                    'grp ("Some(" & nest {0} & ")")',
                     printer(value)
                 )
             case _: assert False, 'Invariant'
@@ -251,24 +260,15 @@ def argument_pack(
     """
     def _printer(args: _dict[_str, Any]) -> ts.Layout:
         param_printer = str()
-        def _wrap(body: ts.Layout) -> ts.Layout:
-            return ts.parse('seq ("{" & nest {0} & "}")', body)
         def _item(param: _str) -> ts.Layout:
             arg = args[param]
             arg_printer = printers[param]
             return ts.parse(
-                'fix ("\\"" & {0} & "\\":") + {1}',
+                'grp ("\\"" !& {0} !& "\\":" + {1})',
                 param_printer(param),
                 arg_printer(arg)
             )
-        params = iter(ordering)
-        body = _item(next(params))
-        for param in params:
-            body = ts.parse(
-                '{0} !& "," + {1}',
-                body, _item(param)
-            )
-        return _wrap(body)
+        return _scope(_delim(*map(_item, ordering)))
     return _printer
 
 ###############################################################################
