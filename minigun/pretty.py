@@ -58,19 +58,19 @@ def _delim(*layouts: ts.Layout) -> ts.Layout:
 
 def _group(layout: ts.Layout) -> ts.Layout:
     return ts.parse(
-        'grp ("(" & nest (seq {0}) & ")")',
+        'seq ("(" & nest {0} & ")")',
         layout
     )
 
 def _scope(layout: ts.Layout) -> ts.Layout:
     return ts.parse(
-        'grp ("{" & nest (seq {0}) & "}")',
+        'seq ("{" & nest {0} & "}")',
         layout
     )
 
 def _box(layout: ts.Layout) -> ts.Layout:
     return ts.parse(
-        'grp ("[" & nest (seq {0}) & "]")',
+        'seq ("[" & nest {0} & "]")',
         layout
     )
 
