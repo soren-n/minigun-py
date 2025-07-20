@@ -39,9 +39,3 @@ minigun.stream module
 
 .. automodule:: minigun.stream
    :members:
-
-minigun.maybe module
-====================
-
-.. automodule:: minigun.maybe
-   :members:
