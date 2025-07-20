@@ -1,3 +1,4 @@
+# Tickle agenda file
 procs:
   update: [make, html]
 flows:
@@ -16,7 +17,6 @@ tasks:
   - ../minigun/arbitrary.py
   - ../minigun/domain.py
   - ../minigun/generate.py
-  - ../minigun/maybe.py
   - ../minigun/order.py
   - ../minigun/pretty.py
   - ../minigun/sample.py

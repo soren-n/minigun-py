@@ -1,15 +1,12 @@
 version: 2
 
-sphinx:
-  builder: html
-
 build:
-  os: "ubuntu-20.04"
+  os: "ubuntu-24.02"
   tools:
-    python: "3.9"
-    rust: "1.55"
+    python: "3.12"
+  commands:
+    - pip install uv
+    - uv run python -m sphinx docs $READTHEDOCS_OUTPUT/html -b html -W
 
-python:
-  install:
-    - method: pip
-      path: .
+sphinx:
+  configuration: docs/source/conf.py
