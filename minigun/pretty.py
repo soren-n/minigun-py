@@ -142,11 +142,11 @@ def tuple(
     :return: A printer of tuples over types `A`, `B`, etc.
     :rtype: `Printer[Tuple[A, B, ...]]`
     """
-    def _printer(value: _tuple[Any, ...]) -> ts.Layout:
-        def _item(printer: Printer[Any], value: Any) -> ts.Layout:
+    def _printer(values: _tuple[Any, ...]) -> ts.Layout:
+        def _apply(printer: Printer[Any], value: Any) -> ts.Layout:
             return printer(value)
-        if len(value) == 0: return ts.text('()')
-        return _group(_delim(*map(_item, *zip(printers, value))))
+        if len(values) == 0: return ts.text('()')
+        return _group(_delim(*map(_apply, *zip(printers, values))))
     return _printer
 
 ###############################################################################
