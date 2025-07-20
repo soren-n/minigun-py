@@ -143,10 +143,11 @@ def tuple(
     :rtype: `Printer[Tuple[A, B, ...]]`
     """
     def _printer(values: _tuple[Any, ...]) -> ts.Layout:
-        def _apply(printer: Printer[Any], value: Any) -> ts.Layout:
+        def _apply(printer_value: _tuple[Printer[Any], Any]) -> ts.Layout:
+            printer, value = printer_value
             return printer(value)
         if len(values) == 0: return ts.text('()')
-        return _group(_delim(*map(_apply, *zip(printers, values))))
+        return _group(_delim(*map(_apply, zip(printers, values))))
     return _printer
 
 ###############################################################################
@@ -186,14 +187,15 @@ def dict[K, V](
     :rtype: `Printer[Dict[K, V]]`
     """
     def _printer(values: _dict[K, V]) -> ts.Layout:
-        def _item(key: K, value: V) -> ts.Layout:
+        def _item(key_value: _tuple[K, V]) -> ts.Layout:
+            key, value = key_value
             return ts.parse(
                 'grp ({0} !& ":" !+ {1})',
                 key_printer(key),
                 value_printer(value)
             )
         if len(values) == 0: return ts.text('{}')
-        return _scope(_delim(*map(_item, *values.items())))
+        return _scope(_delim(*map(_item, values.items())))
     return _printer
 
 ###############################################################################
