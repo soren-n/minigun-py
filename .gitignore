@@ -142,3 +142,6 @@ tickle.log
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+# OS X
+.DS_Store
