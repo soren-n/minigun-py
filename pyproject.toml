@@ -48,13 +48,8 @@ quality = [
 ]
 
 [project.scripts]
-test = "tests.main:test"
 minigun-test = "minigun.cli:main"
-format = "scripts.quality_gates:format"
-lint = "scripts.quality_gates:lint"
-type-check = "scripts.quality_gates:type_check"
-test-with-coverage = "scripts.quality_gates:test_with_coverage"
-quality-check = "scripts.quality_gates:check_all"
+test = "tests.main:test"
 
 [build-system]
 requires = ["hatchling"]
