@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Quality gates for the minigun project."""
 
+import argparse
 import subprocess
 import sys
 
@@ -27,19 +28,19 @@ def run_command(command: list[str], description: str) -> bool:
 
 
 def format() -> bool:
-    """Format code using black and isort."""
+    """Format code using ruff."""
     print("🎨 Formatting code...")
 
     success = True
 
-    # Run black
+    # Run ruff format
     success &= run_command(
-        ["black", "minigun", "tests", "scripts"], "Black formatting"
+        ["ruff", "format", "minigun", "tests", "scripts"], "Ruff formatting"
     )
 
-    # Run isort
+    # Run ruff check with --fix for import sorting and other fixable issues
     success &= run_command(
-        ["isort", "minigun", "tests", "scripts"], "Import sorting"
+        ["ruff", "check", "--fix", "minigun", "tests", "scripts"], "Ruff fixes"
     )
 
     if success:
@@ -75,10 +76,11 @@ def test_with_coverage() -> bool:
         ["coverage", "run", "-m", "tests.main"], "Tests with coverage"
     )
 
-    # Generate coverage report
+    # Generate coverage report with fail-under threshold
     if success:
         success &= run_command(
-            ["coverage", "report", "--show-missing"], "Coverage report"
+            ["coverage", "report", "--show-missing", "--fail-under=70"],
+            "Coverage report",
         )
 
     return success
@@ -91,28 +93,58 @@ def scan_emojis() -> bool:
     return run_command(["python", "scripts/emoji_scanner.py", "."], "Emoji scanning")
 
 
+def check_quick() -> bool:
+    """Run quick quality checks suitable for pre-commit hooks."""
+    print("🚀 Running quick quality checks...")
+
+    success = True
+
+    # Format check (dry run) using Ruff
+    success &= run_command(
+        ["ruff", "format", "--check", "--diff", "minigun", "tests", "scripts"],
+        "Ruff format check",
+    )
+
+    # Import order check using Ruff
+    success &= run_command(
+        ["ruff", "check", "--select", "I", "minigun", "tests", "scripts"],
+        "Import order check",
+    )
+
+    # Linting - now re-enabled as all issues are fixed
+    success &= lint()
+
+    if success:
+        print("🎉 Quick quality checks passed!")
+    else:
+        print("💥 Quick quality checks failed!")
+
+    return success
+
+
 def check_all() -> bool:
     """Run all quality checks."""
     print("🚀 Running all quality checks...")
 
     success = True
 
-    # Format check (dry run)
+    # Format check (dry run) using Ruff
     success &= run_command(
-        ["black", "--check", "--diff", "minigun", "tests", "scripts"],
-        "Black format check",
+        ["ruff", "format", "--check", "--diff", "minigun", "tests", "scripts"],
+        "Ruff format check",
     )
 
+    # Import order check using Ruff
     success &= run_command(
-        ["isort", "--check-only", "--diff", "minigun", "tests", "scripts"],
+        ["ruff", "check", "--select", "I", "minigun", "tests", "scripts"],
         "Import order check",
     )
 
-    # Linting (skip for now due to many issues)
-    print("🔍 Skipping ruff linting (has known issues)")
+    # Linting - now re-enabled as all issues are fixed
+    success &= lint()
 
-    # Type checking (skip for now due to mypy issues)
-    print("🧐 Skipping type checking (has known issues)")
+    # Type checking (temporarily disabled due to mypy internal error)
+    print("🧐 Skipping type checking temporarily (mypy internal error - will be fixed)")
 
     # Emoji scanning (skip for now)
     print("🔍 Skipping emoji scanning (not essential)")
@@ -121,27 +153,45 @@ def check_all() -> bool:
     success &= test_with_coverage()
 
     if success:
-        print("🎉 Essential quality checks passed!")
+        print("🎉 All enabled quality checks passed!")
     else:
-        print("💥 Some quality checks failed!")
+        print("💥 Quality checks failed - build cannot proceed!")
 
     return success
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python quality_gates.py <command>")
-        print(
-            "Commands: format, lint, type-check, test-with-coverage, scan-emojis, check-all"
-        )
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Run quality gates for minigun-py")
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Run quick checks only (suitable for pre-commit hooks)",
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        help="Command to run: format, lint, type-check, test-with-coverage, scan-emojis, check-all",
+    )
 
-    command = sys.argv[1].replace("-", "_")
+    args = parser.parse_args()
+
+    if args.quick:
+        success = check_quick()
+        sys.exit(0 if success else 1)
+
+    if not args.command:
+        success = check_all()  # Default to check_all if no command specified
+        sys.exit(0 if success else 1)
+
+    command = args.command.replace("-", "_")
 
     if hasattr(sys.modules[__name__], command):
         func = getattr(sys.modules[__name__], command)
         success = func()
         sys.exit(0 if success else 1)
     else:
-        print(f"Unknown command: {sys.argv[1]}")
+        print(f"Unknown command: {args.command}")
+        print(
+            "Available commands: format, lint, type-check, test-with-coverage, scan-emojis, check-all"
+        )
         sys.exit(1)

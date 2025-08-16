@@ -1,0 +1,98 @@
+# Pre-commit hooks configuration
+# Install with: uv run pre-commit install
+# For full setup: uv run pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+
+# Configure default hook types and language versions
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+default_language_version:
+    python: python3.12
+
+# Fail fast - stop at first failure
+fail_fast: true
+
+repos:
+  # Standard pre-commit hooks for basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: debug-statements
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-docstring-first
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: no-commit-to-branch
+        args: ['--branch', 'main', '--branch', 'master']
+
+  # Ruff - extremely fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.9
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # MyPy type checking (temporarily disabled due to internal error)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        exclude: ^(tests/|scripts/)
+        # Skip mypy temporarily due to internal error - will be re-enabled when fixed
+        stages: [manual]
+
+  # Local project-specific hooks
+  - repo: local
+    hooks:
+      # Quality gates - comprehensive quality checks
+      - id: quality-gates
+        name: Quality Gates
+        entry: uv run quality-check
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+        verbose: true
+
+      # Run tests before push
+      - id: tests
+        name: Run Tests
+        entry: uv run test
+        language: system
+        always_run: true
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+        verbose: true
+
+      # Lightweight quality gates for pre-commit
+      - id: quick-quality-check
+        name: Quick Quality Check
+        entry: uv run scripts/quality_gates.py --quick
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
+
+# CI configuration for pre-commit.ci
+ci:
+    autofix_commit_msg: |
+        [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+        for more information, see https://pre-commit.ci
+    autofix_prs: true
+    autoupdate_branch: ''
+    autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+    autoupdate_schedule: weekly
+    skip: [mypy, quality-gates, tests, quick-quality-check]  # Skip resource-intensive hooks in CI
+    submodules: false
