@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.1.0 (2025-08-16)
+
+### Features
+
+- Add context documentation and migrate to ruff-only tooling
+  ([`bf9b9e7`](https://github.com/soren-n/minigun-py/commit/bf9b9e72077337fa0058e5d0b01d3af4a00b6708))
+
+
 ## v2.0.0 (2025-08-16)
 
 ### Bug Fixes
