@@ -24,11 +24,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --group quality
 
-      - name: Run quality checks
-        run: uv run quality-check
+      - name: Format check
+        run: uv run ruff format --check --diff minigun tests scripts
 
-      - name: Run tests
-        run: uv run test
+      - name: Import sort check
+        run: uv run ruff check --select I minigun tests scripts
+
+      - name: Lint check
+        run: uv run ruff check minigun tests scripts
+
+      - name: Run tests with coverage
+        run: uv run coverage run -m tests.main
+
+      - name: Coverage report
+        run: uv run coverage report --show-missing --fail-under=70
 
   build_distribution:
     name: Build distribution
