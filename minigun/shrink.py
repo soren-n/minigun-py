@@ -92,13 +92,16 @@ def map[*Ts, R](
             if past <= index:
                 return fs.empty()
 
-            def _shift_vertical(next_dissection: Dissection[Any]) -> Dissection[R]:
+            def _shift_vertical(
+                next_dissection: Dissection[Any],
+            ) -> Dissection[R]:
                 next_dissections = input_dissections.copy()
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
 
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]), _shift_horizontal(index + 1)
+                fs.map(_shift_vertical, tails[index]),
+                _shift_horizontal(index + 1),
             )
 
         return _shift_horizontal(0)
@@ -134,7 +137,9 @@ def bind[*Ts, R](
     def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
         output_heads = [head(dissection) for dissection in input_dissections]
         output_head, output_tail = func(*output_heads)
-        return output_head, fs.concat(output_tail, _cartesian(input_dissections))
+        return output_head, fs.concat(
+            output_tail, _cartesian(input_dissections)
+        )
 
     def _cartesian(
         input_dissections: list[Dissection[Any]],
@@ -146,13 +151,16 @@ def bind[*Ts, R](
             if past <= index:
                 return fs.empty()
 
-            def _shift_vertical(next_dissection: Dissection[Any]) -> Dissection[R]:
+            def _shift_vertical(
+                next_dissection: Dissection[Any],
+            ) -> Dissection[R]:
                 next_dissections = input_dissections.copy()
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
 
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]), _shift_horizontal(index + 1)
+                fs.map(_shift_vertical, tails[index]),
+                _shift_horizontal(index + 1),
             )
 
         return _shift_horizontal(0)
@@ -302,7 +310,9 @@ def int(target: _int) -> Shrinker[_int]:
     """
 
     def _trim(initial: _int) -> fs.Stream[_int]:
-        def _towards(state: tuple[_int, _int]) -> Maybe[tuple[_int, tuple[_int, _int]]]:
+        def _towards(
+            state: tuple[_int, _int],
+        ) -> Maybe[tuple[_int, tuple[_int, _int]]]:
             value, current = state
             if current == value:
                 return Nothing

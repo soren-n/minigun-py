@@ -14,7 +14,7 @@ If you would like a bit of motivation as to why you should use a QuickCheck-like
 
 Installation
 ------------
-Minigun is currently only supported for Python >=3.10, although it might work with older versions. It is distributed with pip and can be installed with the following example command:
+Minigun is currently only supported for Python >=3.12, although it might work with older versions. It is distributed with pip and can be installed with the following example command:
 
 .. code-block:: shell
 

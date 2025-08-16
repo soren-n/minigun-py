@@ -52,7 +52,9 @@ def bool(state: State) -> _tuple[State, _bool]:
 ###############################################################################
 # Numbers
 ###############################################################################
-def nat(state: State, lower_bound: _int, upper_bound: _int) -> _tuple[State, _int]:
+def nat(
+    state: State, lower_bound: _int, upper_bound: _int
+) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`0 <= n <= bound`.
 
     :param state: A state from which to generate a random value.
@@ -74,7 +76,9 @@ def nat(state: State, lower_bound: _int, upper_bound: _int) -> _tuple[State, _in
     return random.getstate(), result
 
 
-def int(state: State, lower_bound: _int, upper_bound: _int) -> _tuple[State, _int]:
+def int(
+    state: State, lower_bound: _int, upper_bound: _int
+) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
 
     :param state: A state from which to generate a random value.

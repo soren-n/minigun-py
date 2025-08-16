@@ -86,7 +86,9 @@ class TestReporter:
     def start_test(self, test_name: str) -> None:
         """Start an individual test."""
         if self.verbose:
-            self.console.print(f"  [yellow]⏱️  Running:[/yellow] {test_name}", end="")
+            self.console.print(
+                f"  [yellow]⏱️  Running:[/yellow] {test_name}", end=""
+            )
 
     def end_test(
         self,
@@ -114,7 +116,9 @@ class TestReporter:
                     f" [green]✅ PASS[/green] [dim]({duration:.3f}s)[/dim]"
                 )
             else:
-                self.console.print(f" [red]❌ FAIL[/red] [dim]({duration:.3f}s)[/dim]")
+                self.console.print(
+                    f" [red]❌ FAIL[/red] [dim]({duration:.3f}s)[/dim]"
+                )
                 if counter_example:
                     formatted_example = format_counter_example(counter_example)
                     self.console.print(

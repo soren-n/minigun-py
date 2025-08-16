@@ -55,7 +55,9 @@ def test_bind_with_constant(seed_val: int) -> bool:
         case Some(dissection):
             value = sh.head(dissection)
             # Result should be even and between 2 and 20
-            return isinstance(value, int) and value % 2 == 0 and 2 <= value <= 20
+            return (
+                isinstance(value, int) and value % 2 == 0 and 2 <= value <= 20
+            )
         case Maybe.empty:
             return True
 
@@ -118,7 +120,9 @@ def test_str_generator_validity(seed_val: int) -> bool:
         case Some(dissection):
             value = sh.head(dissection)
             # Should be a string with printable characters
-            return isinstance(value, str) and all(c in string.printable for c in value)
+            return isinstance(value, str) and all(
+                c in string.printable for c in value
+            )
         case Maybe.empty:
             return True
 
@@ -135,7 +139,9 @@ def test_word_generator_validity(seed_val: int) -> bool:
         case Some(dissection):
             value = sh.head(dissection)
             # Should be a string with only alphabetic characters
-            return isinstance(value, str) and (len(value) == 0 or value.isalpha())
+            return isinstance(value, str) and (
+                len(value) == 0 or value.isalpha()
+            )
         case Maybe.empty:
             return True
 

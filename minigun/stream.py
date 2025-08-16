@@ -91,7 +91,9 @@ def map[*P, R](func: Callable[[*P], R], *streams: Stream[Any]) -> Stream[R]:
     )
 
     def _thunk() -> StreamResult[R]:
-        next_values, next_streams = zip(*[stream() for stream in streams], strict=False)
+        next_values, next_streams = zip(
+            *[stream() for stream in streams], strict=False
+        )
         return func(*next_values), map(func, *next_streams)
 
     return _thunk
@@ -120,7 +122,9 @@ def filter[T](predicate: Callable[[T], bool], stream: Stream[T]) -> Stream[T]:
     return _thunk
 
 
-def filter_map[T, R](func: Callable[[T], Maybe[R]], stream: Stream[T]) -> Stream[R]:
+def filter_map[T, R](
+    func: Callable[[T], Maybe[R]], stream: Stream[T]
+) -> Stream[R]:
     """Filter and map a stream of type `T` to a type `R`.
 
     :param func: A function on type `T` to a maybe value of type `R`.
