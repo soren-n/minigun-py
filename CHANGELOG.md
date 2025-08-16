@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v2.2.0 (2025-08-16)
+
+### Features
+
+- Add implementation summary for complexity optimization
+  ([`95d8d53`](https://github.com/soren-n/minigun-py/commit/95d8d538966480d2c94721b1e2533d34ee59b47c))
+
+- Add symbolic cardinality algebra system
+  ([`9690c58`](https://github.com/soren-n/minigun-py/commit/9690c58dcef23dfc88df769954e977b0a995055b))
+
+
 ## v2.1.0 (2025-08-16)
 
 ### Features
