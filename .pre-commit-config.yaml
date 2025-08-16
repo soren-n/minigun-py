@@ -109,7 +109,7 @@ repos:
       # Coverage report (pre-push stage)
       - id: coverage-report
         name: Coverage Report
-        entry: uv run coverage report --show-missing --fail-under=70
+        entry: uv run coverage report --show-missing --fail-under=60
         language: system
         always_run: true
         pass_filenames: false

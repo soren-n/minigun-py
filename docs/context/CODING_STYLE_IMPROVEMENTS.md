@@ -17,7 +17,7 @@ Always prioritize the successful execution path while handling edge cases and fa
 **Rule**: Handle failure cases first with immediate returns, keep the "golden path" unindented and clear.
 
 ### 3. Pattern Matching over isinstance() and elif chains (MANDATORY)
-Use Python 3.10+ `match/case` syntax instead of sequential `elif` blocks and `isinstance()` checks.
+Use Python 3.12+ `match/case` syntax instead of sequential `elif` blocks and `isinstance()` checks.
 
 **Rule**: When you see `isinstance()` or sequential `elif` blocks checking types or values, refactor to pattern matching.
 

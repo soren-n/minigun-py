@@ -6,16 +6,25 @@ Minigun CLI - Property-based testing with rich output.
 import argparse
 import sys
 
-from minigun.reporter import TestReporter, set_reporter
-
 
 def get_available_modules() -> list[str]:
     """Get list of available test modules."""
     return ["negative", "positive", "comprehensive", "additional"]
 
 
-def run_tests(modules: list[str] | None = None, quiet: bool = False) -> bool:
-    """Run tests with enhanced output."""
+def run_tests(
+    time_budget: float,
+    modules: list[str] | None = None,
+    quiet: bool = False,
+    json_output: bool = False,
+) -> bool:
+    """Run tests with rich console output and mandatory time budget."""
+    from minigun.orchestrator import (
+        OrchestrationConfig,
+        TestModule,
+        TestOrchestrator,
+    )
+
     # Import test modules dynamically
     test_modules = {}
     try:
@@ -48,45 +57,21 @@ def run_tests(modules: list[str] | None = None, quiet: bool = False) -> bool:
         print("No test modules to run.")
         return False
 
-    # Set up reporter
-    if quiet:
-        # Minimal output mode
-        overall_success = True
-        for _module_name, test_func in test_modules.items():
-            try:
-                success = test_func()
-                overall_success &= success
-            except Exception as e:
-                print(f"Error: {e}")
-                overall_success = False
+    # Create test modules for orchestrator
+    test_module_objects = [
+        TestModule(name, test_func) for name, test_func in test_modules.items()
+    ]
 
-        status = "PASS" if overall_success else "FAIL"
-        print(f"Tests: {status}")
-        return overall_success
-    else:
-        # Enhanced output mode
-        reporter = TestReporter(verbose=True)
-        set_reporter(reporter)
-        reporter.start_testing(len(test_modules))
+    # Configure and run orchestration
+    config = OrchestrationConfig(
+        time_budget=time_budget,
+        verbose=not quiet,
+        quiet=quiet,
+        json_output=json_output,
+    )
 
-        overall_success = True
-
-        # Run each test module
-        for module_name, test_func in test_modules.items():
-            reporter.start_module(module_name)
-
-            try:
-                success = test_func()
-                overall_success &= success
-            except Exception as e:
-                print(f"Error in module {module_name}: {e}")
-                overall_success = False
-
-            reporter.end_module()
-
-        # Print final summary
-        reporter.print_summary()
-        return reporter.get_overall_success()
+    orchestrator = TestOrchestrator(config)
+    return orchestrator.execute_tests(test_module_objects)
 
 
 def main():
@@ -96,9 +81,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  minigun-test                           # Run all tests with rich output
-  minigun-test --quiet                   # Run all tests with minimal output
-  minigun-test --modules positive comprehensive  # Run specific modules
+  minigun-test -t 30                     # Run all tests with 30s budget
+  minigun-test -t 60 --quiet             # Run with 60s budget, minimal output
+  minigun-test -t 30 --json              # Run with JSON output for tools
+  minigun-test -t 45 --modules positive comprehensive  # Run specific modules with 45s budget
   minigun-test --list-modules            # List available test modules
         """,
     )
@@ -112,10 +98,24 @@ Examples:
     )
 
     parser.add_argument(
+        "--time-budget",
+        "-t",
+        type=float,
+        help="Time budget in seconds for test execution (required)",
+    )
+
+    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
         help="Minimal output (just pass/fail status)",
+    )
+
+    parser.add_argument(
+        "--json",
+        "-j",
+        action="store_true",
+        help="Output results in JSON format for tool integration",
     )
 
     parser.add_argument(
@@ -146,8 +146,22 @@ Examples:
             print(f"  - {module}")
         return
 
-    # Run tests with enhanced output
-    success = run_tests(modules=args.modules, quiet=args.quiet)
+    # Validate time budget when needed
+    if not args.time_budget:
+        print("Error: Time budget is required for running tests.")
+        sys.exit(1)
+
+    if args.time_budget <= 0:
+        print("Error: Time budget must be positive.")
+        sys.exit(1)
+
+    # Run tests with time budget
+    success = run_tests(
+        args.time_budget,
+        modules=args.modules,
+        quiet=args.quiet,
+        json_output=args.json,
+    )
 
     sys.exit(0 if success else 1)
 

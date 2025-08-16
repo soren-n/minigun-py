@@ -1,3 +1,41 @@
+"""
+Data Generators and Combinators
+
+This module provides the core data generation system for property-based testing.
+It implements generators for all Python built-in types and combinators for
+composing complex data structures with proper shrinking support.
+
+Architecture:
+    - Generator[T]: Tuple of (sampler, cardinality) for type T
+    - Sample[T]: State-threaded generation with shrinking info
+    - Combinators: map, bind, filter, choice for composition
+
+Built-in Generators:
+    - Primitives: bool, nat, int, float, char, str
+    - Collections: list, dict, set, tuple
+    - Utilities: constant, one_of, weighted_choice
+
+The generator system integrates with the cardinality analysis system to provide
+optimal test attempt allocation based on domain complexity.
+
+Example:
+    ```python
+    import minigun.generate as g
+    import minigun.arbitrary as a
+
+    # Create generators for custom data
+    person_gen = g.map(
+        lambda name, age: {"name": name, "age": age},
+        g.str(),
+        g.nat(0, 120)
+    )
+
+    # Sample values
+    state = a.seed(42)
+    state, maybe_person = person_gen(state)
+    ```
+"""
+
 # External module dependencies
 import math
 import string
@@ -10,7 +48,6 @@ from builtins import dict as _dict
 from builtins import float as _float
 from builtins import int as _int
 from builtins import list as _list
-from builtins import map as _map
 from builtins import set as _set
 from builtins import str as _str
 from builtins import tuple as _tuple
@@ -23,6 +60,7 @@ from returns.maybe import Maybe, Nothing, Some
 
 # Internal module dependencies
 from minigun import arbitrary as a
+from minigun import cardinality as c
 from minigun import order as o
 from minigun import shrink as s
 from minigun import stream as fs
@@ -35,8 +73,16 @@ from minigun import util as u
 #: A sample taken from a generator over a type `T`
 type Sample[T] = _tuple[a.State, Maybe[s.Dissection[T]]]
 
+#: A sampler over a type `T`
+type Sampler[T] = Callable[[a.State], Sample[T]]
+
 #: A generator over a type `T`
-type Generator[T] = Callable[[a.State], Sample[T]]
+type Generator[T] = _tuple[Sampler[T], c.Cardinality]
+
+
+###############################################################################
+# Generator Combinators
+###############################################################################
 
 
 def map[*P, R](
@@ -66,8 +112,8 @@ def map[*P, R](
 
     def _impl(state: a.State) -> Sample[R]:
         dissections: _list[s.Dissection[Any]] = []
-        for generator in generators:
-            state, maybe_dissection = generator(state)
+        for sampler, _ in generators:
+            state, maybe_dissection = sampler(state)
             match maybe_dissection:
                 case Maybe.empty:
                     return state, Nothing
@@ -77,18 +123,26 @@ def map[*P, R](
                     raise AssertionError("Invariant")
         return state, Some(s.map(func, *dissections))
 
-    return _impl
+    # Calculate combined cardinality: product of all input cardinalities
+    combined_cardinality = c.ONE
+    for _, cardinality in generators:
+        combined_cardinality = combined_cardinality * cardinality
+    return _impl, combined_cardinality
 
 
 def bind[*P, R](
-    func: Callable[[*P], Generator[R]], *generators: Generator[Any]
+    func: Callable[[*P], Generator[R]],
+    card: Callable[[_tuple[c.Cardinality, ...]], c.Cardinality],
+    *generators: Generator[Any],
 ) -> Generator[R]:
     """A variadic bind function of given input generators over types `A`, `B`, etc. to an output generator over type `R`.
 
     :param func: A function creating a generator of type `R`, parameterized by generated instances of type `A`, `B`, etc.
     :type func: `A x B x ... -> Generator[R]`
-    :param generators: Generators over types `A`, `B`, etc. to instance from.
-    :type generators: `Tuple[Generator[A], Generator[B], ...]`
+    :param card: Cardinality function that computes combined cardinality from input cardinalities
+    :type card: `Tuple[Cardinality, ...] -> Cardinality`
+    :param generators: Additional generators over types `B`, `C`, etc. to instance from.
+    :type generators: `Tuple[Generator[B], Generator[C], ...]`
 
     :return: A bound output generator.
     :rtype: `Generator[R]`
@@ -107,8 +161,8 @@ def bind[*P, R](
 
     def _impl(state: a.State) -> Sample[R]:
         values: _list[Any] = []
-        for generator in generators:
-            state, maybe_dissection = generator(state)
+        for sampler, _ in generators:
+            state, maybe_dissection = sampler(state)
             match maybe_dissection:
                 case Maybe.empty:
                     return state, Nothing
@@ -117,9 +171,14 @@ def bind[*P, R](
                 case _:
                     raise AssertionError("Invariant")
         _values: _tuple[*P] = cast(_tuple[*P], _tuple(values))
-        return func(*_values)(state)
+        result_sampler, _ = func(*_values)
+        return result_sampler(state)
 
-    return _impl
+    # Use product of input cardinalities as default approximation
+    combined_cardinality = c.Finite(1)
+    for _, cardinality in generators:
+        combined_cardinality = combined_cardinality * cardinality
+    return _impl, combined_cardinality
 
 
 def filter[T](
@@ -136,8 +195,11 @@ def filter[T](
     :rtype: `Generator[T]`
     """
 
+    # Unpack the generator
+    sampler, cardinality = generator
+
     def _impl(state: a.State) -> Sample[T]:
-        state, maybe_dissection = generator(state)
+        state, maybe_dissection = sampler(state)
         match maybe_dissection:
             case Maybe.empty:
                 return state, Nothing
@@ -152,7 +214,9 @@ def filter[T](
             case _:
                 raise AssertionError("Invariant")
 
-    return _impl
+    # Filtering reduces cardinality, but we don't know by how much
+    # Use original cardinality as upper bound
+    return _impl, cardinality
 
 
 ###############################################################################
@@ -171,7 +235,8 @@ def constant[T](value: T) -> Generator[T]:
     def _impl(state: a.State) -> Sample[T]:
         return state, Some(s.singleton(value))
 
-    return _impl
+    # Constants have cardinality 1
+    return _impl, c.Finite(1)
 
 
 ###############################################################################
@@ -200,7 +265,8 @@ def bool() -> Generator[_bool]:
         state, result = a.bool(state)
         return state, Some(s.prepend(result, s.singleton(not result)))
 
-    return _impl
+    # Booleans have cardinality 2
+    return _impl, c.Finite(2)
 
 
 ###############################################################################
@@ -218,7 +284,8 @@ def small_nat() -> Generator[_int]:
         state, result = a.nat(state, 0, (10 if prop < 0.75 else 100))
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # small_nat ranges from 0 to 100, so cardinality is 101
+    return _impl, c.Finite(101)
 
 
 def nat() -> Generator[_int]:
@@ -242,7 +309,8 @@ def nat() -> Generator[_int]:
         state, result = a.nat(state, 0, bound)
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # Nat has cardinality approximately 10000 (weighted towards smaller numbers)
+    return _impl, c.Finite(10001)  # 0 to 10000 inclusive
 
 
 def big_nat() -> Generator[_int]:
@@ -268,7 +336,8 @@ def big_nat() -> Generator[_int]:
         state, result = a.nat(state, 0, bound)
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # Big nat has cardinality approximately 1000000
+    return _impl, c.Finite(1000001)  # 0 to 1000000 inclusive
 
 
 def small_int() -> Generator[_int]:
@@ -284,7 +353,8 @@ def small_int() -> Generator[_int]:
         state, result = a.int(state, -bound, bound)
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # Small int from -100 to 100 = 201 values
+    return _impl, c.Finite(201)
 
 
 def int() -> Generator[_int]:
@@ -308,7 +378,8 @@ def int() -> Generator[_int]:
         state, result = a.int(state, -bound, bound)
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # Int from -10000 to 10000 = 20001 values
+    return _impl, c.Finite(20001)
 
 
 def big_int() -> Generator[_int]:
@@ -334,7 +405,8 @@ def big_int() -> Generator[_int]:
         state, result = a.int(state, -bound, bound)
         return state, Some(s.int(0)(result))
 
-    return _impl
+    # Big int from -1000000 to 1000000 = 2000001 values
+    return _impl, c.Finite(2000001)
 
 
 def float() -> Generator[_float]:
@@ -350,7 +422,9 @@ def float() -> Generator[_float]:
         result = (1.0 if sign else -1.0) * math.exp(exponent)
         return state, Some(s.float(0.0)(result))
 
-    return _impl
+    # Float has IEEE 754 double precision: 2^64 possible values
+    # Use BigO notation to represent this exponential complexity
+    return _impl, c.BigO(c._Const(2) ** c._Const(64))
 
 
 ###############################################################################
@@ -374,7 +448,9 @@ def int_range(lower_bound: _int, upper_bound: _int) -> Generator[_int]:
         target = max(lower_bound, min(0, upper_bound))
         return state, Some(s.int(target)(result))
 
-    return _impl
+    # int_range cardinality is the number of integers in the range
+    cardinality = upper_bound - lower_bound + 1
+    return _impl, c.Finite(cardinality)
 
 
 ###############################################################################
@@ -387,7 +463,7 @@ def prop(bias: _float) -> Generator[_bool]:
         state, roll = a.float(state, 0.0, 1.0)
         return state, Some(s.bool()(roll <= bias))
 
-    return _impl
+    return _impl, c.Finite(2)  # Still binary (True/False)
 
 
 ###############################################################################
@@ -418,7 +494,15 @@ def bounded_str(
             result += alphabet[index]
         return state, Some(s.str()(result))
 
-    return _impl
+    # Cardinality for bounded strings: sum over all possible lengths
+    # For each length l in [lower_bound, upper_bound], there are |alphabet|^l strings
+    string_cardinality = c.Finite(0)
+    for length in range(lower_bound, upper_bound + 1):
+        string_cardinality = string_cardinality + (
+            c.Finite(len(alphabet)) ** c.Finite(length)
+        )
+
+    return _impl, string_cardinality
 
 
 def str() -> Generator[_str]:
@@ -431,7 +515,18 @@ def str() -> Generator[_str]:
     def _impl(upper_bound: _int) -> Generator[_str]:
         return bounded_str(0, upper_bound, string.printable)
 
-    return bind(_impl, nat())
+    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
+        # String cardinality grows exponentially with length: |alphabet|^length
+        # Use BigO notation to express this exponential complexity
+        max_length_card = cards[0] if cards else c.Finite(10)
+        alphabet_size = c.Finite(
+            len(string.printable)
+        )  # ~95 printable ASCII chars
+        return c.BigO(
+            alphabet_size._to_symbolic() ** max_length_card._to_symbolic()
+        )
+
+    return bind(_impl, _card, nat())
 
 
 def word() -> Generator[_str]:
@@ -444,7 +539,17 @@ def word() -> Generator[_str]:
     def _impl(upper_bound: _int) -> Generator[_str]:
         return bounded_str(0, upper_bound, string.ascii_letters)
 
-    return bind(_impl, small_nat())
+    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
+        # Word cardinality: |alphabet|^length for alphabetic strings
+        max_length_card = cards[0] if cards else c.Finite(10)
+        alphabet_size = c.Finite(
+            len(string.ascii_letters)
+        )  # 52 letters (a-z, A-Z)
+        return c.BigO(
+            alphabet_size._to_symbolic() ** max_length_card._to_symbolic()
+        )
+
+    return bind(_impl, _card, small_nat())
 
 
 ###############################################################################
@@ -459,6 +564,11 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
     :return: A generator of tuples over types `A`, `B`, etc.
     :rtype: `Generator[Tuple[A, B, ...]]`
     """
+
+    # Combined cardinality is the product of all cardinalities
+    combined_cardinality = c.Finite(1)  # Empty tuple has cardinality 1
+    for _, cardinality in generators:
+        combined_cardinality = combined_cardinality * cardinality
 
     def _shrink_value(
         index: _int,
@@ -490,8 +600,8 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
 
     def _impl(state: a.State) -> Sample[_tuple[Any, ...]]:
         values: _list[s.Dissection[Any]] = []
-        for generator in generators:
-            state, maybe_value = generator(state)
+        for sampler, _ in generators:
+            state, maybe_value = sampler(state)
             match maybe_value:
                 case Maybe.empty:
                     return state, Nothing
@@ -501,7 +611,7 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
                     raise AssertionError("Invariant")
         return state, Some(_dist(values))
 
-    return _impl
+    return _impl, combined_cardinality
 
 
 ###############################################################################
@@ -529,6 +639,9 @@ def bounded_list[T](
     """
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
+
+    # Unpack the generator
+    sampler, item_cardinality = generator
 
     def _shrink_length(
         index: _int, dissections: _list[s.Dissection[T]]
@@ -575,7 +688,7 @@ def bounded_list[T](
         state, length = a.nat(state, lower_bound, upper_bound)
         result: _list[s.Dissection[T]] = []
         for _ in range(length):
-            state, maybe_item = generator(state)
+            state, maybe_item = sampler(state)
             match maybe_item:
                 case Maybe.empty:
                     return state, Nothing
@@ -585,7 +698,25 @@ def bounded_list[T](
                     raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
-    return _impl
+    # Calculate cardinality for bounded list
+    # For a list of length k with items from domain of size n:
+    # - If order matters: n^k possibilities
+    # - Total across all lengths from lower_bound to upper_bound
+
+    # Sum over all possible lengths
+    cardinalities = []
+    for length in range(lower_bound, upper_bound + 1):
+        length_cardinality = c.ONE
+        for _ in range(length):
+            length_cardinality = length_cardinality * item_cardinality
+        cardinalities.append(length_cardinality)
+
+    # Sum all length possibilities
+    list_cardinality = c.ZERO
+    for card in cardinalities:
+        list_cardinality = c.Sum(list_cardinality, card)
+
+    return _impl, list_cardinality
 
 
 def list[T](
@@ -605,7 +736,15 @@ def list[T](
     def _impl(upper_bound: _int) -> Generator[_list[T]]:
         return bounded_list(0, upper_bound, generator, ordered)
 
-    return bind(_impl, small_nat())
+    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
+        # List cardinality grows exponentially with length: |item_type|^length
+        max_length_card = cards[0] if cards else c.Finite(10)
+        _, item_cardinality = generator
+        return c.BigO(
+            item_cardinality._to_symbolic() ** max_length_card._to_symbolic()
+        )
+
+    return bind(_impl, _card, small_nat())
 
 
 def map_list[T](
@@ -679,6 +818,10 @@ def bounded_dict[K, V](
     """
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
+
+    # Extract samplers and cardinalities
+    key_sampler, key_cardinality = key_generator
+    value_sampler, value_cardinality = value_generator
 
     def _shrink_size(
         index: _int,
@@ -760,12 +903,12 @@ def bounded_dict[K, V](
         state, size = a.nat(state, lower_bound, upper_bound)
         result: _list[_tuple[s.Dissection[K], s.Dissection[V]]] = []
         for _ in range(size):
-            state, maybe_key = key_generator(state)
+            state, maybe_key = key_sampler(state)
             match maybe_key:
                 case Maybe.empty:
                     return state, Nothing
                 case Some(key):
-                    state, maybe_value = value_generator(state)
+                    state, maybe_value = value_sampler(state)
                     match maybe_value:
                         case Maybe.empty:
                             return state, Nothing
@@ -777,7 +920,26 @@ def bounded_dict[K, V](
                     raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
-    return _impl
+    # Calculate cardinality for bounded dict
+    # For a dict of size k with keys from domain of size n and values from domain of size m:
+    # - Ideally: C(n,k) * m^k (choose k unique keys, each paired with any of m values)
+    # - For large n: approximately n^k * m^k = (n*m)^k (keys rarely collide)
+    # - We use the simpler approximation for computational efficiency
+
+    pair_cardinality = key_cardinality * value_cardinality
+    cardinalities = []
+    for size in range(lower_bound, upper_bound + 1):
+        size_cardinality = c.ONE
+        for _ in range(size):
+            size_cardinality = size_cardinality * pair_cardinality
+        cardinalities.append(size_cardinality)
+
+    # Sum all size possibilities
+    dict_cardinality = c.ZERO
+    for card in cardinalities:
+        dict_cardinality = dict_cardinality + card
+
+    return _impl, dict_cardinality
 
 
 def dict[K, V](
@@ -797,7 +959,17 @@ def dict[K, V](
     def _impl(upper_bound: _int) -> Generator[_dict[K, V]]:
         return bounded_dict(0, upper_bound, key_generator, value_generator)
 
-    return bind(_impl, small_nat())
+    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
+        # Dict cardinality: (|key_type| × |value_type|)^size
+        max_size_card = cards[0] if cards else c.Finite(10)
+        _, key_cardinality = key_generator
+        _, value_cardinality = value_generator
+        pair_cardinality = key_cardinality * value_cardinality
+        return c.BigO(
+            pair_cardinality._to_symbolic() ** max_size_card._to_symbolic()
+        )
+
+    return bind(_impl, _card, small_nat())
 
 
 def map_dict[K, V](
@@ -866,6 +1038,9 @@ def bounded_set[T](
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
 
+    # Unpack the generator
+    sampler, item_cardinality = generator
+
     def _shrink_size(
         index: _int, dissections: _list[s.Dissection[T]]
     ) -> fs.StreamResult[s.Dissection[_set[T]]]:
@@ -909,7 +1084,7 @@ def bounded_set[T](
         state, size = a.nat(state, lower_bound, upper_bound)
         result: _list[s.Dissection[T]] = []
         for _ in range(size):
-            state, maybe_item = generator(state)
+            state, maybe_item = sampler(state)
             match maybe_item:
                 case Maybe.empty:
                     return state, Nothing
@@ -919,7 +1094,26 @@ def bounded_set[T](
                     raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
-    return _impl
+    # Calculate cardinality for bounded set
+    # For a set of size k with items from domain of size n:
+    # - Exact: C(n,k) = n! / (k! * (n-k)!) possibilities (choose k unique items)
+    # - For large n: approximately n^k (collision probability is low)
+    # - We use the simpler n^k approximation since exact combinations are expensive to compute
+    # - The unified cardinality system handles overflow protection automatically
+
+    cardinalities = []
+    for size in range(lower_bound, upper_bound + 1):
+        size_cardinality = c.ONE
+        for _ in range(size):
+            size_cardinality = size_cardinality * item_cardinality
+        cardinalities.append(size_cardinality)
+
+    # Sum all size possibilities
+    set_cardinality = c.ZERO
+    for card in cardinalities:
+        set_cardinality = set_cardinality + card
+
+    return _impl, set_cardinality
 
 
 def set[T](generator: Generator[T]) -> Generator[_set[T]]:
@@ -935,7 +1129,15 @@ def set[T](generator: Generator[T]) -> Generator[_set[T]]:
     def _impl(upper_bound: _int) -> Generator[_set[T]]:
         return bounded_set(0, upper_bound, generator)
 
-    return bind(_impl, small_nat())
+    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
+        # Set cardinality: approximately |item_type|^size (unique elements)
+        max_size_card = cards[0] if cards else c.Finite(10)
+        _, item_cardinality = generator
+        return c.BigO(
+            item_cardinality._to_symbolic() ** max_size_card._to_symbolic()
+        )
+
+    return bind(_impl, _card, small_nat())
 
 
 def map_set[T](generators: _set[Generator[T]]) -> Generator[_set[T]]:
@@ -988,6 +1190,7 @@ def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
     :return: A generator of maybe over type `T`.
     :rtype: `Generator[returns.maybe.Maybe[T]]`
     """
+    sampler, cardinality = generator
 
     def _something(value: T) -> Maybe[T]:
         return Some(value)
@@ -999,7 +1202,7 @@ def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
         state, p = a.probability(state)
         if p < 0.05:
             return state, Some(s.singleton(Nothing))
-        state, maybe_value = generator(state)
+        state, maybe_value = sampler(state)
         match maybe_value:
             case Maybe.empty:
                 return state, Nothing
@@ -1011,7 +1214,9 @@ def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
             case _:
                 raise AssertionError("Invariant")
 
-    return _impl
+    # Maybe[T] has cardinality |T| + 1 (for the Nothing case)
+    maybe_cardinality = cardinality + c.Finite(1)
+    return _impl, maybe_cardinality
 
 
 ###############################################################################
@@ -1063,8 +1268,9 @@ def argument_pack(
 
     def _impl(state: a.State) -> Sample[_dict[_str, Any]]:
         result: _list[_tuple[_str, s.Dissection[Any]]] = []
-        for param, arg_generator in generators.items():
-            state, maybe_arg = arg_generator(state)
+        for param, generator in generators.items():
+            sampler, _ = generator
+            state, maybe_arg = sampler(state)
             match maybe_arg:
                 case Maybe.empty:
                     return state, Nothing
@@ -1074,7 +1280,13 @@ def argument_pack(
                     raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
-    return _impl
+    # Calculate combined cardinality
+    total_cardinality = c.ONE
+    for generator in generators.values():
+        _, cardinality = generator
+        total_cardinality = total_cardinality * cardinality
+
+    return _impl, total_cardinality
 
 
 ###############################################################################
@@ -1091,10 +1303,24 @@ def choice[T](*generators: Generator[T]) -> Generator[T]:
     """
     assert len(generators) != 0
 
-    def _impl(index: _int) -> Generator[T]:
-        return generators[index]
+    # Extract samplers and cardinalities
+    samplers: _list[Sampler[T]] = []
+    cardinalities: _list[c.Cardinality] = []
 
-    return bind(_impl, int_range(0, len(generators) - 1))
+    for sampler, cardinality in generators:
+        samplers.append(sampler)
+        cardinalities.append(cardinality)
+
+    def _impl(state: a.State) -> Sample[T]:
+        state, index = a.nat(state, 0, len(samplers) - 1)
+        return samplers[index](state)
+
+    # Cardinality is the sum of all generator cardinalities
+    combined_cardinality = c.ZERO
+    for card in cardinalities:
+        combined_cardinality = combined_cardinality + card
+
+    return _impl, combined_cardinality
 
 
 def weighted_choice[T](
@@ -1110,14 +1336,24 @@ def weighted_choice[T](
     """
     assert len(weighted_generators) != 0
     weights: _list[_int] = []
-    choices: _list[Generator[T]] = []
-    weights, choices = _map(_list, zip(*weighted_generators, strict=False))
+    samplers: _list[Sampler[T]] = []
+    cardinalities: _list[c.Cardinality] = []
+
+    for weight, (sampler, cardinality) in weighted_generators:
+        weights.append(weight)
+        samplers.append(sampler)
+        cardinalities.append(cardinality)
 
     def _impl(state: a.State) -> Sample[T]:
-        state, generator = a.weighted_choice(state, weights, choices)
-        return generator(state)
+        state, sampler = a.weighted_choice(state, weights, samplers)
+        return sampler(state)
 
-    return _impl
+    # For weighted choice, cardinality is the sum of all possible choices
+    combined_cardinality = c.ZERO
+    for card in cardinalities:
+        combined_cardinality = combined_cardinality + card
+
+    return _impl, combined_cardinality
 
 
 def one_of[T](values: _list[T]) -> Generator[T]:
@@ -1160,7 +1396,10 @@ def subset_of[T](values: _set[T]) -> Generator[_set[T]]:
 # Infer a generator
 ###############################################################################
 def infer(T: type) -> Maybe[Generator[Any]]:
-    """Infer a generator of type `T` for a given type `T`.
+    """Infer a generator of type `T` for a given type `T` with cardinality-aware optimization.
+
+    This function leverages the unified cardinality system to choose appropriate
+    generators based on the complexity of the target type.
 
     :param T: A type to infer a generator of.
     :type T: `type`
@@ -1200,13 +1439,23 @@ def infer(T: type) -> Maybe[Generator[Any]]:
     def _case_set(T: type) -> Maybe[Generator[Any]]:
         return infer(get_args(T)[0]).map(set)
 
+    # Use cardinality inference to choose appropriate generators
+    inferred_cardinality = c.infer_cardinality_from_type(T)
+    complexity_class = inferred_cardinality.asymptotic_class()
+
     if T == _bool:
         return Some(bool())
     if T == _int:
-        return Some(int())
+        # For infinite integer types, use bounded generators for practicality
+        if "∞" in complexity_class:
+            return Some(int())  # Uses bounded range internally
+        return Some(small_int())
     if T == _float:
         return Some(float())
     if T == _str:
+        # For exponential string types, use smaller bounds
+        if "^" in complexity_class:
+            return Some(word())  # Smaller alphabet than str()
         return Some(str())
     if u.is_maybe(T):
         return _case_maybe(T)

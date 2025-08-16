@@ -127,20 +127,32 @@ repos:
 ## Testing Workflow
 
 ### 1. Running Tests
-**Basic test execution:**
+**Basic test execution (v2.2.0 with required time budget):**
 ```bash
-# Run all tests with rich output
-uv run minigun-test
+# Run all tests with time budget (required parameter)
+uv run minigun-test --time-budget 30
 
-# Run specific test modules
-uv run minigun-test --modules positive comprehensive
+# Run specific test modules with time budget
+uv run minigun-test --time-budget 45 --modules positive comprehensive
 
-# Quiet mode (for CI/CD)
-uv run minigun-test --quiet
+# Run tests in quiet mode (CI/CD)
+uv run minigun-test --time-budget 60 --quiet
 
-# List available modules
+# Run tests with JSON output (tool integration)
+uv run minigun-test --time-budget 30 --json
+
+# List available test modules
 uv run minigun-test --list-modules
+
+# Alternative test runner (legacy)
+uv run test
 ```
+
+**New CLI Features in v2.2.0:**
+- **`--time-budget`** - Required parameter for time-based test allocation (in seconds)
+- **`--json`** - JSON output format for tool integration and CI/CD
+- **Two-phase execution** - Automatic calibration phase followed by optimized execution
+- **Budget allocation** - Intelligent attempt distribution based on cardinality analysis
 
 ### 2. Test Development Process
 1. **Write property** - Define what should be true

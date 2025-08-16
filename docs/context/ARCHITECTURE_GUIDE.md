@@ -32,7 +32,15 @@ Minigun follows a layered architecture that separates concerns while maintaining
 - **`generate.py`** - All data generators, combinators, and composition functions
 - **`domain.py`** - High-level domain specifications for test contexts
 
-### Layer 4: Testing Framework (Top Layer)
+### Layer 4: Analysis and Optimization (Analysis Layer)
+**Files:** `cardinality.py`, `budget.py`
+
+**Purpose:** Cardinality analysis and budget optimization for efficient test allocation.
+
+- **`cardinality.py`** - Unified symbolic cardinality system with Big O notation
+- **`budget.py`** - Budget allocation system with Secretary Problem optimization
+
+### Layer 5: Testing Framework (Testing Layer)
 **Files:** `specify.py`, `search.py`, `pretty.py`, `reporter.py`
 
 **Purpose:** Property specification, test execution, and result presentation.
@@ -42,12 +50,14 @@ Minigun follows a layered architecture that separates concerns while maintaining
 - **`pretty.py`** - Value formatting and display utilities
 - **`reporter.py`** - Test progress reporting and results aggregation
 
-### Layer 5: User Interface (Interface Layer)
-**Files:** `cli.py`
+### Layer 6: Orchestration and Interface (Interface Layer)
+**Files:** `orchestrator.py`, `cli.py`, `__main__.py`
 
-**Purpose:** Command-line interface and user interaction.
+**Purpose:** Test orchestration, command-line interface, and user interaction.
 
-- **`cli.py`** - CLI argument parsing and test runner orchestration
+- **`orchestrator.py`** - Two-phase test execution coordination (calibration + execution)
+- **`cli.py`** - CLI argument parsing and main entry logic
+- **`__main__.py`** - Package entry point for `python -m minigun`
 
 ## Key Architectural Patterns
 
@@ -116,12 +126,17 @@ shrink.py → arbitrary.py, stream.py, sample.py
 generate.py → arbitrary.py, stream.py, sample.py, shrink.py, order.py
 domain.py → generate.py (and all its dependencies)
 
-specify.py → ALL lower layers
+cardinality.py → (minimal dependencies - math, typing)
+budget.py → cardinality.py
+
+specify.py → ALL lower layers, budget.py
 search.py → generate.py, specify.py
 pretty.py → (minimal dependencies)
-reporter.py → pretty.py
+reporter.py → pretty.py, budget.py
 
-cli.py → specify.py, reporter.py
+orchestrator.py → reporter.py
+cli.py → orchestrator.py, specify.py, reporter.py
+__main__.py → cli.py
 ```
 
 ### Dependency Rules

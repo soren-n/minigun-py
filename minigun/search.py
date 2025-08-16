@@ -61,11 +61,11 @@ def find_counter_example[*P](
     def _is_counter_example(args: dict[str, Any]) -> bool:
         return not law(**args)
 
-    counter_examples = g.filter(
+    counter_examples_sampler, _ = g.filter(
         _is_counter_example, g.argument_pack(generators)
     )
     for _attempt in range(attempts):
-        state, maybe_counter_example = counter_examples(state)
+        state, maybe_counter_example = counter_examples_sampler(state)
         match maybe_counter_example:
             case Maybe.empty:
                 continue

@@ -1,0 +1,67 @@
+rules:
+  - name: "Format Python files with ruff after editing"
+    pattern: "**/*.py"
+    events: ["after_edit"]
+    commands:
+      - "uv run ruff format {file}"
+      - "uv run ruff check --fix {file}"
+
+  - name: "Typecheck Python files with mypy after editing"
+    pattern: "**/*.py"
+    events: ["after_edit"]
+    commands:
+      - "uv run mypy {file}"
+
+  - name: "Run git status when finishing a task"
+    pattern: "*"
+    events: ["task_complete"]
+    commands:
+      - "git status"
+
+  - name: "Clean up the project after finishing a task"
+    pattern: "*"
+    events: ["task_complete"]
+    commands:
+      - "find . -name '*.pyc' -delete"
+      - "find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true"
+      - "find . -name '.pytest_cache' -type d -exec rm -rf {} + 2>/dev/null || true"
+      - "find . -name '*.egg-info' -type d -exec rm -rf {} + 2>/dev/null || true"
+
+  - name: "Update and consolidate documentation after finishing a task"
+    pattern: "*"
+    events: ["task_complete"]
+    commands:
+      - "echo 'Checking documentation consistency...'"
+      - "test -f CLAUDE.md && echo 'CLAUDE.md exists and is up to date' || echo 'WARNING: CLAUDE.md may need updates'"
+      - "test -f README.md && echo 'README.md exists' || echo 'NOTE: No README.md found'"
+      - "find . -name '*.md' -type f | wc -l | xargs echo 'Total markdown files:'"
+
+  - name: "Always use professional, formal and concise language for any comments and documents"
+    pattern: "**/*.{py,md,rst,txt}"
+    events: ["after_edit"]
+    commands:
+      - "echo 'Language style reminder: Ensure professional, formal and concise language in {file}'"
+
+  - name: "Always use the Bright Data MCP tool for doing online research"
+    pattern: "*"
+    events: ["web_search_request", "online_research_needed"]
+    commands:
+      - "echo 'Online research reminder: Use the Bright Data MCP tool (mcp__Bright_Data__search_engine and mcp__Bright_Data__scrape_as_markdown) for web searches and page scraping'"
+
+  - name: "Always use the Ref MCP tool for doing documentation research"
+    pattern: "*"
+    events: ["documentation_research_request", "api_docs_needed"]
+    commands:
+      - "echo 'Documentation research reminder: Use the Ref MCP tool (mcp__Ref__ref_search_documentation and mcp__Ref__ref_read_url) for searching and reading documentation'"
+
+  - name: "Always use the github MCP tool to interact with github and doing repository operations"
+    pattern: "*"
+    events: ["github_interaction_needed", "repository_operations"]
+    commands:
+      - "echo 'GitHub operations reminder: Use the GitHub MCP tool for all GitHub and repository operations'"
+
+  - name: "Always check the agent roster to identify which agents should assist in the solving the given task"
+    pattern: "*"
+    events: ["task_start", "complex_task_received"]
+    commands:
+      - "echo 'Agent selection reminder: Check the available agent roster and identify which specialized agents should assist with solving the given task'"

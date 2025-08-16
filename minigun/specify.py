@@ -1,3 +1,44 @@
+"""
+Property Specification and Test Execution Engine
+
+This module provides the core DSL for property-based testing specification and
+the execution engine for running tests. It implements the @prop decorator system,
+test specification composition, and counterexample search coordination.
+
+Key Components:
+    - @prop decorator: Define properties with automatic type inference
+    - @context decorator: Explicit domain specification for parameters
+    - Spec composition: conj(), disj(), impl(), neg() for logical operations
+    - check(): Main test execution function with reporter integration
+
+Test Execution Flow:
+    1. Calibration phase: Measure timing for budget allocation
+    2. Execution phase: Run tests with allocated attempts
+    3. Shrinking: Find minimal counterexamples on failure
+    4. Reporting: Rich console output with progress and results
+
+The module integrates with the reporter system for sophisticated output
+including cardinality analysis, budget allocation, and performance metrics.
+
+Example:
+    ```python
+    from minigun.specify import prop, context, check, conj
+    import minigun.domain as d
+
+    @prop("list length distributes over concatenation")
+    def test_list_length(xs: list[int], ys: list[int]):
+        return len(xs + ys) == len(xs) + len(ys)
+
+    @context(d.list(d.int(), 0, 10))
+    @prop("sorted lists remain sorted after append")
+    def test_sorted_append(xs: list[int]):
+        return xs == sorted(xs) if len(xs) <= 1 else True
+
+    # Run conjunction of tests
+    success = check(conj(test_list_length, test_sorted_append))
+    ```
+"""
+
 # External module dependencies
 import os
 import secrets
@@ -13,11 +54,14 @@ from returns.maybe import Maybe, Some
 
 # Internal module dependencies
 from minigun import arbitrary as a
+from minigun import cardinality as c
 from minigun import domain as d
 from minigun import generate as g
 from minigun import pretty as p
 from minigun import reporter as r
 from minigun import search as s
+from minigun.cardinality import calculate_attempts_from_generators
+from minigun.reporter import CardinalityInfo
 
 
 ###############################################################################
@@ -65,8 +109,15 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
             generators[param] = g.infer(param_type)
             printers[param] = p.infer(param_type)
 
+        # Calculate optimal attempts based on generator cardinality
+        # Filter out None generators for the calculation
+        active_generators = {
+            k: v for k, v in generators.items() if v is not None
+        }
+        optimal_attempts = calculate_attempts_from_generators(active_generators)
+
         # Done
-        return _Prop(desc, 100, law, params, generators, printers)
+        return _Prop(desc, optimal_attempts, law, params, generators, printers)
 
     return _decorate
 
@@ -261,7 +312,7 @@ def _call_context(
 
 
 def check(spec: Spec) -> bool:
-    """Check an interface against its specification.
+    """Check an interface against its specification with calibration support.
 
     :param spec: The specification to test against.
     :type spec: `Spec`
@@ -269,13 +320,137 @@ def check(spec: Spec) -> bool:
     :return: A boolean value representing whether the interfaces passed testing against their specification.
     :rtype: `bool`
     """
+    # Get reporter to check if we're in calibration mode
+    reporter = r.get_reporter()
+
+    # Check if we're in calibration-only mode
+    if (
+        reporter
+        and hasattr(reporter, "calibration_only")
+        and reporter.calibration_only
+    ):
+        # CALIBRATION MODE: Run tests in calibration mode
+        return _run_calibration(spec)
+    else:
+        # EXECUTION MODE: Run normal tests
+        return _run_execution(spec)
+
+
+def _run_calibration(spec: Spec) -> bool:
+    """Run tests in calibration mode to measure pure execution time."""
+
+    def _visit_calibration(
+        state: a.State, spec: Spec, neg: bool = False
+    ) -> tuple[a.State, bool]:
+        match spec:
+            case _Prop(desc, _attempts, law, _ordering, generators, _printers):
+                # Get reporter for rich console output
+                reporter = r.get_reporter()
+
+                if reporter:
+                    reporter.start_test(desc)
+
+                _generators: dict[str, g.Generator[Any]] = {}
+                total_cardinality = c.ONE
+                for param, maybe_generator in generators.items():
+                    match maybe_generator:
+                        case Maybe.empty:
+                            error_msg = (
+                                "No generator was inferred or defined "
+                                f'for parameter "{param}" of property "{desc}"'
+                            )
+                            if reporter:
+                                reporter.end_test(
+                                    desc, False, 0.0, error_message=error_msg
+                                )
+                            return state, False
+                        case Some(generator):
+                            _generators[param] = generator
+                            total_cardinality = (
+                                total_cardinality * generator[1]
+                            )  # generator is (sampler, cardinality)
+                        case _:
+                            raise AssertionError("Invariant")
+
+                # Register property with budget allocator during calibration (after cardinality calculation)
+                if (
+                    reporter
+                    and hasattr(reporter, "budget_allocator")
+                    and reporter.budget_allocator
+                    and hasattr(reporter, "calibration_only")
+                    and reporter.calibration_only
+                ):
+                    reporter.budget_allocator.add_property(
+                        desc, total_cardinality
+                    )
+
+                # Run calibration: measure pure test execution time for 10 attempts using the same search logic
+                calibration_attempts = 10
+
+                # Time the actual search process (same as execution) but with limited attempts
+                start_time = time.time()
+
+                # Run the same search algorithm as normal execution, but with calibration attempts
+                state, maybe_counter_example = s.find_counter_example(
+                    a.seed(), calibration_attempts, law, _generators
+                )
+
+                end_time = time.time()
+                pure_execution_time = end_time - start_time
+
+                # Create cardinality info for this property
+                cardinality_info = CardinalityInfo(
+                    domain_size=total_cardinality,
+                    optimal_limit=calibration_attempts,  # Number of attempts used for calibration
+                    allocated_attempts=calibration_attempts,  # 10 attempts for calibration
+                )
+
+                if reporter:
+                    reporter.end_test(
+                        desc,
+                        True,
+                        pure_execution_time,
+                        cardinality_info=cardinality_info,
+                    )
+
+                return state, True
+
+            case _Neg(term):
+                return _visit_calibration(state, term, not neg)
+            case _Conj(terms):
+                for term in terms:
+                    state, success = _visit_calibration(state, term)
+                    if not success:
+                        return state, False
+                return state, True
+            case _Disj(terms):
+                for term in terms:
+                    state, success = _visit_calibration(state, term)
+                    if not success:
+                        continue
+                    return state, True
+                return state, False
+            case _Impl(premise, conclusion):
+                state, success = _visit_calibration(state, premise)
+                if not success:
+                    return state, False
+                return _visit_calibration(state, conclusion)
+            case _:
+                raise AssertionError("Invariant")
+
+    _, success = _visit_calibration(a.seed(), spec)
+    return success
+
+
+def _run_execution(spec: Spec) -> bool:
+    """Run tests in execution mode (normal testing)."""
 
     def _visit(
         state: a.State, spec: Spec, neg: bool = False
     ) -> tuple[a.State, bool]:
         match spec:
-            case _Prop(desc, attempts, law, ordering, generators, printers):
-                # Get reporter for enhanced output
+            case _Prop(desc, _attempts, law, _ordering, generators, _printers):
+                # Get reporter for rich console output
                 reporter = r.get_reporter()
 
                 # Start timing this test
@@ -305,8 +480,8 @@ def check(spec: Spec) -> bool:
                         case _:
                             raise AssertionError("Invariant")
 
-                _printers: dict[str, p.Printer[Any]] = {}
-                for param, maybe_printer in printers.items():
+                local_printers: dict[str, p.Printer[Any]] = {}
+                for param, maybe_printer in _printers.items():
                     match maybe_printer:
                         case Maybe.empty:
                             error_msg = (
@@ -323,13 +498,26 @@ def check(spec: Spec) -> bool:
                                 )
                             return state, False
                         case Some(printer):
-                            _printers[param] = printer
+                            local_printers[param] = printer
                         case _:
                             raise AssertionError("Invariant")
 
-                printer = _call_context(ordering, _printers)
+                printer = _call_context(_ordering, local_printers)
+
+                # Use budget-allocated attempts instead of default attempts
+                if (
+                    reporter
+                    and hasattr(reporter, "budget_allocator")
+                    and reporter.budget_allocator
+                ):
+                    allocated_attempts = (
+                        reporter.budget_allocator.get_allocated_attempts(desc)
+                    )
+                else:
+                    allocated_attempts = _attempts  # Fallback to default
+
                 state, maybe_counter_example = s.find_counter_example(
-                    state, attempts, law, _generators
+                    state, allocated_attempts, law, _generators
                 )
 
                 duration = time.time() - start_time
