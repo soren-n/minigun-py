@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v2.0.0 (2025-08-16)
+
+### Bug Fixes
+
+- Update CI configuration and code quality settings
+  ([`3fb3530`](https://github.com/soren-n/minigun-py/commit/3fb35308b0c0c0dd43b87572fa7f5c496289e298))
+
+### Features
+
+- Break down CI quality checks into individual steps
+  ([`15b0f90`](https://github.com/soren-n/minigun-py/commit/15b0f909a9046be90d1384e2f7f39587eb68203d))
+
+- Eliminate all backwards compatibility cruft
+  ([`8b9cefe`](https://github.com/soren-n/minigun-py/commit/8b9cefe2437f70e09d4a82a3859802d74b6073cc))
+
+- Refactor pre-commit hooks to use individual checks
+  ([`1715d86`](https://github.com/soren-n/minigun-py/commit/1715d86d4573c658b2cd1414a81d4a4541ed6cec))
+
+### Breaking Changes
+
+- Remove all legacy script commands and quality_gates.py
+
+
 ## v1.0.0 (2025-08-16)
 
 ### Bug Fixes
