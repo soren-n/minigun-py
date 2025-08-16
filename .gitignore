@@ -125,6 +125,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Ruff
+.ruff_cache/
+
+# uv
+.uv_cache/
+
 # Tickle generated files
 tickle.cache
 tickle.log

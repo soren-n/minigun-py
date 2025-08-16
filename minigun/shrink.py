@@ -1,43 +1,33 @@
 # External module dependencies
-from inspect import (
-    signature,
-    Parameter
-)
-from typing import (
-    cast,
-    Callable,
-    Any
-)
-from returns.maybe import (
-    Maybe,
-    Nothing,
-    Some
-)
 import math
-
-# Internal module dependencies
-from . import stream as fs
 
 ###############################################################################
 # Localizing builtins
 ###############################################################################
-from builtins import (
-    bool as _bool,
-    int as _int,
-    float as _float,
-    str as _str,
-    tuple as _tuple
-)
+from builtins import bool as _bool
+from builtins import float as _float
+from builtins import int as _int
+from builtins import str as _str
+from builtins import tuple as _tuple
+from collections.abc import Callable
+from inspect import Parameter, signature
+from typing import Any, cast
+
+from returns.maybe import Maybe, Nothing, Some
+
+# Internal module dependencies
+from minigun import stream as fs
 
 ###############################################################################
 # Shrink state
 ###############################################################################
 
 #: Dissection datatype defined over a type parameter `T`.
-type Dissection[T] = _tuple[T, fs.Stream['Dissection[T]']]
+type Dissection[T] = _tuple[T, fs.Stream["Dissection[T]"]]
 
 #: Shrinker datatype defined over a type parameter `T.
 type Shrinker[T] = Callable[[T], Dissection[T]]
+
 
 def head[T](dissection: Dissection[T]) -> T:
     """Get dissection head.
@@ -50,6 +40,7 @@ def head[T](dissection: Dissection[T]) -> T:
     """
     return dissection[0]
 
+
 def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     """Get dissection tail.
 
@@ -61,10 +52,10 @@ def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     """
     return dissection[1]
 
+
 def map[*Ts, R](
-    func: Callable[[*Ts], R],
-    *dissections: Dissection[Any]
-    ) -> Dissection[R]:
+    func: Callable[[*Ts], R], *dissections: Dissection[Any]
+) -> Dissection[R]:
     """A variadic map function of given input dissections over types `A`, `B`, etc. to an output dissection over type `R`.
 
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
@@ -83,41 +74,41 @@ def map[*Ts, R](
         for parameter in func_parameters.values()
     )
     assert len(dissections) == argument_count or func_is_variadic, (
-        f'Function {func} expected {argument_count} '
-        f'arguments, but got {len(dissections)} dissections.'
+        f"Function {func} expected {argument_count} "
+        f"arguments, but got {len(dissections)} dissections."
     )
 
-    def _combine(
-        input_dissections: list[Dissection[Any]]
-        ) -> Dissection[R]:
-        output_heads = [ head(dissection) for dissection in input_dissections ]
+    def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
+        output_heads = [head(dissection) for dissection in input_dissections]
         return func(*output_heads), _cartesian(input_dissections)
+
     def _cartesian(
-        input_dissections: list[Dissection[Any]]
-        ) -> fs.Stream[Dissection[R]]:
+        input_dissections: list[Dissection[Any]],
+    ) -> fs.Stream[Dissection[R]]:
         past = len(input_dissections)
-        tails = [ tail(dissection) for dissection in input_dissections ]
-        def _shift_horizontal(
-            index: _int
-            ) -> fs.Stream[Dissection[R]]:
-            if past <= index: return fs.empty()
-            def _shift_vertical(
-                next_dissection: Dissection[Any]
-                ) -> Dissection[R]:
+        tails = [tail(dissection) for dissection in input_dissections]
+
+        def _shift_horizontal(index: _int) -> fs.Stream[Dissection[R]]:
+            if past <= index:
+                return fs.empty()
+
+            def _shift_vertical(next_dissection: Dissection[Any]) -> Dissection[R]:
                 next_dissections = input_dissections.copy()
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
+
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]),
-                _shift_horizontal(index + 1)
+                fs.map(_shift_vertical, tails[index]), _shift_horizontal(index + 1)
             )
+
         return _shift_horizontal(0)
+
     return _combine(list(dissections))
 
+
 def bind[*Ts, R](
-    func: Callable[[*Ts], Dissection[R]],
-    *dissections: Dissection[Any]
-    ) -> Dissection[R]:
+    func: Callable[[*Ts], Dissection[R]], *dissections: Dissection[Any]
+) -> Dissection[R]:
     """A variadic bind function of given input dissections over types `A`, `B`, etc. to an output dissection over type `R`.
 
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output dissection of type `R`.
@@ -136,44 +127,42 @@ def bind[*Ts, R](
         for parameter in func_parameters.values()
     )
     assert len(dissections) == argument_count or func_is_variadic, (
-        f'Function {func} expected {argument_count} '
+        f"Function {func} expected {argument_count} "
         f"arguments, but got {len(dissections)} dissections."
     )
 
-    def _combine(
-        input_dissections: list[Dissection[Any]]
-        ) -> Dissection[R]:
-        output_heads = [ head(dissection) for dissection in input_dissections ]
+    def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
+        output_heads = [head(dissection) for dissection in input_dissections]
         output_head, output_tail = func(*output_heads)
-        return output_head, fs.concat(
-            output_tail, _cartesian(input_dissections)
-        )
+        return output_head, fs.concat(output_tail, _cartesian(input_dissections))
+
     def _cartesian(
-        input_dissections: list[Dissection[Any]]
-        ) -> fs.Stream[Dissection[R]]:
+        input_dissections: list[Dissection[Any]],
+    ) -> fs.Stream[Dissection[R]]:
         past = len(input_dissections)
-        tails = [ tail(dissection) for dissection in input_dissections ]
-        def _shift_horizontal(
-            index: _int
-            ) -> fs.Stream[Dissection[R]]:
-            if past <= index: return fs.empty()
-            def _shift_vertical(
-                next_dissection: Dissection[Any]
-                ) -> Dissection[R]:
+        tails = [tail(dissection) for dissection in input_dissections]
+
+        def _shift_horizontal(index: _int) -> fs.Stream[Dissection[R]]:
+            if past <= index:
+                return fs.empty()
+
+            def _shift_vertical(next_dissection: Dissection[Any]) -> Dissection[R]:
                 next_dissections = input_dissections.copy()
                 next_dissections[index] = next_dissection
                 return _combine(next_dissections)
+
             return fs.braid(
-                fs.map(_shift_vertical, tails[index]),
-                _shift_horizontal(index + 1)
+                fs.map(_shift_vertical, tails[index]), _shift_horizontal(index + 1)
             )
+
         return _shift_horizontal(0)
+
     return _combine(list(dissections))
 
+
 def filter[T](
-    predicate: Callable[[T], _bool],
-    dissection: Dissection[T]
-    ) -> Maybe[Dissection[T]]:
+    predicate: Callable[[T], _bool], dissection: Dissection[T]
+) -> Maybe[Dissection[T]]:
     """Filter a dissection of type `T`.
 
     :param predicate: A predicate on type `T`.
@@ -184,17 +173,14 @@ def filter[T](
     :return: A dissection of type `T`.
     :rtype: `Dissection[T]`
     """
+
     def _predicate(dissection: Dissection[T]) -> _bool:
         return predicate(head(dissection))
 
-    return fs.peek(
-        fs.filter(_predicate, fs.singleton(dissection))
-    )
+    return fs.peek(fs.filter(_predicate, fs.singleton(dissection)))
 
-def concat[T](
-    left: Dissection[T],
-    right: Dissection[T]
-    ) -> Dissection[T]:
+
+def concat[T](left: Dissection[T], right: Dissection[T]) -> Dissection[T]:
     """Concatenation of two dissects over type `T`.
 
     :param left: The first dissection to take the concatenation of.
@@ -206,6 +192,7 @@ def concat[T](
     :rtype: `Dissection[T]`
     """
     return left[0], fs.append(left[1], right)
+
 
 def prepend[T](value: T, dissection: Dissection[T]) -> Dissection[T]:
     """Prepend a value to a dissection.
@@ -220,6 +207,7 @@ def prepend[T](value: T, dissection: Dissection[T]) -> Dissection[T]:
     """
     return value, fs.singleton(dissection)
 
+
 def append[T](dissection: Dissection[T], value: T) -> Dissection[T]:
     """Append a value to a dissection.
 
@@ -233,6 +221,7 @@ def append[T](dissection: Dissection[T], value: T) -> Dissection[T]:
     """
     return dissection[0], fs.append(dissection[1], singleton(value))
 
+
 def singleton[T](value: T) -> Dissection[T]:
     """A singleton dissection containing a single unshrinkable value.
 
@@ -244,20 +233,19 @@ def singleton[T](value: T) -> Dissection[T]:
     """
     return value, cast(fs.Stream[Dissection[T]], fs.empty())
 
+
 ###############################################################################
 # Trimmer
 ###############################################################################
 
-#: A timmer over a type `T`
+#: A trimmer over a type `T`
 type Trimmer[T] = Callable[[T], fs.Stream[T]]
+
 
 ###############################################################################
 # Unfold trimmers
 ###############################################################################
-def unfold[T](
-    value: T,
-    *trimmers: Trimmer[T]
-    ) -> Dissection[T]:
+def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
     """Define a dissection of an n-ary dimensional trimmed iteration of a given value.
 
     :param value: The initial value to do a trimmed iteration of.
@@ -271,22 +259,21 @@ def unfold[T](
     _trimmers: list[Trimmer[T]] = list(trimmers)
     dissections: list[Dissection[T]] = list()
     for index, trimmer in enumerate(trimmers):
-        other_timmers = _trimmers[:index] + _trimmers[index+1:]
+        other_timmers = _trimmers[:index] + _trimmers[index + 1 :]
         maybe_shrunk, shrunk_stream = fs.next(trimmer(value))
         match maybe_shrunk:
-            case Maybe.empty: continue
+            case Maybe.empty:
+                continue
             case Some(shrunk):
+
                 def _mapping(shrunk_more: T) -> Dissection[T]:
-                    return unfold(
-                        shrunk_more,
-                        *other_timmers
-                    )
-                dissections.append((shrunk, fs.map(
-                    _mapping,
-                    shrunk_stream
-                )))
-            case _: assert False, 'Invariant'
+                    return unfold(shrunk_more, *other_timmers)
+
+                dissections.append((shrunk, fs.map(_mapping, shrunk_stream)))
+            case _:
+                assert False, "Invariant"
     return value, fs.from_list(dissections)
+
 
 ###############################################################################
 # Booleans
@@ -294,9 +281,12 @@ def unfold[T](
 def bool() -> Shrinker[_bool]:
     def _trim(initial: _bool) -> fs.Stream[_bool]:
         return fs.singleton(not initial)
+
     def _impl(value: _bool) -> Dissection[_bool]:
         return unfold(value, _trim)
+
     return _impl
+
 
 ###############################################################################
 # Numbers
@@ -310,18 +300,22 @@ def int(target: _int) -> Shrinker[_int]:
     :return: A shrinker of int.
     :rtype: `Shrinker[T]`
     """
+
     def _trim(initial: _int) -> fs.Stream[_int]:
-        def _towards(
-            state: tuple[_int, _int]
-            ) -> Maybe[tuple[_int, tuple[_int, _int]]]:
+        def _towards(state: tuple[_int, _int]) -> Maybe[tuple[_int, tuple[_int, _int]]]:
             value, current = state
-            if current == value: return Nothing
+            if current == value:
+                return Nothing
             _value = current + _int((value - current) / 2)
             return Some((_value, (_value, current)))
+
         return fs.unfold(_towards, (initial, target))
+
     def _impl(value: _int) -> Dissection[_int]:
         return unfold(value, _trim)
+
     return _impl
+
 
 def float(target: _float) -> Shrinker[_float]:
     """A shrinker for floats which takes a target to shrink towards.
@@ -332,34 +326,40 @@ def float(target: _float) -> Shrinker[_float]:
     :return: A shrinker of float.
     :rtype: `Shrinker[float]`
     """
+
     def _trim_integer_part(initial: _float) -> fs.Stream[_float]:
         def _towards(
-            state: tuple[_float, _int]
-            ) -> Maybe[tuple[_float, tuple[_float, _int]]]:
+            state: tuple[_float, _int],
+        ) -> Maybe[tuple[_float, tuple[_float, _int]]]:
             value, current = state
             value_f, value_i = math.modf(value)
-            if current == _int(value_i): return Nothing
+            if current == _int(value_i):
+                return Nothing
             _value = current + value_f + _int((value_i - current) / 2)
             return Some((_value, (_value, current)))
+
         return fs.unfold(_towards, (initial, _int(target)))
+
     def _trim_fractional_part(initial: _float) -> fs.Stream[_float]:
         def _towards(
-            state: tuple[_int, _float, _float]
-            ) -> Maybe[tuple[_float, tuple[_int, _float, _float]]]:
+            state: tuple[_int, _float, _float],
+        ) -> Maybe[tuple[_float, tuple[_int, _float, _float]]]:
             count, value, current = state
             value_f, value_i = math.modf(value)
-            if count == 0: return Nothing
-            if current == value_f: return Nothing
+            if count == 0:
+                return Nothing
+            if current == value_f:
+                return Nothing
             _value = value_i + current + ((value_f - current) / 2)
             return Some((_value, (count - 1, _value, current)))
+
         return fs.unfold(_towards, (10, initial, math.modf(target)[0]))
+
     def _impl(value: _float) -> Dissection[_float]:
-        return unfold(
-            value,
-            _trim_integer_part,
-            _trim_fractional_part
-        )
+        return unfold(value, _trim_integer_part, _trim_fractional_part)
+
     return _impl
+
 
 ###############################################################################
 # String
@@ -370,13 +370,19 @@ def str() -> Shrinker[_str]:
     :return: A shrinker of str.
     :rtype: `Shrinker[str]`
     """
+
     def _trim(initial: _str) -> fs.Stream[_str]:
         past = len(initial)
+
         def _towards(index: _int) -> Maybe[tuple[_str, _int]]:
-            if index == past: return Nothing
-            _value = initial[:index] + initial[index + 1:]
+            if index == past:
+                return Nothing
+            _value = initial[:index] + initial[index + 1 :]
             return Some((_value, index + 1))
+
         return fs.unfold(_towards, 0)
+
     def _impl(value: _str) -> Dissection[_str]:
         return unfold(value, _trim)
+
     return _impl

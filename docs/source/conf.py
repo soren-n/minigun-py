@@ -12,10 +12,12 @@
 #
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('../minigun'))
 
 # -- Project version ---------------------------------------------------------
 import minigun
+
 release = str(minigun.__version__)
 
 # -- Project information -----------------------------------------------------

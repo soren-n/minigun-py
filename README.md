@@ -25,6 +25,59 @@ pip install minigun-soren-n
 # Documentation
 A tutorial as well as reference documentation for the API can be found at [Read The Docs](https://minigun.readthedocs.io/en/latest/).
 
+# Development
+
+## Semantic Versioning
+This project uses automated semantic versioning based on conventional commits. See [`SEMANTIC_VERSIONING.md`](SEMANTIC_VERSIONING.md) for details on:
+- How to write conventional commit messages
+- Automatic version bumps and releases
+- Setting up the development environment
+
+To get started with development:
+```bash
+# Setup semantic versioning tools and git hooks
+python scripts/setup_semantic_versioning.py
+```
+
+# Testing with Rich Output
+
+Minigun includes beautiful test output with rich formatting, progress indicators, and detailed reporting.
+
+## Basic Testing
+```bash
+# Run all tests with rich output
+uv run python -m tests.main
+
+# Or use the CLI tool
+uv run minigun-test
+```
+
+## CLI Tool
+```bash
+# Run all tests with enhanced output
+uv run minigun-test
+
+# Run specific test modules
+uv run minigun-test --modules positive comprehensive
+
+# Quiet mode (minimal output for CI/CD)
+uv run minigun-test --quiet
+
+# List available test modules
+uv run minigun-test --list-modules
+
+# Show help
+uv run minigun-test --help
+```
+
+The rich output provides:
+- 🎯 Individual test visibility with names and status
+- ⏱️ Timing information for each test and module
+- 📊 Progress indicators and statistics
+- 🎨 Rich formatting with colors and tables
+- 🔍 Detailed counter-examples for failed tests
+- 📋 Comprehensive summary reports
+
 # Examples
 The following projects use Minigun for testing:
 - [Minigun](https://github.com/soren-n/minigun/tree/main/tests)

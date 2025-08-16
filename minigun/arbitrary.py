@@ -1,20 +1,15 @@
 # External module dependencies
-from typing import (
-    Optional,
-    Any
-)
 import random
 
 ###############################################################################
 # Localizing intrinsics
 ###############################################################################
-from builtins import (
-    bool as _bool,
-    int as _int,
-    float as _float,
-    list as _list,
-    tuple as _tuple
-)
+from builtins import bool as _bool
+from builtins import float as _float
+from builtins import int as _int
+from builtins import list as _list
+from builtins import tuple as _tuple
+from typing import Any
 
 ###############################################################################
 # PRNG state
@@ -23,7 +18,8 @@ from builtins import (
 #: A state from which to generate a random value.
 type State = _tuple[Any, ...]
 
-def seed(value: Optional[_int] = None) -> State:
+
+def seed(value: _int | None = None) -> State:
     """Constructor to seed an initial state for Minigun's PRNG module.
 
     :param value: An optional integer to be used as the seed.
@@ -35,11 +31,12 @@ def seed(value: Optional[_int] = None) -> State:
     random.seed(value)
     return random.getstate()
 
+
 ###############################################################################
 # Boolean
 ###############################################################################
 def bool(state: State) -> _tuple[State, _bool]:
-    """ Generate a random boolean value.
+    """Generate a random boolean value.
 
     :param state: A state from which to generate a random value.
     :type state: `State`
@@ -51,14 +48,11 @@ def bool(state: State) -> _tuple[State, _bool]:
     result = random.randint(0, 1) == 1
     return random.getstate(), result
 
+
 ###############################################################################
 # Numbers
 ###############################################################################
-def nat(
-    state: State,
-    lower_bound: _int,
-    upper_bound: _int
-    ) -> _tuple[State, _int]:
+def nat(state: State, lower_bound: _int, upper_bound: _int) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`0 <= n <= bound`.
 
     :param state: A state from which to generate a random value.
@@ -73,16 +67,14 @@ def nat(
     """
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
-    if lower_bound == upper_bound: return state, upper_bound
+    if lower_bound == upper_bound:
+        return state, upper_bound
     random.setstate(state)
     result = random.randint(lower_bound, upper_bound)
     return random.getstate(), result
 
-def int(
-    state: State,
-    lower_bound: _int,
-    upper_bound: _int
-    ) -> _tuple[State, _int]:
+
+def int(state: State, lower_bound: _int, upper_bound: _int) -> _tuple[State, _int]:
     """Generate a random integer value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
 
     :param state: A state from which to generate a random value.
@@ -96,10 +88,12 @@ def int(
     :rtype: `Tuple[State, int]`
     """
     assert lower_bound <= upper_bound
-    if lower_bound == upper_bound: return state, lower_bound
+    if lower_bound == upper_bound:
+        return state, lower_bound
     random.setstate(state)
     result = random.randint(lower_bound, upper_bound)
     return random.getstate(), result
+
 
 def probability(state: State) -> _tuple[State, _float]:
     """Generate a random float value :code:`n` in the range :code:`0.0 <= n <= 1.0`.
@@ -114,11 +108,10 @@ def probability(state: State) -> _tuple[State, _float]:
     result = random.uniform(0.0, 1.0)
     return random.getstate(), result
 
+
 def float(
-    state: State,
-    lower_bound: _float,
-    upper_bound: _float
-    ) -> _tuple[State, _float]:
+    state: State, lower_bound: _float, upper_bound: _float
+) -> _tuple[State, _float]:
     """Generate a random float value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
 
     :param state: A state from which to generate a random value.
@@ -132,19 +125,19 @@ def float(
     :rtype: `tuple[State, float]`
     """
     assert lower_bound <= upper_bound
-    if lower_bound == upper_bound: return state, upper_bound
+    if lower_bound == upper_bound:
+        return state, upper_bound
     random.setstate(state)
     result = random.uniform(lower_bound, upper_bound)
     return random.getstate(), result
+
 
 ###############################################################################
 # Sequences
 ###############################################################################
 def weighted_choice[T](
-    state: State,
-    weights: _list[_int],
-    choices: _list[T]
-    ) -> _tuple[State, T]:
+    state: State, weights: _list[_int], choices: _list[T]
+) -> _tuple[State, T]:
     """Select a random item from a list of weighted choices.
 
     :param state: A state from which to generate a random value.
@@ -159,15 +152,14 @@ def weighted_choice[T](
     """
     assert len(choices) > 0
     assert len(choices) == len(weights)
-    if len(choices) == 1: return state, choices[0]
+    if len(choices) == 1:
+        return state, choices[0]
     random.setstate(state)
-    result = random.choices(choices, weights, k = 1)[0]
+    result = random.choices(choices, weights, k=1)[0]
     return random.getstate(), result
 
-def choice[T](
-    state: State,
-    choices: _list[T]
-    ) -> tuple[State, T]:
+
+def choice[T](state: State, choices: _list[T]) -> tuple[State, T]:
     """Select a random item from a list of choices.
 
     :param state: A state from which to generate a random value.
