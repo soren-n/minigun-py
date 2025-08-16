@@ -142,7 +142,7 @@ def filter_map[T, R](func: Callable[[T], Maybe[R]], stream: Stream[T]) -> Stream
                 case Some(_next_value):
                     return _next_value, filter_map(func, next_stream)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
 
     return _thunk
 
@@ -166,7 +166,7 @@ def unfold[T, S](func: Callable[[S], Maybe[tuple[T, S]]], init: S) -> Stream[T]:
             case Some((value, state)):
                 return value, unfold(func, state)
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     return _thunk
 
@@ -326,7 +326,7 @@ def to_list[T](stream: Stream[T], max_items: int) -> list[T]:
     :return: A list of type `T`.
     :rtype: `list[T]`
     """
-    items: list[T] = list()
+    items: list[T] = []
     for _ in range(max_items):
         maybe_item, stream = next(stream)
         match maybe_item:
@@ -335,5 +335,5 @@ def to_list[T](stream: Stream[T], max_items: int) -> list[T]:
             case Some(item):
                 items.append(item)
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
     return items

@@ -39,4 +39,4 @@ def slice[T](
                 state, dissection = a.choice(state, dissections)
             return state, Some(items)
         case _:
-            assert False, "Invariant"
+            raise AssertionError("Invariant")

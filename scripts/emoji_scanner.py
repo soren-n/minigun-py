@@ -112,7 +112,6 @@ IGNORE_DIRS = {
 
 # Files to exempt from emoji scanning (relative to project root)
 EXEMPT_FILES = {
-    "scripts/quality_gates.py",  # Contains emojis for user-friendly output
     "scripts/emoji_scanner.py",  # Contains emojis in output formatting
     "minigun/reporter.py",  # Contains emojis for rich output formatting
 }

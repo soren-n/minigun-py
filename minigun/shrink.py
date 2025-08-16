@@ -257,7 +257,7 @@ def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
     :rtype: `Dissection[T]`
     """
     _trimmers: list[Trimmer[T]] = list(trimmers)
-    dissections: list[Dissection[T]] = list()
+    dissections: list[Dissection[T]] = []
     for index, trimmer in enumerate(trimmers):
         other_timmers = _trimmers[:index] + _trimmers[index + 1 :]
         maybe_shrunk, shrunk_stream = fs.next(trimmer(value))
@@ -271,7 +271,7 @@ def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
 
                 dissections.append((shrunk, fs.map(_mapping, shrunk_stream)))
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
     return value, fs.from_list(dissections)
 
 

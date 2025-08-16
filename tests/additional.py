@@ -67,7 +67,8 @@ def test_weighted_choice_generator(seed_val: int) -> bool:
 
     # Create weighted choice generator with heavily weighted options
     weighted_gen = g.weighted_choice(
-        (99, g.constant("heavy")), (1, g.constant("light"))  # 99% weight  # 1% weight
+        (99, g.constant("heavy")),
+        (1, g.constant("light")),  # 99% weight  # 1% weight
     )
 
     # Sample many times and check that "heavy" appears more frequently
