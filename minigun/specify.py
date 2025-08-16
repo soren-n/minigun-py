@@ -18,6 +18,7 @@ from minigun import generate as g
 from minigun import pretty as p
 from minigun import reporter as r
 from minigun import search as s
+from minigun.cardinality import calculate_attempts_from_generators
 
 
 ###############################################################################
@@ -65,8 +66,15 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
             generators[param] = g.infer(param_type)
             printers[param] = p.infer(param_type)
 
+        # Calculate optimal attempts based on generator cardinality
+        # Filter out None generators for the calculation
+        active_generators = {
+            k: v for k, v in generators.items() if v is not None
+        }
+        optimal_attempts = calculate_attempts_from_generators(active_generators)
+
         # Done
-        return _Prop(desc, 100, law, params, generators, printers)
+        return _Prop(desc, optimal_attempts, law, params, generators, printers)
 
     return _decorate
 
