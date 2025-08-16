@@ -13,8 +13,10 @@ from returns.maybe import (
 ###############################################################################
 def is_maybe(T: type[Any]) -> bool:
     origin = get_origin(T)
-    if origin is None:
-        if T is type(Nothing):
-            return True
-        return T is Some
-    return origin is Maybe
+    if origin is not None:
+        return origin is Maybe
+    if T is type(Nothing):
+        return True
+    if T is Some:
+        return True
+    return False

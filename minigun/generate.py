@@ -39,7 +39,9 @@ type Sample[T] = _tuple[a.State, Maybe[s.Dissection[T]]]
 type Generator[T] = Callable[[a.State], Sample[T]]
 
 
-def map[*P, R](func: Callable[[*P], R], *generators: Generator[Any]) -> Generator[R]:
+def map[*P, R](
+    func: Callable[[*P], R], *generators: Generator[Any]
+) -> Generator[R]:
     """A variadic map function of given input generators over types `A`, `B`, etc. to an output generator over type `R`.
 
     :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
@@ -120,7 +122,9 @@ def bind[*P, R](
     return _impl
 
 
-def filter[T](predicate: Callable[[T], _bool], generator: Generator[T]) -> Generator[T]:
+def filter[T](
+    predicate: Callable[[T], _bool], generator: Generator[T]
+) -> Generator[T]:
     """Filter a generator of type `T`.
 
     :param predicate: A predicate on type `T`.
@@ -226,19 +230,16 @@ def nat() -> Generator[_int]:
 
     def _impl(state: a.State) -> Sample[_int]:
         state, prop = a.probability(state)
-        state, result = a.nat(
-            state,
-            0,
-            (
-                10
-                if prop < 0.5
-                else 100
-                if prop < 0.75
-                else 1000
-                if prop < 0.95
-                else 10000
-            ),
-        )
+        match prop:
+            case _ if prop < 0.5:
+                bound = 10
+            case _ if prop < 0.75:
+                bound = 100
+            case _ if prop < 0.95:
+                bound = 1000
+            case _:
+                bound = 10000
+        state, result = a.nat(state, 0, bound)
         return state, Some(s.int(0)(result))
 
     return _impl
@@ -253,23 +254,18 @@ def big_nat() -> Generator[_int]:
 
     def _impl(state: a.State) -> Sample[_int]:
         state, prop = a.probability(state)
-        state, result = a.nat(
-            state,
-            0,
-            (
-                10
-                if prop < 0.25
-                else (
-                    100
-                    if prop < 0.5
-                    else 1000
-                    if prop < 0.75
-                    else 10000
-                    if prop < 0.95
-                    else 1000000
-                )
-            ),
-        )
+        match prop:
+            case _ if prop < 0.25:
+                bound = 10
+            case _ if prop < 0.5:
+                bound = 100
+            case _ if prop < 0.75:
+                bound = 1000
+            case _ if prop < 0.95:
+                bound = 10000
+            case _:
+                bound = 1000000
+        state, result = a.nat(state, 0, bound)
         return state, Some(s.int(0)(result))
 
     return _impl
@@ -300,9 +296,15 @@ def int() -> Generator[_int]:
 
     def _impl(state: a.State) -> Sample[_int]:
         state, prop = a.probability(state)
-        bound = (
-            10 if prop < 0.5 else 100 if prop < 0.75 else 1000 if prop < 0.95 else 10000
-        )
+        match prop:
+            case _ if prop < 0.5:
+                bound = 10
+            case _ if prop < 0.75:
+                bound = 100
+            case _ if prop < 0.95:
+                bound = 1000
+            case _:
+                bound = 10000
         state, result = a.int(state, -bound, bound)
         return state, Some(s.int(0)(result))
 
@@ -318,19 +320,17 @@ def big_int() -> Generator[_int]:
 
     def _impl(state: a.State) -> Sample[_int]:
         state, prop = a.probability(state)
-        bound = (
-            10
-            if prop < 0.25
-            else (
-                100
-                if prop < 0.5
-                else 1000
-                if prop < 0.75
-                else 10000
-                if prop < 0.95
-                else 1000000
-            )
-        )
+        match prop:
+            case _ if prop < 0.25:
+                bound = 10
+            case _ if prop < 0.5:
+                bound = 100
+            case _ if prop < 0.75:
+                bound = 1000
+            case _ if prop < 0.95:
+                bound = 10000
+            case _:
+                bound = 1000000
         state, result = a.int(state, -bound, bound)
         return state, Some(s.int(0)(result))
 
@@ -481,7 +481,9 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
             partial(_shrink_value, _index, dissections, streams),
         )
 
-    def _dist(dissections: _list[s.Dissection[Any]]) -> s.Dissection[_tuple[Any, ...]]:
+    def _dist(
+        dissections: _list[s.Dissection[Any]],
+    ) -> s.Dissection[_tuple[Any, ...]]:
         heads: _list[Any] = [s.head(dissection) for dissection in dissections]
         tails: _list[Any] = [s.tail(dissection) for dissection in dissections]
         return _tuple(heads), partial(_shrink_value, 0, heads, tails)
@@ -679,7 +681,8 @@ def bounded_dict[K, V](
     assert lower_bound <= upper_bound
 
     def _shrink_size(
-        index: _int, dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]]
+        index: _int,
+        dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
     ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
         if index == len(dissections):
             raise StopIteration
@@ -691,7 +694,9 @@ def bounded_dict[K, V](
     def _shrink_keys(
         index: _int,
         dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-        streams: _list[_tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]],
+        streams: _list[
+            _tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]
+        ],
     ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
         if index == len(dissections):
             raise StopIteration
@@ -712,7 +717,9 @@ def bounded_dict[K, V](
     def _shrink_values(
         index: _int,
         dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-        streams: _list[_tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]],
+        streams: _list[
+            _tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]
+        ],
     ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
         if index == len(dissections):
             raise StopIteration
@@ -734,10 +741,12 @@ def bounded_dict[K, V](
         dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
     ) -> s.Dissection[_dict[K, V]]:
         heads: _list[_tuple[Any, Any]] = [
-            (s.head(dissection[0]), s.head(dissection[1])) for dissection in dissections
+            (s.head(dissection[0]), s.head(dissection[1]))
+            for dissection in dissections
         ]
         tails = [
-            (s.tail(dissection[0]), s.tail(dissection[1])) for dissection in dissections
+            (s.tail(dissection[0]), s.tail(dissection[1]))
+            for dissection in dissections
         ]
         return _dict(heads), fs.concat(
             partial(_shrink_size, 0, dissections),
@@ -791,7 +800,9 @@ def dict[K, V](
     return bind(_impl, small_nat())
 
 
-def map_dict[K, V](generators: _dict[K, Generator[V]]) -> Generator[_dict[K, V]]:
+def map_dict[K, V](
+    generators: _dict[K, Generator[V]],
+) -> Generator[_dict[K, V]]:
     """Composes dicts of generators over given types `K` and `V`, resulting in a generator of dicts over the given types `K` and `V`.
 
     :param generators: A dict of value generators from which value dicts are sampled.
@@ -809,7 +820,9 @@ def map_dict[K, V](generators: _dict[K, Generator[V]]) -> Generator[_dict[K, V]]
 
 
 def dict_insert[K, V](
-    kvs_gen: Generator[_dict[K, V]], key_gen: Generator[K], value_gen: Generator[V]
+    kvs_gen: Generator[_dict[K, V]],
+    key_gen: Generator[K],
+    value_gen: Generator[V],
 ) -> Generator[_dict[K, V]]:
     """Compose a dict generator over types `K` and `V` with a key generator of the given type `K` and a value generator of the given type `V`, resulting in a generator of dicts over the types `K` and `V`, where a key and value has been sampled from the later generators and guaranteed to have been inserted into the output sampled dicts.
 
@@ -992,7 +1005,9 @@ def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
                 return state, Nothing
             case Some(value):
                 _value = s.map(_something, value)
-                return state, Some((s.head(_value), fs.map(_append, s.tail(_value))))
+                return state, Some(
+                    (s.head(_value), fs.map(_append, s.tail(_value)))
+                )
             case _:
                 raise AssertionError("Invariant")
 
@@ -1041,7 +1056,9 @@ def argument_pack(
         heads: _list[_tuple[_str, Any]] = [
             (dissection[0], s.head(dissection[1])) for dissection in dissections
         ]
-        tails = [(dissection[0], s.tail(dissection[1])) for dissection in dissections]
+        tails = [
+            (dissection[0], s.tail(dissection[1])) for dissection in dissections
+        ]
         return _dict(heads), partial(_shrink_args, 0, dissections, tails)
 
     def _impl(state: a.State) -> Sample[_dict[_str, Any]]:
@@ -1193,14 +1210,20 @@ def infer(T: type) -> Maybe[Generator[Any]]:
         return Some(str())
     if u.is_maybe(T):
         return _case_maybe(T)
+
+    # Use pattern matching for origin-based type dispatch
     origin = get_origin(T)
-    if origin is not None:
-        if origin == _tuple:
+    if origin is None:
+        return Nothing
+
+    match origin:
+        case x if x is _tuple:
             return _case_tuple(T)
-        if origin == _list:
+        case x if x is _list:
             return _case_list(T)
-        if origin == _dict:
+        case x if x is _dict:
             return _case_dict(T)
-        if origin == _set:
+        case x if x is _set:
             return _case_set(T)
-    return Nothing
+        case _:
+            return Nothing

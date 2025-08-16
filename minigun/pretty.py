@@ -191,7 +191,9 @@ def dict[K, V](
         def _item(key_value: _tuple[K, V]) -> ts.Layout:
             key, value = key_value
             return ts.parse(
-                'grp ({0} !& ":" !+ {1})', key_printer(key), value_printer(value)
+                'grp ({0} !& ":" !+ {1})',
+                key_printer(key),
+                value_printer(value),
             )
 
         if len(values) == 0:
@@ -240,7 +242,9 @@ def maybe[T](printer: Printer[T]) -> Printer[Maybe[T]]:
             case Maybe.empty:
                 return ts.text("Nothing")
             case Some(value):
-                return ts.parse('grp ("Some(" & nest {0} & ")")', printer(value))
+                return ts.parse(
+                    'grp ("Some(" & nest {0} & ")")', printer(value)
+                )
             case _:
                 raise AssertionError("Invariant")
 
@@ -325,24 +329,32 @@ def infer(T: type) -> Maybe[Printer[Any]]:
     def _case_set(T: type) -> Maybe[Printer[Any]]:
         return infer(get_args(T)[0]).map(set)
 
-    if T == _bool:
-        return Some(bool())
-    if T == _int:
-        return Some(int())
-    if T == _float:
-        return Some(float())
-    if T == _str:
-        return Some(str())
-    if u.is_maybe(T):
-        return _case_maybe(T)
+    # Check for basic types
+    match T:
+        case x if x is _bool:
+            return Some(bool())
+        case x if x is _int:
+            return Some(int())
+        case x if x is _float:
+            return Some(float())
+        case x if x is _str:
+            return Some(str())
+        case x if u.is_maybe(x):
+            return _case_maybe(x)
+
+    # Check origin-based types
     origin = get_origin(T)
-    if origin is not None:
-        if origin == _tuple:
+    if origin is None:
+        return Nothing
+
+    match origin:
+        case x if x is _tuple:
             return _case_tuple(T)
-        if origin == _list:
+        case x if x is _list:
             return _case_list(T)
-        if origin == _dict:
+        case x if x is _dict:
             return _case_dict(T)
-        if origin == _set:
+        case x if x is _set:
             return _case_set(T)
-    return Nothing
+        case _:
+            return Nothing

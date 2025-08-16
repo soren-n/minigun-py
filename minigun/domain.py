@@ -136,7 +136,9 @@ def int_range(lower_bound: _int, upper_bound: _int) -> Domain[_int]:
 ###############################################################################
 # Strings
 ###############################################################################
-def bounded_str(lower_bound: _int, upper_bound: _int, alphabet: _str) -> Domain[_str]:
+def bounded_str(
+    lower_bound: _int, upper_bound: _int, alphabet: _str
+) -> Domain[_str]:
     """A domain for strings over a given alphabet with bounded length :code:`l` in the range :code:`lower_bound <= l <= upper_bound`.
 
     :param lower_bound: A min bound for the length of the sampled value, must be less than or equal to `upper_bound`.
@@ -217,7 +219,9 @@ def bounded_list[T](
     )
 
 
-def list[T](domain: Domain[T], ordered: o.Order[T] | None = None) -> Domain[_list[T]]:
+def list[T](
+    domain: Domain[T], ordered: o.Order[T] | None = None
+) -> Domain[_list[T]]:
     """A domain for lists over a given type `T`.
 
     :param domain: A value domain from which list items are samples.
@@ -235,7 +239,10 @@ def list[T](domain: Domain[T], ordered: o.Order[T] | None = None) -> Domain[_lis
 # Dictionary
 ###############################################################################
 def bounded_dict[K, V](
-    lower_bound: _int, upper_bound: _int, key_domain: Domain[K], value_domain: Domain[V]
+    lower_bound: _int,
+    upper_bound: _int,
+    key_domain: Domain[K],
+    value_domain: Domain[V],
 ) -> Domain[_dict[K, V]]:
     """A domain for dicts over a given key type `K` and value type `V` with bounded size :code:`s` in the range :code:`0 <= lower_bound <= s <= upper_bound`.
 
@@ -259,7 +266,9 @@ def bounded_dict[K, V](
     )
 
 
-def dict[K, V](key_domain: Domain[K], value_domain: Domain[V]) -> Domain[_dict[K, V]]:
+def dict[K, V](
+    key_domain: Domain[K], value_domain: Domain[V]
+) -> Domain[_dict[K, V]]:
     """A domain for dicts over a given key type `K` and value type `V`.
 
     :param key_domain: A key domain from which dict keys are samples.
@@ -295,7 +304,8 @@ def bounded_set[T](
     :rtype: `Domain[set[T]]`
     """
     return Domain(
-        g.bounded_set(lower_bound, upper_bound, domain.generate), p.set(domain.print)
+        g.bounded_set(lower_bound, upper_bound, domain.generate),
+        p.set(domain.print),
     )
 
 
@@ -341,7 +351,9 @@ def argument_pack(
     :rtype: `Domain[dict[str, Any]]`
     """
     return Domain(
-        g.argument_pack({name: domain.generate for name, domain in domains.items()}),
+        g.argument_pack(
+            {name: domain.generate for name, domain in domains.items()}
+        ),
         p.argument_pack(
             ordering, {name: domain.print for name, domain in domains.items()}
         ),

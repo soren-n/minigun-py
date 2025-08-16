@@ -162,7 +162,9 @@ def test_choice_selection(seed_val: int) -> bool:
             value = sh.head(dissection)
             # Value should be from one of the three ranges
             return (
-                (0 <= value <= 10) or (100 <= value <= 110) or (1000 <= value <= 1010)
+                (0 <= value <= 10)
+                or (100 <= value <= 110)
+                or (1000 <= value <= 1010)
             )
         case Maybe.empty:
             return True  # Empty generation is valid
@@ -361,7 +363,9 @@ def test_list_shrinking_shortens(seed_val: int) -> bool:
 
 @context(d.small_nat(), d.int_range(1, 5), d.int_range(1, 10))
 @prop("slice generates valid sample sequences")
-def test_slice_generation(seed_val: int, max_width: int, max_depth: int) -> bool:
+def test_slice_generation(
+    seed_val: int, max_width: int, max_depth: int
+) -> bool:
     state = a.seed(seed_val)
 
     int_gen = g.int_range(0, 100)
@@ -440,7 +444,9 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
 
     generators = {"x": g.int_range(0, 100)}
 
-    state, maybe_counter = find_counter_example(state, 50, false_law, generators)
+    state, maybe_counter = find_counter_example(
+        state, 50, false_law, generators
+    )
 
     # Should find a counterexample since the law is always false
     match maybe_counter:

@@ -40,8 +40,6 @@ dev = [
     "sphinx-rtd-theme>=3.0.2",
 ]
 quality = [
-    "black>=24.0.0",
-    "isort>=5.13.0",
     "ruff>=0.6.0",
     "coverage>=7.6.0",
     "pre-commit>=4.3.0",
@@ -71,36 +69,8 @@ publish-url = "https://test.pypi.org/legacy/"
 explicit = true
 
 # Quality tools configuration
-[tool.black]
-line-length = 88
-target-version = ["py312"]
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-    __pycache__
-    | \.git
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-)/
-'''
-
-[tool.isort]
-profile = "black"
-line_length = 88
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-known_first_party = ["minigun", "tests"]
-
 [tool.ruff]
-line-length = 88
+line-length = 80
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -114,7 +84,7 @@ select = [
     "UP", # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long, handled by black
+    "E501",  # line too long, enforced by ruff formatter at 80 chars
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "B011",  # assert False - used for unreachable code paths

@@ -134,7 +134,9 @@ def _operators_ring(
     inverse: Inverse[T],
 ) -> Spec:
     return conj(
-        _operator_abelian(plus_name, plus_identity, value_domain, plus, inverse),
+        _operator_abelian(
+            plus_name, plus_identity, value_domain, plus, inverse
+        ),
         _operator_moniod(times_name, times_identity, value_domain, times),
         _operators_dist(plus_name, times_name, value_domain, plus, times),
     )
@@ -262,7 +264,9 @@ def _pos_black_list_remove_length_identity(xs: list[int], x: int) -> bool:
 
 @context(d.list(d.int()), d.list(d.int()))
 @prop("list length concat distributes with add")
-def _pos_black_list_concat_length_add_dist(xs: list[int], ys: list[int]) -> bool:
+def _pos_black_list_concat_length_add_dist(
+    xs: list[int], ys: list[int]
+) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
 
 
@@ -279,14 +283,18 @@ def _pos_black_list_sorted(xs: list[int]) -> bool:
 ###############################################################################
 @context(d.dict(d.int(), d.int()), d.int(), d.int())
 @prop("Dictionary insert identity")
-def _pos_black_dict_insert_identity(kvs: dict[int, int], k: int, v: int) -> bool:
+def _pos_black_dict_insert_identity(
+    kvs: dict[int, int], k: int, v: int
+) -> bool:
     kvs[k] = v
     return kvs[k] == v
 
 
 @context(d.dict(d.int(), d.int()), d.int(), d.int())
 @prop("Dictionary remove identity")
-def _pos_black_dict_remove_identity(kvs: dict[int, int], k: int, v: int) -> bool:
+def _pos_black_dict_remove_identity(
+    kvs: dict[int, int], k: int, v: int
+) -> bool:
     kvs[k] = v
     del kvs[k]
     return k not in kvs

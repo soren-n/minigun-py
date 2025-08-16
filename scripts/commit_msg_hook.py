@@ -16,9 +16,7 @@ from pathlib import Path
 def validate_commit_message(message: str) -> bool:
     """Validate if commit message follows conventional commits format."""
     # Pattern for conventional commits
-    pattern = (
-        r"^(build|chore|ci|docs|feat|fix|perf|refactor|style|test)(\(.+\))?!?: .{1,50}"
-    )
+    pattern = r"^(build|chore|ci|docs|feat|fix|perf|refactor|style|test)(\(.+\))?!?: .{1,50}"
 
     # Check if message matches pattern
     if not re.match(pattern, message):

@@ -163,7 +163,9 @@ def context(
         match spec:
             case _Prop(desc, count, law, params, generators, printers):
                 _result = _Prop(desc, count, law, params, generators, printers)
-                for param, domain in zip(params[: len(params)], lparams, strict=False):
+                for param, domain in zip(
+                    params[: len(params)], lparams, strict=False
+                ):
                     _result.generators[param] = Some(domain.generate)
                     _result.printers[param] = Some(domain.print)
                 for param, domain in kparams.items():
@@ -227,11 +229,17 @@ def _call_context(
         def _item(param: str) -> ts.Layout:
             arg = args[param]
             arg_printer = printers[param]
-            # For strings, we want to use repr() to get proper Python string representation
-            if isinstance(arg, str):
-                return ts.parse('{0} + "=" + {1}', ts.text(param), ts.text(repr(arg)))
-            else:
-                return ts.parse('{0} + "=" + {1}', ts.text(param), arg_printer(arg))
+            # Use pattern matching for type-specific handling
+            match arg:
+                case str():
+                    # For strings, we want to use repr() to get proper Python string representation
+                    return ts.parse(
+                        '{0} + "=" + {1}', ts.text(param), ts.text(repr(arg))
+                    )
+                case _:
+                    return ts.parse(
+                        '{0} + "=" + {1}', ts.text(param), arg_printer(arg)
+                    )
 
         # Create items
         if not ordering:
@@ -262,7 +270,9 @@ def check(spec: Spec) -> bool:
     :rtype: `bool`
     """
 
-    def _visit(state: a.State, spec: Spec, neg: bool = False) -> tuple[a.State, bool]:
+    def _visit(
+        state: a.State, spec: Spec, neg: bool = False
+    ) -> tuple[a.State, bool]:
         match spec:
             case _Prop(desc, attempts, law, ordering, generators, printers):
                 # Get reporter for enhanced output
@@ -284,7 +294,10 @@ def check(spec: Spec) -> bool:
                             duration = time.time() - start_time
                             if reporter:
                                 reporter.end_test(
-                                    desc, False, duration, error_message=error_msg
+                                    desc,
+                                    False,
+                                    duration,
+                                    error_message=error_msg,
                                 )
                             return state, False
                         case Some(generator):
@@ -303,7 +316,10 @@ def check(spec: Spec) -> bool:
                             duration = time.time() - start_time
                             if reporter:
                                 reporter.end_test(
-                                    desc, False, duration, error_message=error_msg
+                                    desc,
+                                    False,
+                                    duration,
+                                    error_message=error_msg,
                                 )
                             return state, False
                         case Some(printer):
@@ -339,7 +355,10 @@ def check(spec: Spec) -> bool:
                         error_msg = f'A test case of "{desc}" failed with the following counter example:'
                         if reporter:
                             reporter.end_test(
-                                desc, False, duration, counter_example=counter_example
+                                desc,
+                                False,
+                                duration,
+                                counter_example=counter_example,
                             )
                         return state, False
                     case _:
