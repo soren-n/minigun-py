@@ -2,6 +2,7 @@
 """
 Minigun CLI - Property-based testing with rich output.
 """
+
 import argparse
 import sys
 
@@ -51,7 +52,7 @@ def run_tests(modules: list[str] | None = None, quiet: bool = False) -> bool:
     if quiet:
         # Minimal output mode
         overall_success = True
-        for module_name, test_func in test_modules.items():
+        for _module_name, test_func in test_modules.items():
             try:
                 success = test_func()
                 overall_success &= success
