@@ -22,7 +22,7 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --group dev --group quality
 
       - name: Run quality checks
         run: uv run quality-check
@@ -43,6 +43,9 @@ jobs:
 
       - name: Set up Python
         run: uv python install
+
+      - name: Install dependencies
+        run: uv sync
 
       - name: Build distribution
         run: uv build --sdist

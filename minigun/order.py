@@ -147,15 +147,15 @@ def sort[T](order: Order[T], items: list[T]) -> list[T]:
                 case 5:
                     return _sort5(*chunk)[2]
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
 
         while len(items) > 5:
             items = [_brute(chunk) for chunk in _chunks(items, 5)]
         return _brute(items)
 
     def _partition(items: list[T], pivot: T) -> tuple[list[T], list[T]]:
-        xs: list[T] = list()
-        ys: list[T] = list()
+        xs: list[T] = []
+        ys: list[T] = []
         for item in items:
             match order(pivot, item):
                 case Total.Eq:
@@ -168,7 +168,7 @@ def sort[T](order: Order[T], items: list[T]) -> list[T]:
 
     if len(items) <= 1:
         return items
-    result: list[T] = list()
+    result: list[T] = []
     stack: list[list[T]] = [items]
     while len(stack) != 0:
         items = stack.pop(-1)

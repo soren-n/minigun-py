@@ -242,7 +242,7 @@ def maybe[T](printer: Printer[T]) -> Printer[Maybe[T]]:
             case Some(value):
                 return ts.parse('grp ("Some(" & nest {0} & ")")', printer(value))
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     return _printer
 
@@ -306,7 +306,7 @@ def infer(T: type) -> Maybe[Printer[Any]]:
                 case Some(item_printer):
                     item_printers.append(item_printer)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return Some(tuple(*item_printers))
 
     def _case_list(T: type) -> Maybe[Printer[Any]]:
@@ -320,7 +320,7 @@ def infer(T: type) -> Maybe[Printer[Any]]:
             case (Maybe.empty, _) | (_, Maybe.empty):
                 return Nothing
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     def _case_set(T: type) -> Maybe[Printer[Any]]:
         return infer(get_args(T)[0]).map(set)
@@ -336,7 +336,7 @@ def infer(T: type) -> Maybe[Printer[Any]]:
     if u.is_maybe(T):
         return _case_maybe(T)
     origin = get_origin(T)
-    if origin != None:
+    if origin is not None:
         if origin == _tuple:
             return _case_tuple(T)
         if origin == _list:

@@ -72,7 +72,7 @@ def map[*P, R](func: Callable[[*P], R], *generators: Generator[Any]) -> Generato
                 case Some(dissection):
                     dissections.append(dissection)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(s.map(func, *dissections))
 
     return _impl
@@ -113,7 +113,7 @@ def bind[*P, R](
                 case Some(dissection):
                     values.append(s.head(dissection))
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         _values: _tuple[*P] = cast(_tuple[*P], _tuple(values))
         return func(*_values)(state)
 
@@ -144,9 +144,9 @@ def filter[T](predicate: Callable[[T], _bool], generator: Generator[T]) -> Gener
                     case Some(dissection1):
                         return state, Some(dissection1)
                     case _:
-                        assert False, "Invariant"
+                        raise AssertionError("Invariant")
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     return _impl
 
@@ -232,7 +232,11 @@ def nat() -> Generator[_int]:
             (
                 10
                 if prop < 0.5
-                else 100 if prop < 0.75 else 1000 if prop < 0.95 else 10000
+                else 100
+                if prop < 0.75
+                else 1000
+                if prop < 0.95
+                else 10000
             ),
         )
         return state, Some(s.int(0)(result))
@@ -258,7 +262,11 @@ def big_nat() -> Generator[_int]:
                 else (
                     100
                     if prop < 0.5
-                    else 1000 if prop < 0.75 else 10000 if prop < 0.95 else 1000000
+                    else 1000
+                    if prop < 0.75
+                    else 10000
+                    if prop < 0.95
+                    else 1000000
                 )
             ),
         )
@@ -316,7 +324,11 @@ def big_int() -> Generator[_int]:
             else (
                 100
                 if prop < 0.5
-                else 1000 if prop < 0.75 else 10000 if prop < 0.95 else 1000000
+                else 1000
+                if prop < 0.75
+                else 10000
+                if prop < 0.95
+                else 1000000
             )
         )
         state, result = a.int(state, -bound, bound)
@@ -484,7 +496,7 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
                 case Some(value):
                     values.append(value)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(_dist(values))
 
     return _impl
@@ -568,7 +580,7 @@ def bounded_list[T](
                 case Some(item):
                     result.append(item)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
     return _impl
@@ -751,9 +763,9 @@ def bounded_dict[K, V](
                         case Some(value):
                             result.append((key, value))
                         case _:
-                            assert False, "Invariant"
+                            raise AssertionError("Invariant")
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
     return _impl
@@ -891,7 +903,7 @@ def bounded_set[T](
                 case Some(item):
                     result.append(item)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
     return _impl
@@ -982,7 +994,7 @@ def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
                 _value = s.map(_something, value)
                 return state, Some((s.head(_value), fs.map(_append, s.tail(_value))))
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     return _impl
 
@@ -1042,7 +1054,7 @@ def argument_pack(
                 case Some(arg):
                     result.append((param, arg))
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return state, Some(_dist(result))
 
     return _impl
@@ -1069,7 +1081,7 @@ def choice[T](*generators: Generator[T]) -> Generator[T]:
 
 
 def weighted_choice[T](
-    *weighted_generators: _tuple[_int, Generator[T]]
+    *weighted_generators: _tuple[_int, Generator[T]],
 ) -> Generator[T]:
     """A generator of a type `T` composed of other weighted generators of type `T`.
 
@@ -1152,7 +1164,7 @@ def infer(T: type) -> Maybe[Generator[Any]]:
                 case Some(item_sampler):
                     item_samplers.append(item_sampler)
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
         return Some(tuple(*item_samplers))
 
     def _case_list(T: type) -> Maybe[Generator[Any]]:
@@ -1166,7 +1178,7 @@ def infer(T: type) -> Maybe[Generator[Any]]:
             case (Maybe.empty, _) | (_, Maybe.empty):
                 return Nothing
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     def _case_set(T: type) -> Maybe[Generator[Any]]:
         return infer(get_args(T)[0]).map(set)
@@ -1182,7 +1194,7 @@ def infer(T: type) -> Maybe[Generator[Any]]:
     if u.is_maybe(T):
         return _case_maybe(T)
     origin = get_origin(T)
-    if origin != None:
+    if origin is not None:
         if origin == _tuple:
             return _case_tuple(T)
         if origin == _list:

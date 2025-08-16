@@ -44,6 +44,7 @@ quality = [
     "isort>=5.13.0",
     "ruff>=0.6.0",
     "coverage>=7.6.0",
+    "pre-commit>=4.3.0",
 ]
 
 [project.scripts]
@@ -121,6 +122,11 @@ ignore = [
     "E501",  # line too long, handled by black
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
+    "B011",  # assert False - used for unreachable code paths
+    "E402",  # module level import not at top - intentional in some files
+    "UP031", # use format specifiers - legacy code style preference
+    "B023",  # function definition does not bind loop variable - complex generator pattern
+    "E722",  # bare except - intentional for specific error handling
 ]
 
 [tool.ruff.lint.per-file-ignores]

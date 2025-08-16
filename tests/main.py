@@ -2,6 +2,7 @@
 """
 Minigun test runner with enhanced output.
 """
+
 import sys
 
 from minigun.reporter import TestReporter, set_reporter

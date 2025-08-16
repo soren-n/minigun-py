@@ -17,7 +17,6 @@ from minigun import stream as fs
 def _trim_counter_example[T, *P](
     law: Callable[[T, *P], bool], example: s.Dissection[dict[str, Any]]
 ) -> dict[str, Any]:
-
     def _is_counter_example(args: s.Dissection[dict[str, Any]]) -> bool:
         _args: dict[str, Any] = s.head(args)
         _keys: list[str] = list(_args.keys())
@@ -33,7 +32,7 @@ def _trim_counter_example[T, *P](
                 case Maybe.empty:
                     return arg_values
                 case _:
-                    assert False, "Invariant"
+                    raise AssertionError("Invariant")
 
     return _shrink(example)
 
@@ -71,5 +70,5 @@ def find_counter_example[*P](
             case Some(counter_example):
                 return state, Some(_trim_counter_example(law, counter_example))
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
     return state, Nothing

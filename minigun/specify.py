@@ -49,7 +49,6 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
     """
 
     def _decorate(law: Callable[P, bool]) -> Spec:
-
         # Law type signature
         sig = signature(law)
         params = list(sig.parameters.keys())
@@ -172,7 +171,7 @@ def context(
                     _result.printers[param] = Some(domain.print)
                 return _result
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     return _decorate
 
@@ -291,7 +290,7 @@ def check(spec: Spec) -> bool:
                         case Some(generator):
                             _generators[param] = generator
                         case _:
-                            assert False, "Invariant"
+                            raise AssertionError("Invariant")
 
                 _printers: dict[str, p.Printer[Any]] = {}
                 for param, maybe_printer in printers.items():
@@ -310,7 +309,7 @@ def check(spec: Spec) -> bool:
                         case Some(printer):
                             _printers[param] = printer
                         case _:
-                            assert False, "Invariant"
+                            raise AssertionError("Invariant")
 
                 printer = _call_context(ordering, _printers)
                 state, maybe_counter_example = s.find_counter_example(
@@ -344,7 +343,7 @@ def check(spec: Spec) -> bool:
                             )
                         return state, False
                     case _:
-                        assert False, "Invariant"
+                        raise AssertionError("Invariant")
             case _Neg(term):
                 return _visit(state, term, not neg)
             case _Conj(terms):
@@ -367,7 +366,7 @@ def check(spec: Spec) -> bool:
                     return state, False
                 return _visit(state, conclusion)
             case _:
-                assert False, "Invariant"
+                raise AssertionError("Invariant")
 
     _, success = _visit(a.seed(), spec)
     temp_path = Path(".minigun", "temporary")
