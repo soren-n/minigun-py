@@ -54,35 +54,76 @@ repos:
   # Local project-specific hooks
   - repo: local
     hooks:
-      # Quality gates - comprehensive quality checks
-      - id: quality-gates
-        name: Quality Gates
-        entry: uv run quality-check
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [pre-push]
-        verbose: true
+      # Individual quality checks for better granularity and speed
 
-      # Run tests before push
-      - id: tests
-        name: Run Tests
-        entry: uv run test
+      # Format check (pre-commit stage - dry run)
+      - id: format-check
+        name: Format Check (Ruff)
+        entry: uv run ruff format --check --diff
         language: system
-        always_run: true
-        pass_filenames: false
         types: [python]
-        stages: [pre-push]
-        verbose: true
+        stages: [pre-commit]
+        args: [minigun, tests, scripts]
+        pass_filenames: false
 
-      # Lightweight quality gates for pre-commit
-      - id: quick-quality-check
-        name: Quick Quality Check
-        entry: uv run scripts/quality_gates.py --quick
+      # Import sorting check (pre-commit stage)
+      - id: import-sort-check
+        name: Import Sort Check (Ruff)
+        entry: uv run ruff check --select I
+        language: system
+        types: [python]
+        stages: [pre-commit]
+        args: [minigun, tests, scripts]
+        pass_filenames: false
+
+      # Lint check (pre-commit stage)
+      - id: lint-check
+        name: Lint Check (Ruff)
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        stages: [pre-commit]
+        args: [minigun, tests, scripts]
+        pass_filenames: false
+
+      # Type checking (pre-push stage - more comprehensive)
+      - id: type-check-local
+        name: Type Check (MyPy)
+        entry: uv run mypy
+        language: system
+        types: [python]
+        args: [minigun]
+        pass_filenames: false
+        # Skip temporarily due to mypy internal error
+        stages: [manual]
+
+      # Run tests with coverage (pre-push stage)
+      - id: test-coverage
+        name: Tests with Coverage
+        entry: uv run coverage run -m tests.main
         language: system
         always_run: true
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
+
+      # Coverage report (pre-push stage)
+      - id: coverage-report
+        name: Coverage Report
+        entry: uv run coverage report --show-missing --fail-under=70
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Emoji scanner (optional, manual stage)
+      - id: emoji-scan
+        name: Emoji Scanner
+        entry: uv run python scripts/emoji_scanner.py
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [manual]
+        args: [.]
 
 # CI configuration for pre-commit.ci
 ci:
@@ -94,5 +135,5 @@ ci:
     autoupdate_branch: ''
     autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
     autoupdate_schedule: weekly
-    skip: [mypy, quality-gates, tests, quick-quality-check]  # Skip resource-intensive hooks in CI
+    skip: [mypy, type-check-local, emoji-scan]  # Skip resource-intensive and optional hooks in CI
     submodules: false
