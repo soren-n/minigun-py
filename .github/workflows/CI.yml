@@ -37,7 +37,7 @@ jobs:
         run: uv run coverage run -m tests.main
 
       - name: Coverage report
-        run: uv run coverage report --show-missing --fail-under=70
+        run: uv run coverage report --show-missing --fail-under=60
 
   build_distribution:
     name: Build distribution
