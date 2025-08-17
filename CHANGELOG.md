@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.3 (2025-08-17)
+
+### Bug Fixes
+
+- Handle duplicate GitHub releases in workflow
+  ([`9a8f53d`](https://github.com/soren-n/minigun-py/commit/9a8f53d357c7448abe8dd246792d0476d39223c5))
+
+
 ## v2.2.2 (2025-08-17)
 
 ### Bug Fixes
