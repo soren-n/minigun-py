@@ -8,9 +8,13 @@ from returns.maybe import Maybe, Some
 
 # Internal imports
 import minigun.arbitrary as a
+import minigun.budget as b
+import minigun.cardinality as c
 import minigun.domain as d
 import minigun.generate as g
+import minigun.orchestrator as o
 import minigun.pretty as p
+import minigun.reporter as r
 import minigun.shrink as sh
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, neg, prop
@@ -412,6 +416,409 @@ def test_maybe_generator_coverage(seed_val: int) -> bool:
 
 
 ###############################################################################
+# Budget module tests - targeting low coverage areas
+###############################################################################
+
+
+@context(d.small_nat())
+@prop("AttemptStrategy.theoretical_limit returns reasonable values")
+def test_attempt_strategy_theoretical_limit(size: int) -> bool:
+    cardinality = c.Finite(max(1, size % 10000))
+    limit = b.AttemptStrategy.theoretical_limit(cardinality)
+    return 1 <= limit <= 10000
+
+
+@context(d.small_nat())
+@prop("AttemptStrategy.practical_baseline handles finite cardinalities")
+def test_attempt_strategy_practical_baseline_finite(size: int) -> bool:
+    cardinality = c.Finite(max(10, size % 1000))
+    attempts = b.AttemptStrategy.practical_baseline(cardinality)
+    return attempts >= 10
+
+
+@context(d.small_nat())
+@prop("PropertyBudget.create produces valid budgets")
+def test_property_budget_create(seed_val: int) -> bool:
+    size = max(10, seed_val % 1000)
+    cardinality = c.Finite(size)
+    budget = b.PropertyBudget.create("test_prop", cardinality)
+
+    return (
+        budget.name == "test_prop"
+        and budget.cardinality == cardinality
+        and budget.theoretical_limit > 0
+        and budget.practical_baseline > 0
+        and budget.final_attempts == budget.practical_baseline
+    )
+
+
+@context(d.small_nat())
+@prop("PropertyBudget.with_calibration updates timing correctly")
+def test_property_budget_with_calibration(seed_val: int) -> bool:
+    cardinality = c.Finite(100)
+    budget = b.PropertyBudget.create("test", cardinality)
+    time_per_attempt = max(0.001, (seed_val % 100) / 1000.0)
+
+    calibrated = budget.with_calibration(time_per_attempt)
+
+    return (
+        calibrated.time_per_attempt == time_per_attempt
+        and calibrated.estimated_time
+        == calibrated.practical_baseline * time_per_attempt
+        and calibrated.name == budget.name
+    )
+
+
+@context(d.small_nat())
+@prop("PropertyBudget.with_final_attempts updates attempts correctly")
+def test_property_budget_with_final_attempts(seed_val: int) -> bool:
+    cardinality = c.Finite(100)
+    budget = b.PropertyBudget.create("test", cardinality, 0.01)
+    new_attempts = max(1, seed_val % 50)
+
+    updated = budget.with_final_attempts(new_attempts)
+
+    return (
+        updated.final_attempts == new_attempts
+        and updated.estimated_time == new_attempts * 0.01
+        and updated.name == budget.name
+    )
+
+
+@context(d.small_nat())
+@prop("PropertyBudget.is_infinite_cardinality detects infinite correctly")
+def test_property_budget_infinite_cardinality_detection(seed_val: int) -> bool:
+    # Test with finite cardinality
+    finite_card = c.Finite(max(1, seed_val % 1000))
+    finite_budget = b.PropertyBudget.create("finite", finite_card)
+
+    # Test with infinite cardinality
+    infinite_card = c.Infinite()
+    infinite_budget = b.PropertyBudget.create("infinite", infinite_card)
+
+    return (
+        not finite_budget.is_infinite_cardinality()
+        and infinite_budget.is_infinite_cardinality()
+    )
+
+
+@context(d.small_nat())
+@prop("BudgetAllocator.add_property increases property count")
+def test_budget_allocator_add_property(seed_val: int) -> bool:
+    allocator = b.BudgetAllocator(30.0)
+    initial_count = len(allocator.properties)
+
+    cardinality = c.Finite(max(1, seed_val % 100))
+    allocator.add_property("test_prop", cardinality)
+
+    return len(allocator.properties) == initial_count + 1
+
+
+@context(d.small_nat())
+@prop("BudgetAllocator.record_calibration updates timing")
+def test_budget_allocator_record_calibration(seed_val: int) -> bool:
+    allocator = b.BudgetAllocator(60.0)
+    cardinality = c.Finite(100)
+    allocator.add_property("test_prop", cardinality)
+
+    # Record calibration
+    total_time = max(0.01, (seed_val % 100) / 100.0)
+    attempts = max(1, seed_val % 10)
+    allocator.record_calibration("test_prop", total_time, attempts)
+
+    prop_budget = allocator.get_property_budget("test_prop")
+    expected_time_per_attempt = total_time / attempts
+
+    return (
+        prop_budget is not None
+        and abs(prop_budget.time_per_attempt - expected_time_per_attempt)
+        < 0.001
+    )
+
+
+@context(d.small_nat())
+@prop(
+    "BudgetAllocator.get_allocated_attempts returns calibration value during calibration"
+)
+def test_budget_allocator_calibration_attempts(seed_val: int) -> bool:
+    allocator = b.BudgetAllocator(30.0)
+    cardinality = c.Finite(max(1, seed_val % 100))
+    allocator.add_property("test", cardinality)
+
+    # Should return calibration default before finalization
+    attempts = allocator.get_allocated_attempts("test")
+    return attempts == 10
+
+
+@context(d.small_nat())
+@prop("BudgetAllocator.finalize_allocation completes calibration")
+def test_budget_allocator_finalize_allocation(seed_val: int) -> bool:
+    allocator = b.BudgetAllocator(60.0)
+    cardinality = c.Finite(100)
+    allocator.add_property("test", cardinality)
+    allocator.record_calibration("test", 0.1, 10)
+
+    initial_calibration = allocator.is_calibration_complete()
+    allocator.finalize_allocation()
+    final_calibration = allocator.is_calibration_complete()
+
+    return not initial_calibration and final_calibration
+
+
+@context(d.small_nat())
+@prop("BudgetAllocationStrategy.scale_down reduces attempts proportionally")
+def test_budget_allocation_scale_down(seed_val: int) -> bool:
+    # Create properties that will exceed budget
+    cardinality = c.Finite(1000)
+    prop1 = b.PropertyBudget.create("prop1", cardinality)
+    prop2 = b.PropertyBudget.create("prop2", cardinality)
+
+    # Add calibration timing that will exceed our small budget
+    prop1 = prop1.with_calibration(0.1)
+    prop2 = prop2.with_calibration(0.1)
+    properties = [prop1, prop2]
+
+    # Use a small budget that forces scaling
+    time_budget = max(0.5, (seed_val % 5) + 1.0)
+    scaled = b.BudgetAllocationStrategy.scale_down(properties, time_budget)
+
+    total_time = sum(p.estimated_time for p in scaled)
+    return total_time <= time_budget * 1.1 and len(scaled) == len(properties)
+
+
+###############################################################################
+# Orchestrator module tests - testing orchestration system
+###############################################################################
+
+
+@context(d.small_nat())
+@prop("TestModule creates valid module objects")
+def test_test_module_creation(seed_val: int) -> bool:
+    def dummy_test() -> bool:
+        return True
+
+    module = o.TestModule("test_module", dummy_test)
+    return module.name == "test_module" and callable(module.test_function)
+
+
+@context(d.small_nat())
+@prop("OrchestrationConfig has reasonable defaults")
+def test_orchestration_config_defaults(seed_val: int) -> bool:
+    time_budget = max(10.0, float(seed_val % 100))
+    config = o.OrchestrationConfig(time_budget=time_budget)
+
+    return (
+        config.time_budget == time_budget
+        and config.verbose is True
+        and config.quiet is False
+        and config.json_output is False
+    )
+
+
+@context(d.small_nat())
+@prop("OrchestrationConfig accepts custom settings")
+def test_orchestration_config_custom(seed_val: int) -> bool:
+    time_budget = max(5.0, float(seed_val % 50))
+    verbose = (seed_val % 2) == 0
+    quiet = (seed_val % 3) == 0
+    json_output = (seed_val % 5) == 0
+
+    config = o.OrchestrationConfig(
+        time_budget=time_budget,
+        verbose=verbose,
+        quiet=quiet,
+        json_output=json_output,
+    )
+
+    return (
+        config.time_budget == time_budget
+        and config.verbose == verbose
+        and config.quiet == quiet
+        and config.json_output == json_output
+    )
+
+
+@context(d.small_nat())
+@prop("PhaseResult captures test execution results")
+def test_phase_result_structure(seed_val: int) -> bool:
+    success = (seed_val % 2) == 0
+    duration = max(0.1, float(seed_val % 100) / 10.0)
+    modules = max(1, seed_val % 10)
+
+    result = o.PhaseResult(success, duration, modules)
+
+    return (
+        result.success == success
+        and result.duration == duration
+        and result.modules_executed == modules
+    )
+
+
+@context(d.small_nat())
+@prop("TestOrchestrator initializes with valid config")
+def test_orchestrator_initialization(seed_val: int) -> bool:
+    time_budget = max(10.0, float(seed_val % 100))
+    config = o.OrchestrationConfig(time_budget=time_budget, quiet=True)
+    orchestrator = o.TestOrchestrator(config)
+
+    return orchestrator.config == config
+
+
+@context(d.small_nat())
+@prop("TestOrchestrator executes simple test modules")
+def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
+    config = o.OrchestrationConfig(time_budget=5.0, quiet=True)
+    orchestrator = o.TestOrchestrator(config)
+
+    def always_pass() -> bool:
+        return True
+
+    def sometimes_pass() -> bool:
+        return (seed_val % 3) != 0  # Fails 1/3 of the time
+
+    modules = [
+        o.TestModule("always_pass", always_pass),
+        o.TestModule("sometimes_pass", sometimes_pass),
+    ]
+
+    result = orchestrator.execute_tests(modules)
+
+    # Result should be boolean
+    return isinstance(result, bool)
+
+
+###############################################################################
+# Reporter module tests - testing reporting system data structures
+###############################################################################
+
+
+@context(d.small_nat())
+@prop("CardinalityInfo creates valid objects")
+def test_cardinality_info_creation(seed_val: int) -> bool:
+    cardinality = c.Finite(max(1, seed_val % 1000))
+    optimal_limit = max(1, seed_val % 100)
+    allocated_attempts = max(1, seed_val % 50)
+    estimated_time = max(0.001, float(seed_val % 100) / 1000.0)
+
+    info = r.CardinalityInfo(
+        domain_size=cardinality,
+        optimal_limit=optimal_limit,
+        allocated_attempts=allocated_attempts,
+        estimated_time=estimated_time,
+    )
+
+    return (
+        info.domain_size == cardinality
+        and info.optimal_limit == optimal_limit
+        and info.allocated_attempts == allocated_attempts
+        and info.estimated_time == estimated_time
+    )
+
+
+@context(d.small_nat())
+@prop("CardinalityInfo.to_dict creates valid dictionary")
+def test_cardinality_info_to_dict(seed_val: int) -> bool:
+    cardinality = c.Finite(max(1, seed_val % 1000))
+    optimal_limit = max(1, seed_val % 100)
+    allocated_attempts = max(1, seed_val % 50)
+
+    info = r.CardinalityInfo(
+        domain_size=cardinality,
+        optimal_limit=optimal_limit,
+        allocated_attempts=allocated_attempts,
+    )
+
+    result_dict = info.to_dict()
+
+    return (
+        isinstance(result_dict, dict)
+        and "domain_size" in result_dict
+        and "optimal_limit" in result_dict
+        and "allocated_attempts" in result_dict
+        and "estimated_time" in result_dict
+    )
+
+
+@context(d.small_nat())
+@prop("TestResult creates valid test result objects")
+def test_test_result_creation(seed_val: int) -> bool:
+    name = f"test_property_{seed_val % 100}"
+    success = (seed_val % 2) == 0
+    duration = max(0.001, float(seed_val % 100) / 1000.0)
+    counter_example = f"counter_example_{seed_val}" if not success else None
+
+    result = r.TestResult(
+        name=name,
+        success=success,
+        duration=duration,
+        counter_example=counter_example,
+    )
+
+    return (
+        result.name == name
+        and result.success == success
+        and abs(result.duration - duration) < 0.001
+        and result.counter_example == counter_example
+    )
+
+
+@context(d.small_nat())
+@prop("TestResult.to_dict creates valid dictionary")
+def test_test_result_to_dict(seed_val: int) -> bool:
+    name = f"test_property_{seed_val % 100}"
+    success = (seed_val % 2) == 0
+    duration = max(0.001, float(seed_val % 100) / 1000.0)
+
+    result = r.TestResult(name=name, success=success, duration=duration)
+
+    result_dict = result.to_dict()
+
+    return (
+        isinstance(result_dict, dict)
+        and result_dict["name"] == name
+        and result_dict["success"] == success
+        and abs(result_dict["duration"] - duration) < 0.001
+    )
+
+
+@context(d.small_nat())
+@prop("TestResult with CardinalityInfo serializes correctly")
+def test_test_result_with_cardinality_to_dict(seed_val: int) -> bool:
+    name = f"test_property_{seed_val % 100}"
+    cardinality = c.Finite(max(1, seed_val % 1000))
+
+    cardinality_info = r.CardinalityInfo(
+        domain_size=cardinality, optimal_limit=10, allocated_attempts=5
+    )
+
+    result = r.TestResult(
+        name=name, success=True, duration=0.1, cardinality_info=cardinality_info
+    )
+
+    result_dict = result.to_dict()
+
+    return (
+        isinstance(result_dict, dict)
+        and "cardinality_info" in result_dict
+        and isinstance(result_dict["cardinality_info"], dict)
+    )
+
+
+@context(d.small_nat())
+@prop("format_counter_example returns clean strings")
+def test_format_counter_example(seed_val: int) -> bool:
+    input_str = f"  test_counter_example_{seed_val % 100}  \n"
+    result = r.format_counter_example(input_str)
+
+    # Should strip whitespace and be non-empty
+    return (
+        isinstance(result, str)
+        and len(result.strip()) > 0
+        and result == result.strip()
+    )
+
+
+###############################################################################
 # Running all additional tests
 ###############################################################################
 def test() -> bool:
@@ -445,6 +852,32 @@ def test() -> bool:
             test_zero_length_bounded_collections,
             test_single_element_bounded_collections,
             test_maybe_generator_coverage,
+            # Budget module tests
+            test_attempt_strategy_theoretical_limit,
+            test_attempt_strategy_practical_baseline_finite,
+            test_property_budget_create,
+            test_property_budget_with_calibration,
+            test_property_budget_with_final_attempts,
+            test_property_budget_infinite_cardinality_detection,
+            test_budget_allocator_add_property,
+            test_budget_allocator_record_calibration,
+            test_budget_allocator_calibration_attempts,
+            test_budget_allocator_finalize_allocation,
+            test_budget_allocation_scale_down,
+            # Orchestrator module tests
+            test_test_module_creation,
+            test_orchestration_config_defaults,
+            test_orchestration_config_custom,
+            test_phase_result_structure,
+            test_orchestrator_initialization,
+            test_orchestrator_execute_simple_modules,
+            # Reporter module tests
+            test_cardinality_info_creation,
+            test_cardinality_info_to_dict,
+            test_test_result_creation,
+            test_test_result_to_dict,
+            test_test_result_with_cardinality_to_dict,
+            test_format_counter_example,
         )
     )
 

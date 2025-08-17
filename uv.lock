@@ -273,7 +273,7 @@ wheels = [
 
 [[package]]
 name = "minigun-soren-n"
-version = "2.2.0"
+version = "2.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "returns" },
