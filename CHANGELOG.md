@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.1 (2025-08-17)
+
+### Bug Fixes
+
+- Adjust coverage threshold from 70% to 60% to match current coverage
+  ([`9db436b`](https://github.com/soren-n/minigun-py/commit/9db436bbda1e633f1883b86a722286f097485e2a))
+
+
 ## v2.2.0 (2025-08-16)
 
 ### Features
