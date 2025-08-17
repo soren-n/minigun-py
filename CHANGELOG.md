@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v2.2.2 (2025-08-17)
+
+### Bug Fixes
+
+- Adjust CI coverage threshold from 70% to 60% to match current coverage
+  ([#10](https://github.com/soren-n/minigun-py/pull/10),
+  [`2d6b710`](https://github.com/soren-n/minigun-py/commit/2d6b710ac70bcac1d4b373233075c2da5161af0d))
+
+
 ## v2.2.1 (2025-08-17)
 
 ### Bug Fixes
