@@ -24,7 +24,7 @@ def test() -> bool:
     ]
 
     # Create and set up reporter
-    reporter = TestReporter(verbose=True)
+    reporter = TestReporter(time_budget=60.0, verbose=True)
     set_reporter(reporter)
 
     # Start testing

@@ -1,3 +1,33 @@
+"""
+PRNG State Management and Random Generation
+
+This module provides pure functional random number generation with explicit state
+threading. It implements the foundation for all random generation in Minigun,
+ensuring reproducible and deterministic test case generation.
+
+Key Components:
+    - State: PRNG state tuple for deterministic generation
+    - seed(): Initialize state from optional integer seed
+    - Primitive generators: bool, nat, int, float, probability
+    - Choice utilities: choice, weighted_choice for selection
+
+The module follows functional programming principles with immutable state and
+pure functions that explicitly thread PRNG state through computations.
+
+Example:
+    ```python
+    import minigun.arbitrary as a
+
+    # Initialize state
+    state = a.seed(42)
+
+    # Generate values with explicit state threading
+    state, value1 = a.int(state, 1, 100)
+    state, value2 = a.bool(state)
+    state, chosen = a.choice(state, ["a", "b", "c"])
+    ```
+"""
+
 # External module dependencies
 import random
 

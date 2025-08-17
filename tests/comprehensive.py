@@ -75,8 +75,12 @@ def test_map_identity(seed_val: int) -> bool:
     int_gen = g.int_range(0, 100)
     mapped_gen = g.map(identity_func, int_gen)
 
-    state1, maybe_result1 = int_gen(state)
-    state2, maybe_result2 = mapped_gen(state)
+    # Extract samplers from generators
+    int_sampler, _ = int_gen
+    mapped_sampler, _ = mapped_gen
+
+    state1, maybe_result1 = int_sampler(state)
+    state2, maybe_result2 = mapped_sampler(state)
 
     # Both should generate the same dissection structure
     match (maybe_result1, maybe_result2):
@@ -108,8 +112,10 @@ def test_map_associative(seed_val: int, offset: int) -> bool:
     composed1 = g.map(compose_f_g, int_gen)
     composed2 = g.map(f, g.map(g_func, int_gen))
 
-    state1, result1 = composed1(state)
-    state2, result2 = composed2(state)
+    sampler1, _ = composed1
+    sampler2, _ = composed2
+    state1, result1 = sampler1(state)
+    state2, result2 = sampler2(state)
 
     match (result1, result2):
         case (Some(d1), Some(d2)):
@@ -132,8 +138,9 @@ def test_filter_predicate(seed_val: int) -> bool:
     even_gen = g.filter(is_even, g.int_range(0, 100))
 
     # Try to generate a value multiple times
+    even_sampler, _ = even_gen
     for _ in range(10):
-        state, maybe_result = even_gen(state)
+        state, maybe_result = even_sampler(state)
         match maybe_result:
             case Some(dissection):
                 value = sh.head(dissection)
@@ -156,7 +163,8 @@ def test_choice_selection(seed_val: int) -> bool:
 
     choice_gen = g.choice(gen1, gen2, gen3)
 
-    state, maybe_result = choice_gen(state)
+    choice_sampler, _ = choice_gen
+    state, maybe_result = choice_sampler(state)
     match maybe_result:
         case Some(dissection):
             value = sh.head(dissection)
@@ -175,9 +183,10 @@ def test_choice_selection(seed_val: int) -> bool:
 def test_list_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    list_gen = g.bounded_list(0, max_size, g.int_range(0, 100))
+    list_gen = g.bounded_list(0, max_size, d.int_range(0, 100).generate)
 
-    state, maybe_result = list_gen(state)
+    list_sampler, _ = list_gen
+    state, maybe_result = list_sampler(state)
     match maybe_result:
         case Some(dissection):
             value = sh.head(dissection)
@@ -191,9 +200,12 @@ def test_list_size(seed_val: int, max_size: int) -> bool:
 def test_dict_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    dict_gen = g.bounded_dict(0, max_size, g.int_range(0, 100), g.str())
+    dict_gen = g.bounded_dict(
+        0, max_size, d.int_range(0, 100).generate, g.str()
+    )
 
-    state, maybe_result = dict_gen(state)
+    dict_sampler, _ = dict_gen
+    state, maybe_result = dict_sampler(state)
     match maybe_result:
         case Some(dissection):
             value = sh.head(dissection)
@@ -207,9 +219,10 @@ def test_dict_size(seed_val: int, max_size: int) -> bool:
 def test_set_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    set_gen = g.bounded_set(0, max_size, g.int_range(0, 100))
+    set_gen = g.bounded_set(0, max_size, d.int_range(0, 100).generate)
 
-    state, maybe_result = set_gen(state)
+    set_sampler, _ = set_gen
+    state, maybe_result = set_sampler(state)
     match maybe_result:
         case Some(dissection):
             value = sh.head(dissection)
@@ -229,8 +242,9 @@ def test_int_domain_bounds(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     # Test small_int domain
-    small_int_domain = d.small_int()
-    state, maybe_result = small_int_domain.generate(state)
+    small_int_domain = g.small_int()
+    small_int_sampler, _ = small_int_domain
+    state, maybe_result = small_int_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -246,7 +260,8 @@ def test_bounded_list_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     list_domain = d.bounded_list(2, 5, d.small_int())
-    state, maybe_result = list_domain.generate(state)
+    list_sampler, _ = list_domain.generate
+    state, maybe_result = list_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -262,7 +277,8 @@ def test_tuple_domain_arity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     tuple_domain = d.tuple(d.bool(), d.small_int(), d.str())
-    state, maybe_result = tuple_domain.generate(state)
+    tuple_sampler, _ = tuple_domain.generate
+    state, maybe_result = tuple_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -284,7 +300,8 @@ def test_maybe_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     maybe_domain = d.maybe(d.small_int())
-    state, maybe_result = maybe_domain.generate(state)
+    maybe_sampler, _ = maybe_domain.generate
+    state, maybe_result = maybe_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -312,7 +329,8 @@ def test_int_shrinking_decreases(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     int_gen = g.int_range(10, 100)  # Generate larger numbers
-    state, maybe_result = int_gen(state)
+    int_sampler, _ = int_gen
+    state, maybe_result = int_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -336,7 +354,8 @@ def test_list_shrinking_shortens(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     list_gen = g.bounded_list(3, 10, g.small_int())  # Generate non-empty lists
-    state, maybe_result = list_gen(state)
+    list_sampler, _ = list_gen
+    state, maybe_result = list_sampler(state)
 
     match maybe_result:
         case Some(dissection):
@@ -369,7 +388,8 @@ def test_slice_generation(
     state = a.seed(seed_val)
 
     int_gen = g.int_range(0, 100)
-    state, maybe_slice = s.slice(int_gen, max_width, max_depth, state)
+    int_sampler, _ = int_gen
+    state, maybe_slice = s.slice(int_sampler, max_width, max_depth, state)
 
     match maybe_slice:
         case Some(values):
@@ -442,7 +462,7 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
     def false_law(x):
         return x != x  # x should always equal itself
 
-    generators = {"x": g.int_range(0, 100)}
+    generators = {"x": d.int_range(0, 100).generate}
 
     state, maybe_counter = find_counter_example(
         state, 50, false_law, generators
@@ -468,7 +488,7 @@ def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
     def true_law(x):
         return x == x  # x should always equal itself
 
-    generators = {"x": g.int_range(0, 100)}
+    generators = {"x": d.int_range(0, 100).generate}
 
     state, maybe_counter = find_counter_example(state, 50, true_law, generators)
 

@@ -47,6 +47,14 @@ Minigun automatically generates hundreds of test cases and finds minimal counter
 - Rich terminal output with progress indicators
 - Detailed test reports and timing information
 - Modular test execution (run specific test modules)
+- Time-based budget allocation for optimal test coverage
+- Two-phase testing (calibration + execution) with sophisticated optimization
+
+### 6. **Advanced Cardinality System**
+- Symbolic expressions with automatic simplification
+- Big O notation (O, Θ, Ω) for asymptotic complexity analysis
+- Secretary Problem optimization for infinite cardinality domains
+- Multi-tier allocation strategy balancing coverage vs execution time
 
 ## Project Structure
 
@@ -63,8 +71,12 @@ minigun/                 # Core library package
 ├── pretty.py           # Output formatting and display
 ├── reporter.py         # Test reporting and progress tracking
 ├── cli.py              # Command-line interface
+├── cardinality.py      # Unified symbolic cardinality system
+├── budget.py           # Budget allocation and time optimization
+├── orchestrator.py     # Two-phase test execution coordination
 ├── order.py            # Ordering utilities
-└── util.py             # General utilities
+├── util.py             # General utilities
+└── __main__.py         # Package entry point
 
 tests/                   # Self-testing using Minigun
 ├── positive.py          # Tests expected to pass
@@ -131,7 +143,7 @@ Catch subtle bugs that example-based tests might miss:
 
 ## Version and Compatibility
 
-- **Current Version:** 2.0.0
+- **Current Version:** 2.2.0
 - **Python Requirement:** >=3.12
 - **License:** GPLv3
 - **Package Name:** `minigun-soren-n` (on PyPI)

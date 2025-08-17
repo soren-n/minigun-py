@@ -1,3 +1,34 @@
+"""
+Functional Stream Operations
+
+This module provides lazy functional streams for efficient handling of
+potentially infinite sequences. Streams are used extensively throughout
+Minigun for shrinking trees, generator composition, and lazy evaluation.
+
+Architecture:
+    - Stream[T]: Lazy thunked computation yielding (value, next_stream)
+    - Combinators: map, filter, filter_map for stream processing
+    - Construction: unfold, singleton, constant, from_list
+    - Composition: concat, braid for combining streams
+
+Streams enable memory-efficient processing of large or infinite data sets
+while maintaining functional purity and composability. They're particularly
+important in the shrinking system where they represent trees of shrunk values.
+
+Example:
+    ```python
+    import minigun.stream as fs
+
+    # Create infinite stream of natural numbers
+    nats = fs.unfold(lambda n: Some((n, n + 1)), 0)
+
+    # Transform and take first 10 even numbers
+    evens = fs.map(lambda x: x * 2, nats)
+    first_10_evens = fs.to_list(evens, 10)
+    # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+    ```
+"""
+
 # External module dependencies
 from collections.abc import Callable
 from functools import partial

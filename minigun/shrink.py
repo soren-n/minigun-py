@@ -1,3 +1,41 @@
+"""
+Shrinking Strategies and Algorithms
+
+This module implements the shrinking system that finds minimal counterexamples
+when properties fail. It provides dissection trees that represent all possible
+ways to shrink a value while preserving the failure condition.
+
+Architecture:
+    - Dissection[T]: Tree structure representing value and shrinking options
+    - Trimmer[T]: Function producing stream of smaller values
+    - unfold(): Create dissection from multiple trimming strategies
+
+Built-in Shrinking:
+    - Primitives: int, float, bool shrinking towards zero/false
+    - Collections: list, dict, set shrinking by removal and element shrinking
+    - Combinators: map, bind for custom data structure shrinking
+
+The shrinking system is integrated with generators to automatically provide
+minimal counterexamples without additional user configuration.
+
+Example:
+    ```python
+    import minigun.shrink as s
+    import minigun.stream as fs
+
+    # Define custom trimmer for non-empty lists
+    def trim_nonempty_list(lst: list[int]) -> fs.Stream[list[int]]:
+        if len(lst) <= 1:
+            return fs.empty()
+        # Try removing elements
+        for i in range(len(lst)):
+            yield lst[:i] + lst[i+1:]
+
+    # Create dissection with custom shrinking
+    dissection = s.unfold([1, 2, 3, 4], trim_nonempty_list)
+    ```
+"""
+
 # External module dependencies
 import math
 
