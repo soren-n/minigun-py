@@ -119,7 +119,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create ${{ needs.release.outputs.tag }} \
-            --title "Release ${{ needs.release.outputs.version }}" \
-            --generate-notes \
-            ./dist/*
+          if gh release view ${{ needs.release.outputs.tag }} > /dev/null 2>&1; then
+            echo "Release ${{ needs.release.outputs.tag }} already exists, updating assets..."
+            gh release upload ${{ needs.release.outputs.tag }} ./dist/* --clobber
+          else
+            echo "Creating new release ${{ needs.release.outputs.tag }}..."
+            gh release create ${{ needs.release.outputs.tag }} \
+              --title "Release ${{ needs.release.outputs.version }}" \
+              --generate-notes \
+              ./dist/*
+          fi
