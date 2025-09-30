@@ -384,25 +384,49 @@ def _run_calibration(spec: Spec) -> bool:
                         desc, total_cardinality
                     )
 
-                # Run calibration: measure pure test execution time for 10 attempts using the same search logic
-                calibration_attempts = 10
+                # Adaptive calibration: run until timing stabilizes
+                min_calibration_attempts = 10
+                max_calibration_attempts = 100
+                stability_epsilon = 0.15
+                stability_window = 5
 
-                # Time the actual search process (same as execution) but with limited attempts
+                attempt_times = []
+                calibration_state = a.seed()
                 start_time = time.time()
 
-                # Run the same search algorithm as normal execution, but with calibration attempts
-                state, maybe_counter_example = s.find_counter_example(
-                    a.seed(), calibration_attempts, law, _generators
-                )
+                for total_attempts in range(1, max_calibration_attempts + 1):
+                    attempt_start = time.time()
+                    calibration_state, _ = s.find_counter_example(
+                        calibration_state, 1, law, _generators
+                    )
+                    attempt_times.append(time.time() - attempt_start)
 
-                end_time = time.time()
-                pure_execution_time = end_time - start_time
+                    if total_attempts < min_calibration_attempts:
+                        continue
 
-                # Create cardinality info for this property
+                    recent_times = attempt_times[-stability_window:]
+                    if len(recent_times) < stability_window:
+                        continue
+
+                    mean_time = sum(recent_times) / len(recent_times)
+                    if mean_time <= 0:
+                        continue
+
+                    variance = sum(
+                        (t - mean_time) ** 2 for t in recent_times
+                    ) / len(recent_times)
+                    coefficient_of_variation = (variance**0.5) / mean_time
+
+                    if coefficient_of_variation < stability_epsilon:
+                        break
+
+                pure_execution_time = time.time() - start_time
+                calibration_attempts = total_attempts
+
                 cardinality_info = CardinalityInfo(
                     domain_size=total_cardinality,
-                    optimal_limit=calibration_attempts,  # Number of attempts used for calibration
-                    allocated_attempts=calibration_attempts,  # 10 attempts for calibration
+                    optimal_limit=calibration_attempts,
+                    allocated_attempts=calibration_attempts,
                 )
 
                 if reporter:

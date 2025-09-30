@@ -58,17 +58,14 @@ class TestOrchestrator:
         self._calibration_result: PhaseResult | None = None
 
     def execute_tests(self, modules: list[TestModule]) -> bool:
-        """
-        Execute all test modules using two-phase approach.
-
-        Returns True if all tests passed, False otherwise.
-        """
+        """Execute all test modules using two-phase approach."""
         if self.config.quiet:
             return self._execute_quiet_mode(modules)
-        elif self.config.json_output:
+
+        if self.config.json_output:
             return self._execute_json_mode(modules)
-        else:
-            return self._execute_verbose_mode(modules)
+
+        return self._execute_verbose_mode(modules)
 
     def _execute_quiet_mode(self, modules: list[TestModule]) -> bool:
         """Execute tests in quiet mode with minimal output."""
@@ -90,25 +87,18 @@ class TestOrchestrator:
         """Execute tests in verbose mode with rich output and two-phase process."""
         from minigun.reporter import TestReporter, set_reporter
 
-        # Initialize reporter
         reporter = TestReporter(self.config.time_budget, verbose=True)
         set_reporter(reporter)
         reporter.start_testing(len(modules))
 
-        # Phase 1: Calibration
         self._calibration_result = self._execute_calibration_phase(
             modules, reporter
         )
         if not self._calibration_result.success:
             return False
 
-        # Finalize calibration and prepare for execution
         reporter.finalize_global_calibration_and_allocate()
-
-        # Phase 2: Execution
         self._execute_execution_phase(modules, reporter)
-
-        # Print final summary
         reporter.print_summary()
         return reporter.get_overall_success()
 
@@ -116,28 +106,19 @@ class TestOrchestrator:
         """Execute tests in JSON mode with structured output."""
         from minigun.reporter import JSONReporter, set_reporter
 
-        # Extract module names for the reporter
         module_names = [module.name for module in modules]
-
-        # Initialize JSON reporter
         reporter = JSONReporter(self.config.time_budget, modules=module_names)
         set_reporter(reporter)
         reporter.start_testing(len(modules))
 
-        # Phase 1: Calibration (silent)
         self._calibration_result = self._execute_calibration_phase(
             modules, reporter
         )
         if not self._calibration_result.success:
             return False
 
-        # Finalize calibration and prepare for execution
         reporter.finalize_global_calibration_and_allocate()
-
-        # Phase 2: Execution
         self._execute_execution_phase(modules, reporter)
-
-        # Print final summary as JSON
         reporter.print_summary()
         return reporter.get_overall_success()
 
@@ -145,11 +126,10 @@ class TestOrchestrator:
         self, modules: list[TestModule], reporter: Any
     ) -> PhaseResult:
         """Execute calibration phase for all modules."""
-        # Only print messages in verbose mode, not JSON mode
         if not self.config.json_output:
             print("📊 Global Calibration Phase")
             print(
-                "Running 10 silent tests per property to measure execution time..."
+                "Measuring execution time per property (adaptive calibration)..."
             )
 
         start_time = time.time()
@@ -169,8 +149,9 @@ class TestOrchestrator:
 
             reporter.end_module(calibration_only=True)
 
-        duration = time.time() - start_time
-        return PhaseResult(overall_success, duration, modules_executed)
+        return PhaseResult(
+            overall_success, time.time() - start_time, modules_executed
+        )
 
     def _execute_execution_phase(
         self, modules: list[TestModule], reporter: Any
@@ -197,5 +178,6 @@ class TestOrchestrator:
 
             reporter.end_module()
 
-        duration = time.time() - start_time
-        return PhaseResult(overall_success, duration, modules_executed)
+        return PhaseResult(
+            overall_success, time.time() - start_time, modules_executed
+        )
