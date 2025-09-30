@@ -388,8 +388,7 @@ def test_slice_generation(
     state = a.seed(seed_val)
 
     int_gen = g.int_range(0, 100)
-    int_sampler, _ = int_gen
-    state, maybe_slice = s.slice(int_sampler, max_width, max_depth, state)
+    state, maybe_slice = s.slice(int_gen, max_width, max_depth, state)
 
     match maybe_slice:
         case Some(values):
