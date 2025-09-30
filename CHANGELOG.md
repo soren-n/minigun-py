@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v2.4.0 (2025-09-30)
+
+### Bug Fixes
+
+- Correct CounterExample access in comprehensive test
+  ([`d658dfe`](https://github.com/soren-n/minigun-py/commit/d658dfe8b3f197afb792b7fd28207b915c225189))
+
+### Features
+
+- Add 'minigun' command alias and simplify README
+  ([`a294fc9`](https://github.com/soren-n/minigun-py/commit/a294fc95bf6d4b87dd25b8537236be11320eb6c7))
+
+- Generalize CLI with test discovery and improve documentation
+  ([`93a9fbd`](https://github.com/soren-n/minigun-py/commit/93a9fbd1bb2013cb15aafd11dcfd76d782466db3))
+
+
 ## v2.3.0 (2025-09-30)
 
 ### Features
