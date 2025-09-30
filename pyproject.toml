@@ -47,7 +47,7 @@ quality = [
 
 [project.scripts]
 minigun-test = "minigun.cli:main"
-test = "tests.main:test"
+test = "minigun.cli:main"
 
 [build-system]
 requires = ["hatchling"]
