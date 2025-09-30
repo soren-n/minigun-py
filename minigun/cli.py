@@ -129,12 +129,12 @@ Test Discovery:
   By default, searches in ./tests directory.
 
 Examples:
-  minigun-test -t 30                          # Run all tests in ./tests with 30s budget
-  minigun-test -t 60 --test-dir my_tests      # Run tests in ./my_tests directory
-  minigun-test -t 30 --modules positive comprehensive  # Run specific modules
-  minigun-test -t 60 --quiet                  # Minimal output for CI/CD
-  minigun-test -t 30 --json                   # JSON output for tools
-  minigun-test --list-modules                 # List discovered test modules
+  minigun -t 30                          # Run all tests in ./tests with 30s budget
+  minigun -t 60 --test-dir my_tests      # Run tests in ./my_tests directory
+  minigun -t 30 --modules positive comprehensive  # Run specific modules
+  minigun -t 60 --quiet                  # Minimal output for CI/CD
+  minigun -t 30 --json                   # JSON output for tools
+  minigun --list-modules                 # List discovered test modules
         """,
     )
 

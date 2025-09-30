@@ -47,7 +47,6 @@ quality = [
 
 [project.scripts]
 minigun = "minigun.cli:main"
-minigun-test = "minigun.cli:main"
 test = "minigun.cli:main"
 
 [build-system]
