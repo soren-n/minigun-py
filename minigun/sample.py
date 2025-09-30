@@ -24,7 +24,8 @@ def slice[T](
     :return: A tuple with the next RNG state and the potentially sampled domain slice.
     :rtype: `tuple[minigun.arbitrary.State, returns.maybe.Maybe[list[T]]]`
     """
-    state, maybe_dissection = generator(state)
+    sampler, _ = generator
+    state, maybe_dissection = sampler(state)
     match maybe_dissection:
         case Maybe.empty:
             return state, Nothing
