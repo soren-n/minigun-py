@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.5 (2025-09-30)
+
+### Bug Fixes
+
+- Update comprehensive test to use generator tuple correctly
+  ([`66ddcab`](https://github.com/soren-n/minigun-py/commit/66ddcabd7a602eaf939301463582848bbcd17e0d))
+
+
 ## v2.2.4 (2025-09-30)
 
 ### Bug Fixes
