@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.4.1 (2025-09-30)
+
+### Bug Fixes
+
+- Implement adaptive calibration for accurate time budget utilization
+  ([`9937279`](https://github.com/soren-n/minigun-py/commit/9937279d849550a343f16de665394515c172d0b7))
+
+
 ## v2.4.0 (2025-09-30)
 
 ### Bug Fixes
