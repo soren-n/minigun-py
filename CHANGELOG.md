@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.4 (2025-09-30)
+
+### Bug Fixes
+
+- Resolve shrinking failure for complex nested dataclasses
+  ([`3d4f9e6`](https://github.com/soren-n/minigun-py/commit/3d4f9e6c0b95edbebe45b671f6a187a60c2bb920))
+
+
 ## v2.2.3 (2025-08-17)
 
 ### Bug Fixes
