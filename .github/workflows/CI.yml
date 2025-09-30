@@ -34,7 +34,7 @@ jobs:
         run: uv run ruff check minigun tests scripts
 
       - name: Run tests with coverage
-        run: uv run coverage run -m tests.main
+        run: uv run coverage run -m minigun.cli --time-budget 60
 
       - name: Coverage report
         run: uv run coverage report --show-missing --fail-under=60

@@ -100,7 +100,7 @@ repos:
       # Run tests with coverage (pre-push stage)
       - id: test-coverage
         name: Tests with Coverage
-        entry: uv run coverage run -m tests.main
+        entry: uv run coverage run -m minigun.cli --time-budget 60
         language: system
         always_run: true
         pass_filenames: false

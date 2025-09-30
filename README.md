@@ -24,160 +24,165 @@ pip install minigun-soren-n
 
 # Quick Start
 
-```python
-from minigun.specify import prop, check
+## Using the CLI (Recommended)
 
-# Define a property that should hold for all valid inputs
+Create a test module in `tests/` directory:
+
+```python
+# tests/my_tests.py
+from minigun.specify import prop, check, conj
+
 @prop("reversing a list twice gives the original")
-def reverse_twice_is_identity(lst: list[int]):
+def test_reverse(lst: list[int]):
     return list(reversed(list(reversed(lst)))) == lst
 
-# Check the property (returns True if all generated tests pass)
-if __name__ == "__main__":
-    success = check(reverse_twice_is_identity)
-    print("✅ Property holds!" if success else "❌ Property failed!")
+@prop("list length distributes over concatenation")
+def test_length(xs: list[int], ys: list[int]):
+    return len(xs + ys) == len(xs) + len(ys)
+
+def test():
+    return check(conj(test_reverse, test_length))
 ```
 
-Minigun will automatically:
-- Generate hundreds of diverse test cases
-- Find minimal counterexamples when properties fail
-- Provide detailed shrinking to the simplest failing case
-
-# Documentation
-A tutorial as well as reference documentation for the API can be found at [Read The Docs](https://minigun.readthedocs.io/en/latest/).
-
-# Usage
-
-## CLI Testing Interface
-
-Minigun provides a sophisticated CLI with time budget management and rich console output:
+Run your tests with time budget:
 
 ```bash
-# Run all tests with 30 second time budget (required)
-uv run minigun-test --time-budget 30
-
-# Run specific test modules with time budget
-uv run minigun-test --time-budget 45 --modules positive comprehensive
-
-# Quiet mode for CI/CD (minimal output)
-uv run minigun-test --time-budget 60 --quiet
-
-# JSON output for tool integration and automation
-uv run minigun-test --time-budget 30 --json
-
-# List available test modules
-uv run minigun-test --list-modules
-
-# Show help and all options
-uv run minigun-test --help
+minigun --time-budget 30
 ```
 
-## Key CLI Features
-
-- **Time Budget Management**: Automatically allocates test attempts based on complexity analysis
-- **Rich Console Output**: Beautiful progress indicators, execution plans, and detailed reports
-- **Cardinality Analysis**: Shows domain sizes, ideal vs actual attempts, and optimization insights
-- **Modular Execution**: Run specific test modules or combinations
-- **Multiple Output Modes**:
-  - Verbose mode with rich console formatting
-  - Quiet mode for CI/CD with simple pass/fail output
-  - JSON mode for tool integration and automation
-
-# Examples
-
-## Basic Property Testing
+## Using as a Library
 
 ```python
 from minigun.specify import prop, check
 
-# Test mathematical properties
-@prop("addition is commutative")
-def test_addition_commutative(x: int, y: int):
-    return x + y == y + x
+@prop("reversing a list twice gives the original")
+def test_reverse(lst: list[int]):
+    return list(reversed(list(reversed(lst)))) == lst
 
-@prop("list concatenation length")
-def test_list_concat_length(xs: list[str], ys: list[str]):
-    return len(xs + ys) == len(xs) + len(ys)
-
-# Run individual tests
-success = check(test_addition_commutative)
+if __name__ == "__main__":
+    success = check(test_reverse)
+    exit(0 if success else 1)
 ```
 
-## Advanced Testing with Contexts
-
-```python
-from minigun.specify import prop, context, conj, check
-import minigun.domain as d
-
-# Custom domain for small positive integers
-@context(d.int(1, 100), d.int(1, 100))
-@prop("multiplication by division identity")
-def test_mult_div_identity(x: int, y: int):
-    return (x * y) // y == x
-
-# Test data structures
-@context(d.list(d.int(), 0, 10))  # Lists of 0-10 integers
-@prop("sorted list property")
-def test_sorted_invariant(lst: list[int]):
-    sorted_lst = sorted(lst)
-    return all(sorted_lst[i] <= sorted_lst[i+1]
-              for i in range(len(sorted_lst) - 1))
-
-# Combine multiple properties
-suite = conj(test_mult_div_identity, test_sorted_invariant)
-success = check(suite)
+Run directly:
+```bash
+python my_tests.py
 ```
 
-## JSON Output for Tool Integration
+# Documentation
+Full documentation and tutorials at [Read The Docs](https://minigun.readthedocs.io/en/latest/).
 
-Minigun supports structured JSON output for easy integration with CI/CD pipelines and external tools:
+# Usage Guide
+
+## CLI Test Runner
 
 ```bash
-# Generate JSON output for automation
-uv run minigun-test --time-budget 30 --json
+# Run all tests in ./tests directory
+minigun --time-budget 30
+
+# Run tests from a different directory
+minigun --time-budget 60 --test-dir my_tests
+
+# Run specific test modules
+minigun --time-budget 45 --modules my_tests other_tests
+
+# List available test modules
+minigun --list-modules
+
+# Quiet mode (for CI/CD)
+minigun --time-budget 60 --quiet
+
+# JSON output (for automation)
+minigun --time-budget 30 --json
 ```
 
-The JSON output includes comprehensive test results, timing information, and cardinality analysis:
+The CLI discovers Python files in the test directory that contain a `test()` function.
 
-```json
-{
-  "version": "1.0",
-  "timestamp": "2025-01-20T10:30:45.123456",
-  "config": {
-    "time_budget": 30.0,
-    "modules": ["positive", "comprehensive"],
-    "quiet": false
-  },
-  "summary": {
-    "total_tests": 58,
-    "total_passed": 56,
-    "total_failed": 2,
-    "total_duration": 28.5,
-    "execution_duration": 25.2,
-    "budget_usage": 84.0,
-    "overall_success": false
-  },
-  "modules": [
-    {
-      "name": "positive",
-      "tests": [...],
-      "passed": 34,
-      "failed": 0,
-      "total": 34,
-      "duration": 12.4,
-      "success": true
-    }
-  ]
-}
+## Advanced: Manual Orchestrator Usage
+
+For programmatic control, use the orchestrator directly:
+
+```python
+# my_test_runner.py
+from minigun.orchestrator import TestOrchestrator, OrchestrationConfig, TestModule
+from minigun.specify import prop, check
+
+@prop("your property")
+def my_property(x: int):
+    return x + 0 == x
+
+def run_my_property():
+    return check(my_property)
+
+if __name__ == "__main__":
+    config = OrchestrationConfig(
+        time_budget=30.0,
+        verbose=True
+    )
+
+    modules = [TestModule("my_tests", run_my_property)]
+    orchestrator = TestOrchestrator(config)
+    success = orchestrator.execute_tests(modules)
+
+    exit(0 if success else 1)
 ```
 
-This format enables:
-- **CI/CD Integration**: Parse results in build pipelines
-- **Metric Collection**: Extract timing and coverage data
-- **Dashboard Integration**: Build monitoring dashboards
-- **Automated Reporting**: Generate test reports and notifications
+## Writing Tests
 
-## Real-World Usage
+### Basic Properties
+
+```python
+from minigun.specify import prop
+
+@prop("addition is commutative")
+def test_add_commute(x: int, y: int):
+    return x + y == y + x
+```
+
+### Custom Domains
+
+```python
+import minigun.domain as d
+from minigun.specify import prop, context
+
+@context(d.int(1, 100), d.int(1, 100))
+@prop("division reverses multiplication")
+def test_div(x: int, y: int):
+    return (x * y) // y == x
+```
+
+### Combining Properties
+
+```python
+from minigun.specify import prop, check, conj
+
+@prop("property 1")
+def test_1(x: int):
+    return x + 0 == x
+
+@prop("property 2")
+def test_2(x: int):
+    return x * 1 == x
+
+# Check both together
+success = check(conj(test_1, test_2))
+```
+
+## FAQ
+
+**Q: What's a good time budget?**
+
+A: Start with 30-60 seconds for quick feedback. Use 2-5 minutes for thorough testing in CI/CD.
+
+**Q: How do I test larger input spaces?**
+
+A: Increase the time budget. The system automatically runs more test attempts when given more time.
+
+**Q: Can I customize test generation?**
+
+A: Yes, use the `@context` decorator with domain specifications. See documentation for details.
+
+# Real-World Usage
 
 The following projects use Minigun for testing:
 - [Minigun](https://github.com/soren-n/minigun/tree/main/tests) (self-testing)

@@ -545,7 +545,7 @@ def _run_execution(spec: Spec) -> bool:
                         if counter_ex.exception:
                             error_msg = (
                                 f'A test case of "{desc}" raised an exception:\n'
-                                f'{type(counter_ex.exception).__name__}: {counter_ex.exception}'
+                                f"{type(counter_ex.exception).__name__}: {counter_ex.exception}"
                             )
                         else:
                             error_msg = f'A test case of "{desc}" failed with the following counter example:'

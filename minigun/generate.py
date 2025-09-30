@@ -566,7 +566,7 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
     """
 
     # Combined cardinality is the product of all cardinalities
-    samplers = _list()
+    samplers = []
     combined_cardinality = c.Finite(1)  # Empty tuple has cardinality 1
     for sampler, cardinality in generators:
         samplers.append(sampler)
@@ -596,13 +596,9 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
     def _dist(
         dissections: _list[s.Dissection[Any]],
     ) -> s.Dissection[_tuple[Any, ...]]:
-        heads: _list[Any] = [
-            s.head(dissection)
-            for dissection in dissections
-        ]
+        heads: _list[Any] = [s.head(dissection) for dissection in dissections]
         tails: _list[fs.Stream[s.Dissection[Any]]] = [
-            s.tail(dissection)
-            for dissection in dissections
+            s.tail(dissection) for dissection in dissections
         ]
         return _tuple(heads), partial(_shrink_value, 0, dissections, tails)
 
@@ -616,7 +612,7 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
                 case Some(value):
                     values.append(value)
                 case _:
-                    raise AssertionError('Invariant')
+                    raise AssertionError("Invariant")
         return state, Some(_dist(values))
 
     return _impl, combined_cardinality

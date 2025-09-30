@@ -7,22 +7,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Testing
 ```bash
 # Run all tests with time budget (required parameter)
-uv run minigun-test --time-budget 30
+uv run minigun --time-budget 30
 
 # Run specific test modules with time budget
-uv run minigun-test --time-budget 45 --modules positive comprehensive
+uv run minigun --time-budget 45 --modules positive comprehensive
 
 # Run tests in quiet mode (CI/CD)
-uv run minigun-test --time-budget 60 --quiet
+uv run minigun --time-budget 60 --quiet
 
 # Run tests with JSON output (tool integration)
-uv run minigun-test --time-budget 30 --json
+uv run minigun --time-budget 30 --json
 
 # List available test modules
-uv run minigun-test --list-modules
+uv run minigun --list-modules
 
-# Alternative test runner (legacy)
-uv run test
+# Alternative: use 'test' alias
+uv run test --time-budget 30
 ```
 
 ### Quality Tools
