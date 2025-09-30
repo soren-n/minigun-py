@@ -396,10 +396,15 @@ def _run_calibration(spec: Spec) -> bool:
 
                 for total_attempts in range(1, max_calibration_attempts + 1):
                     attempt_start = time.time()
-                    calibration_state, _ = s.find_counter_example(
-                        calibration_state, 1, law, _generators
-                    )
-                    attempt_times.append(time.time() - attempt_start)
+                    try:
+                        calibration_state, _ = s.find_counter_example(
+                            calibration_state, 1, law, _generators
+                        )
+                        attempt_times.append(time.time() - attempt_start)
+                    except Exception:
+                        # Count time until exception as valid calibration sample
+                        attempt_times.append(time.time() - attempt_start)
+                        # Continue calibration to get stable timing estimate
 
                     if total_attempts < min_calibration_attempts:
                         continue
