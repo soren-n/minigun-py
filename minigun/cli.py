@@ -4,16 +4,67 @@ Minigun CLI - Property-based testing with rich output.
 """
 
 import argparse
+import importlib.util
+import inspect
 import sys
+from pathlib import Path
 
 
-def get_available_modules() -> list[str]:
-    """Get list of available test modules."""
-    return ["negative", "positive", "comprehensive", "additional"]
+def discover_test_modules(test_dir: Path) -> dict[str, callable]:
+    """
+    Discover test modules in a directory.
+
+    Looks for Python files containing a function: def test() -> bool
+
+    :param test_dir: Directory to search for test modules
+    :return: Dictionary mapping module names to test functions
+    """
+    test_modules = {}
+
+    if not test_dir.exists() or not test_dir.is_dir():
+        return test_modules
+
+    # Find all Python files
+    for py_file in test_dir.glob("*.py"):
+        # Skip __init__.py and private files
+        if py_file.name.startswith("_"):
+            continue
+
+        module_name = py_file.stem
+
+        try:
+            # Dynamically import the module
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if not spec or not spec.loader:
+                continue
+
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            # Look for test() function
+            if not hasattr(module, "test"):
+                continue
+
+            test_func = module.test
+            if not callable(test_func):
+                continue
+
+            # Verify it has no parameters
+            sig = inspect.signature(test_func)
+            if len(sig.parameters) != 0:
+                continue
+
+            test_modules[module_name] = test_func
+        except Exception:
+            # Silently skip modules that fail to import
+            continue
+
+    return test_modules
 
 
 def run_tests(
     time_budget: float,
+    test_dir: Path = Path("tests"),
     modules: list[str] | None = None,
     quiet: bool = False,
     json_output: bool = False,
@@ -25,22 +76,12 @@ def run_tests(
         TestOrchestrator,
     )
 
-    # Import test modules dynamically
-    test_modules = {}
-    try:
-        from tests.additional import test as additional_test
-        from tests.comprehensive import test as comprehensive_test
-        from tests.negative import test as negative_test
-        from tests.positive import test as positive_test
+    # Discover test modules
+    test_modules = discover_test_modules(test_dir)
 
-        test_modules = {
-            "negative": negative_test,
-            "positive": positive_test,
-            "comprehensive": comprehensive_test,
-            "additional": additional_test,
-        }
-    except ImportError as e:
-        print(f"Error importing test modules: {e}")
+    if not test_modules:
+        print(f"No test modules found in {test_dir}")
+        print("Tip: Test modules should contain 'def test() -> bool' function")
         return False
 
     # Filter modules if specified
@@ -50,11 +91,14 @@ def run_tests(
             if module in test_modules:
                 filtered_modules[module] = test_modules[module]
             else:
-                print(f"Warning: Unknown test module '{module}', skipping.")
+                available = ", ".join(test_modules.keys())
+                print(
+                    f"Warning: Module '{module}' not found. Available: {available}"
+                )
         test_modules = filtered_modules
 
     if not test_modules:
-        print("No test modules to run.")
+        print("No test modules to run after filtering.")
         return False
 
     # Create test modules for orchestrator
@@ -77,31 +121,43 @@ def run_tests(
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Minigun Property-Based Testing CLI",
+        description="Minigun Property-Based Testing CLI - Discovers and runs test modules",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Test Discovery:
+  Scans for Python files containing 'def test() -> bool' function.
+  By default, searches in ./tests directory.
+
 Examples:
-  minigun-test -t 30                     # Run all tests with 30s budget
-  minigun-test -t 60 --quiet             # Run with 60s budget, minimal output
-  minigun-test -t 30 --json              # Run with JSON output for tools
-  minigun-test -t 45 --modules positive comprehensive  # Run specific modules with 45s budget
-  minigun-test --list-modules            # List available test modules
+  minigun-test -t 30                          # Run all tests in ./tests with 30s budget
+  minigun-test -t 60 --test-dir my_tests      # Run tests in ./my_tests directory
+  minigun-test -t 30 --modules positive comprehensive  # Run specific modules
+  minigun-test -t 60 --quiet                  # Minimal output for CI/CD
+  minigun-test -t 30 --json                   # JSON output for tools
+  minigun-test --list-modules                 # List discovered test modules
         """,
+    )
+
+    parser.add_argument(
+        "--test-dir",
+        "-d",
+        type=Path,
+        default=Path("tests"),
+        help="Directory containing test modules (default: ./tests)",
     )
 
     parser.add_argument(
         "--modules",
         "-m",
-        nargs="*",
-        choices=get_available_modules(),
-        help="Specific test modules to run",
+        nargs="+",
+        help="Specific test modules to run (by name, without .py)",
     )
 
     parser.add_argument(
         "--time-budget",
         "-t",
         type=float,
-        help="Time budget in seconds for test execution (required)",
+        help="Time budget in seconds for test execution (required for running tests)",
     )
 
     parser.add_argument(
@@ -122,7 +178,7 @@ Examples:
         "--list-modules",
         "-l",
         action="store_true",
-        help="List available test modules and exit",
+        help="List discovered test modules and exit",
     )
 
     parser.add_argument(
@@ -141,23 +197,30 @@ Examples:
         return
 
     if args.list_modules:
-        print("Available test modules:")
-        for module in get_available_modules():
-            print(f"  - {module}")
+        test_modules = discover_test_modules(args.test_dir)
+        if test_modules:
+            print(f"Discovered test modules in {args.test_dir}:")
+            for module in sorted(test_modules.keys()):
+                print(f"  - {module}")
+        else:
+            print(f"No test modules found in {args.test_dir}")
+            print("Tip: Test modules should contain 'def test() -> bool'")
         return
 
     # Validate time budget when needed
     if not args.time_budget:
-        print("Error: Time budget is required for running tests.")
+        print("Error: --time-budget is required for running tests")
+        print("Use --list-modules to see available test modules")
         sys.exit(1)
 
     if args.time_budget <= 0:
-        print("Error: Time budget must be positive.")
+        print("Error: Time budget must be positive")
         sys.exit(1)
 
     # Run tests with time budget
     success = run_tests(
         args.time_budget,
+        test_dir=args.test_dir,
         modules=args.modules,
         quiet=args.quiet,
         json_output=args.json,

@@ -48,40 +48,238 @@ A tutorial as well as reference documentation for the API can be found at [Read 
 
 # Usage
 
-## CLI Testing Interface
+Minigun is designed to be used **as a library** in your own test code. You write properties using the `@prop` decorator and check them with `check()`.
 
-Minigun provides a sophisticated CLI with time budget management and rich console output:
+## Basic Usage Pattern
 
-```bash
-# Run all tests with 30 second time budget (required)
-uv run minigun-test --time-budget 30
+```python
+# my_tests.py
+from minigun.specify import prop, check, conj
+import minigun.domain as d
 
-# Run specific test modules with time budget
-uv run minigun-test --time-budget 45 --modules positive comprehensive
+@prop("reversing twice gives identity")
+def test_reverse_identity(lst: list[int]):
+    return list(reversed(list(reversed(lst)))) == lst
 
-# Quiet mode for CI/CD (minimal output)
-uv run minigun-test --time-budget 60 --quiet
+@prop("list length distributes over concatenation")
+def test_list_length(xs: list[int], ys: list[int]):
+    return len(xs + ys) == len(xs) + len(ys)
 
-# JSON output for tool integration and automation
-uv run minigun-test --time-budget 30 --json
+if __name__ == "__main__":
+    # Check individual properties
+    success = check(test_reverse_identity)
 
-# List available test modules
-uv run minigun-test --list-modules
+    # Or check multiple properties together
+    success = check(conj(test_reverse_identity, test_list_length))
 
-# Show help and all options
-uv run minigun-test --help
+    exit(0 if success else 1)
 ```
 
-## Key CLI Features
+Then run your tests:
+```bash
+python my_tests.py
+```
 
-- **Time Budget Management**: Automatically allocates test attempts based on complexity analysis
-- **Rich Console Output**: Beautiful progress indicators, execution plans, and detailed reports
-- **Cardinality Analysis**: Shows domain sizes, ideal vs actual attempts, and optimization insights
-- **Modular Execution**: Run specific test modules or combinations
-- **Multiple Output Modes**:
-  - Verbose mode with rich console formatting
-  - Quiet mode for CI/CD with simple pass/fail output
-  - JSON mode for tool integration and automation
+## CLI Test Runner
+
+Minigun includes a CLI test runner that discovers and executes test modules with time budget management and rich output:
+
+### Setting Up Test Modules
+
+Organize your tests in a directory (default: `./tests`) with modules containing a `test()` function:
+
+```python
+# tests/my_tests.py
+from minigun.specify import prop, check, conj
+
+@prop("addition is commutative")
+def test_add_commute(x: int, y: int):
+    return x + y == y + x
+
+@prop("list length distributes")
+def test_list_length(xs: list[int], ys: list[int]):
+    return len(xs + ys) == len(xs) + len(ys)
+
+def test():
+    """Entry point for minigun-test CLI"""
+    return check(conj(test_add_commute, test_list_length))
+```
+
+### Running Tests
+
+```bash
+# Run all tests in ./tests with 30 second time budget
+minigun-test --time-budget 30
+
+# Run tests from a different directory
+minigun-test --time-budget 60 --test-dir my_tests
+
+# Run specific modules
+minigun-test --time-budget 45 --modules positive comprehensive
+
+# List discovered test modules
+minigun-test --list-modules
+
+# Quiet mode for CI/CD
+minigun-test --time-budget 60 --quiet
+
+# JSON output for automation
+minigun-test --time-budget 30 --json
+```
+
+### Test Discovery
+
+The CLI automatically discovers test modules by:
+1. Scanning the test directory for `.py` files
+2. Finding modules with a `test()` function (no parameters)
+3. Dynamically importing and running them with the orchestrator
+
+## Advanced: Manual Orchestrator Usage
+
+For programmatic control, use the orchestrator directly:
+
+```python
+# my_test_runner.py
+from minigun.orchestrator import TestOrchestrator, OrchestrationConfig, TestModule
+from minigun.specify import prop, check
+
+@prop("your property")
+def my_property(x: int):
+    return x + 0 == x
+
+def run_my_property():
+    return check(my_property)
+
+if __name__ == "__main__":
+    config = OrchestrationConfig(
+        time_budget=30.0,
+        verbose=True
+    )
+
+    modules = [TestModule("my_tests", run_my_property)]
+    orchestrator = TestOrchestrator(config)
+    success = orchestrator.execute_tests(modules)
+
+    exit(0 if success else 1)
+```
+
+## Key Features
+
+- **Automatic Test Generation**: Generates test cases from type hints
+- **Shrinking**: Finds minimal counterexamples on failure
+- **Cardinality Analysis**: Calculates test attempts based on domain size
+- **Time Budget Management** (with orchestrator): Distributes attempts across properties based on execution time
+- **Rich Console Output** (with orchestrator): Progress indicators and detailed reports
+- **Multiple Output Modes** (with orchestrator):
+  - Verbose mode with rich formatting
+  - Quiet mode for CI/CD
+  - JSON mode for tool integration
+
+## How Time Budget Works (Advanced)
+
+When using the `TestOrchestrator`, the system runs in two phases to allocate time budget across properties:
+
+### Phase 1: Calibration
+- Runs 10 silent test attempts per property to measure execution speed
+- Calculates time-per-attempt for each property
+- Determines theoretical optimal attempts based on domain cardinality
+
+### Phase 2: Execution
+- Allocates attempts based on:
+  - Available time budget
+  - Measured execution speed
+  - Domain cardinality
+  - Secretary Problem optimization (√n attempts for infinite domains)
+- Infinite cardinality properties use remaining budget when available
+- All properties scaled proportionally when over budget
+
+### Example Behavior
+
+**With 5-second budget:**
+```
+Infinite cardinality property: 211 attempts
+Total execution: ~3.6s (72% of budget)
+```
+
+**With 60-second budget:**
+```
+Infinite cardinality property: 10,000 attempts
+Total execution: ~51.7s (86% of budget)
+```
+
+**Key Points:**
+- Larger time budgets result in more test attempts
+- Fast and slow properties are balanced automatically
+- Infinite domains get more attempts with larger budgets
+- Small finite domains may complete quickly regardless of budget
+
+### Execution Plan Output
+
+The orchestrator displays a table showing budget allocation:
+
+```
+📋 Property Testing Plan (Budget: 60.0s, Est: 60.0s)
+┌────────────────────────────────┬───────────┬──────────┬───────────┬──────────┐
+│ Property                       │ Domain    │ Ideal    │ Actual    │ Est.     │
+│                                │ Size      │ Attempts │ Attempts  │ Time     │
+├────────────────────────────────┼───────────┼──────────┼───────────┼──────────┤
+│ string concatenation is ass... │ ∞         │ 10000    │ 2894      │ 51.96s   │
+│ integer addition is associa... │ ∞         │ 10000    │ 10000     │ 0.93s    │
+└────────────────────────────────┴───────────┴──────────┴───────────┴──────────┘
+```
+
+- **Domain Size**: Size of test input space (∞ = infinite)
+- **Ideal Attempts**: Secretary Problem limit (√cardinality)
+- **Actual Attempts**: Budget-allocated attempts (scaled down if over budget)
+- **Est. Time**: Estimated execution time from calibration
+
+### Common Questions
+
+**Q: How do I run my own tests with time budgets and rich output?**
+
+A: Use the `minigun-test` CLI with test discovery. Create test modules in a `tests/` directory with a `test()` function, then run:
+```bash
+minigun-test --time-budget 30
+```
+
+See "CLI Test Runner" section above for details.
+
+**Q: My tests complete quickly even with a large time budget. Why?**
+
+A: Common causes:
+- Your properties have small finite domains that reach their optimal attempt limit quickly
+- You're using `TestReporter` directly without the `TestOrchestrator` (which won't work)
+- Most test time is spent in calibration overhead rather than actual testing
+
+Solution: Use `TestOrchestrator` with `OrchestrationConfig` for proper time budget management.
+
+**Q: How do I make tests run longer to find rare edge cases?**
+
+A: When using the orchestrator, increase the time budget:
+```python
+config = OrchestrationConfig(
+    time_budget=300.0,  # 5 minutes
+    verbose=True
+)
+```
+
+For basic usage without the orchestrator, use the `@context` decorator with larger domains:
+```python
+@context(d.int(0, 1000000))  # Larger domain
+@prop("my property")
+def test_property(x: int):
+    return x >= 0
+```
+
+**Q: What's a good time budget for CI/CD?**
+
+A: Recommended budgets (when using TestOrchestrator):
+- **Quick feedback**: 30-60 seconds
+- **Standard testing**: 2-5 minutes (120-300 seconds)
+- **Thorough validation**: 10-30 minutes (600-1800 seconds)
+- **Exhaustive testing**: 1+ hours (3600+ seconds) for critical releases
+
+For basic usage, Minigun will automatically determine optimal attempts based on domain cardinality.
 
 # Examples
 
