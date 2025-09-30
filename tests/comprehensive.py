@@ -470,7 +470,7 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
     # Should find a counterexample since the law is always false
     match maybe_counter:
         case Some(counter):
-            return "x" in counter and isinstance(counter["x"], int)
+            return "x" in counter.args and isinstance(counter.args["x"], int)
         case Maybe.empty:
             # This could happen if generation fails, which is valid
             return True
