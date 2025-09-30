@@ -534,19 +534,29 @@ def _run_execution(spec: Spec) -> bool:
                                 desc, False, duration, error_message=error_msg
                             )
                         return state, False
-                    case Some(args):
+                    case Some(counter_ex):
                         if neg:
                             if reporter:
                                 reporter.end_test(desc, True, duration)
                             return state, True
-                        counter_example = p.render(printer(args))
-                        error_msg = f'A test case of "{desc}" failed with the following counter example:'
+                        counter_example = p.render(printer(counter_ex.args))
+
+                        # Build error message with exception info if present
+                        if counter_ex.exception:
+                            error_msg = (
+                                f'A test case of "{desc}" raised an exception:\n'
+                                f'{type(counter_ex.exception).__name__}: {counter_ex.exception}'
+                            )
+                        else:
+                            error_msg = f'A test case of "{desc}" failed with the following counter example:'
+
                         if reporter:
                             reporter.end_test(
                                 desc,
                                 False,
                                 duration,
                                 counter_example=counter_example,
+                                error_message=error_msg,
                             )
                         return state, False
                     case _:

@@ -239,7 +239,11 @@ class TestReporter:
         """End an individual test."""
 
         # Record calibration timing with budget allocator (during calibration phase)
-        if self.calibration_only and self.budget_allocator and cardinality_info:
+        if (
+            getattr(self, "calibration_only", False)
+            and self.budget_allocator
+            and cardinality_info
+        ):
             self.budget_allocator.record_calibration(
                 test_name, duration, cardinality_info.allocated_attempts
             )

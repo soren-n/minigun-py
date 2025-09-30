@@ -1,5 +1,6 @@
 # External module dependencies
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from returns.maybe import Maybe, Nothing, Some
@@ -12,6 +13,17 @@ from minigun import stream as fs
 
 
 ###############################################################################
+# Exception handling for counter examples
+###############################################################################
+@dataclass
+class CounterExample:
+    """Represents a counter-example with optional exception information."""
+
+    args: dict[str, Any]
+    exception: Exception | None = None
+
+
+###############################################################################
 # Find and trim counter examples
 ###############################################################################
 def _trim_counter_example[T, *P](
@@ -21,7 +33,11 @@ def _trim_counter_example[T, *P](
         _args: dict[str, Any] = s.head(args)
         _keys: list[str] = list(_args.keys())
         _values: tuple[Any, ...] = tuple(_args[key] for key in _keys)
-        return not law(**dict(zip(_keys, _values, strict=False)))
+        try:
+            return not law(**dict(zip(_keys, _values, strict=False)))
+        except Exception:
+            # Exception is treated as a counter-example (failure)
+            return True
 
     def _shrink(args: s.Dissection[dict[str, Any]]) -> Any:
         arg_values, arg_streams = args
@@ -42,7 +58,7 @@ def find_counter_example[*P](
     attempts: int,
     law: Callable[[*P], bool],
     generators: dict[str, g.Generator[Any]],
-) -> tuple[a.State, Maybe[dict[str, Any]]]:
+) -> tuple[a.State, Maybe[CounterExample]]:
     """Attempt to find a counter example to a given law.
 
     :param state: A state from which to generate a random value.
@@ -55,11 +71,20 @@ def find_counter_example[*P](
     :type generators: `dict[str, minigun.generate.Generator[Any]]`
 
     :return: The resulting RNG state an the potentially found counter example.
-    :rtype: `tuple[minigun.arbitrary.State, returns.maybe.Maybe[dict[str, Any]]]`
+    :rtype: `tuple[minigun.arbitrary.State, returns.maybe.Maybe[CounterExample]]`
     """
+    # Track last exception for reporting
+    last_exception: Exception | None = None
 
     def _is_counter_example(args: dict[str, Any]) -> bool:
-        return not law(**args)
+        nonlocal last_exception
+        try:
+            result = law(**args)
+            last_exception = None
+            return not result
+        except Exception as e:
+            last_exception = e
+            return True
 
     counter_examples_sampler, _ = g.filter(
         _is_counter_example, g.argument_pack(generators)
@@ -70,7 +95,10 @@ def find_counter_example[*P](
             case Maybe.empty:
                 continue
             case Some(counter_example):
-                return state, Some(_trim_counter_example(law, counter_example))
+                trimmed_args = _trim_counter_example(law, counter_example)
+                return state, Some(
+                    CounterExample(args=trimmed_args, exception=last_exception)
+                )
             case _:
                 raise AssertionError("Invariant")
     return state, Nothing
