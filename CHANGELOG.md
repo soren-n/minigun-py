@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.4.2 (2025-09-30)
+
+### Bug Fixes
+
+- Handle exceptions during calibration phase gracefully
+  ([`3c88ff3`](https://github.com/soren-n/minigun-py/commit/3c88ff313d9064b403a6528b35b681554b9d14e0))
+
+
 ## v2.4.1 (2025-09-30)
 
 ### Bug Fixes
