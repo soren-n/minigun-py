@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.3.0 (2025-09-30)
+
+### Features
+
+- Add exception handling with shrinking support
+  ([`0c188f1`](https://github.com/soren-n/minigun-py/commit/0c188f137aad97c6f2339bd83921ca55f78f2596))
+
+
 ## v2.2.5 (2025-09-30)
 
 ### Bug Fixes
