@@ -544,8 +544,8 @@ Lets consider modeling strategies for software with different challenges:
 :Mutable state:
     E.g. datastructures or programs with IO. Create a denotation of programs over the system under test; e.g. for the stack example we can push, pop and get the size; we then implement a generator, shrinker and pretty printer for sequences of these denoted commands. Define a correct reference implementation of the system. Define an interpreter which will evaluate terms of the defined language of programs, while also managing an instance of the state of the system under test, as well an instance of the state of the reference implementation. Compare observable values of the two systems that are important with regards to the specification, e.g. outputs. Report failure and shrink the test case when the two systems diverge under evaluation.
 
-.. :Nondeterminism:
-..     E.g. because of concurrency, asynchrony or IO.
+:Nondeterminism:
+    E.g. because of concurrency, asynchrony or IO. Generate randomly ordered sequences of modelled operations, representing the possible interleavings that could arise from concurrent access. Run these sequences sequentially against the system under test and verify that it behaves correctly regardless of ordering.
 
 Let us consider the modeling of the stack example from earlier:
 
@@ -651,56 +651,264 @@ Let us consider the modeling of the stack example from earlier:
         value_generator: g.Generator[T],
         size: int
         ) -> g.Generator[StackProg[T]]:
+
         def _trim(prog: StackProg[T]) -> fs.Stream[StackProg[T]]:
-            ...
-        def _visit(size: int, state: a.State) -> Tuple[a.State, StackProg[T]]:
-            ...
-        def _impl(size: int, state: a.State) -> g.Sample[StackProg[T]]:
-            state, result = _visit(size, size)
-            return state, s.unary(_trim, result)
+            def _step(index: int) -> Maybe[Tuple[StackProg[T], int]]:
+                if index < 0: return Nothing
+                trimmed = prog[:index] + prog[index + 1:]
+                return Some((trimmed, index - 1))
+            return fs.unfold(_step, len(prog) - 1)
+
+        def _visit(
+            fuel: int,
+            state: a.State,
+            stack_ctr: int,
+            item_ctr: int,
+            stacks: List[str],
+            nonempty: List[str]
+            ) -> Tuple[a.State, StackProg[T]]:
+            if fuel <= 0 or len(stacks) == 0 and fuel < 2:
+                name = f's{stack_ctr}'
+                return state, [InitOp(name)]
+            ops: List[str] = ['init']
+            if len(stacks) > 0: ops.append('push')
+            if len(nonempty) > 0: ops.append('pop')
+            state, op = a.choice(state, ops)
+            match op:
+                case 'init':
+                    name = f's{stack_ctr}'
+                    state, rest = _visit(
+                        fuel - 1, state,
+                        stack_ctr + 1, item_ctr,
+                        stacks + [name], nonempty
+                    )
+                    return state, [InitOp(name)] + rest
+                case 'push':
+                    state, before = a.choice(state, stacks)
+                    after = f's{stack_ctr}'
+                    sampler, _ = value_generator
+                    state, maybe_val = sampler(state)
+                    match maybe_val:
+                        case Some(dissection):
+                            val = s.head(dissection)
+                        case _:
+                            return state, []
+                    state, rest = _visit(
+                        fuel - 1, state,
+                        stack_ctr + 1, item_ctr,
+                        stacks + [after],
+                        nonempty + [after]
+                    )
+                    return state, [
+                        PushOp(before, after, Constant(val))
+                    ] + rest
+                case 'pop':
+                    state, before = a.choice(state, nonempty)
+                    after = f's{stack_ctr}'
+                    item_name = f'v{item_ctr}'
+                    state, rest = _visit(
+                        fuel - 1, state,
+                        stack_ctr + 1, item_ctr + 1,
+                        stacks + [after], nonempty
+                    )
+                    return state, [
+                        PopOp(before, after, item_name)
+                    ] + rest
+
+        def _impl(state: a.State) -> g.Sample[StackProg[T]]:
+            state, result = _visit(size, state, 0, 0, [], [])
+            return state, Some(s.unfold(result, _trim))
+
         return _impl
 
     def sized_stack_prog(
         value_domain: d.Domain[T],
         size: int
         ) -> d.Domain[StackProg[T]]:
-
-        def _pop_op(size: int) -> g.Generator[StackProg[T]]:
-            def _cont(
-                prog :
-                ):
-                return prog + [ PopOp() ]
-
-        def _visit(size: int) -> g.Generator[StackProg[T]]:
-            if size <= 0: return _init_op()
-            _size = size - 1
-            return d.choice(
-                _push_op(_size),
-                _pop_op(_size)
-            )
-
         return d.Domain(
             stack_prog_generator(value_domain.generate, size),
             stack_prog_printer(value_domain.print)
         )
 
-    def stack_prog(sampler: d.Domain[T]) -> d.Domain[StackProg[T]]:
-        return d.bind(partial(sized_stack_prog, sampler), d.small_nat())
+    def stack_prog(value_domain: d.Domain[T]) -> d.Domain[StackProg[T]]:
+        return d.bind(
+            partial(sized_stack_prog, value_domain),
+            d.small_nat()
+        )
 
     # The evaluator
     def evaluator_stack_prog(
-        init: StackInit[T],
-        push: StackPush[T],
-        pop: StackPop[T],
+        init: StackInit[S],
+        push: StackPush[S, T],
+        pop: StackPop[S, T],
         prog: StackProg[T]
         ) -> bool:
-        ...
+        model_env: Dict[str, StackModel[T]] = {}
+        impl_env: Dict[str, S] = {}
+        item_env: Dict[str, T] = {}
+        for op in prog:
+            match op:
+                case InitOp(after):
+                    model_env[after] = model_init()
+                    impl_env[after] = init()
+                case PushOp(before, after, item):
+                    match item:
+                        case Constant(value): val = value
+                        case Variable(name): val = item_env[name]
+                    model_env[after] = model_push(
+                        model_env[before], val
+                    )
+                    impl_env[after] = push(
+                        impl_env[before], val
+                    )
+                case PopOp(before, after, item_name):
+                    m_stack = model_pop(model_env[before])
+                    i_stack = pop(impl_env[before])
+                    m_rest, m_item = m_stack
+                    i_rest, i_item = i_stack
+                    if m_item != i_item:
+                        return False
+                    model_env[after] = m_rest
+                    impl_env[after] = i_rest
+                    item_env[item_name] = m_item
+        return True
+
+With all the pieces in place, we can now define a property that generates random stack programs, evaluates them against both the model and our implementation, and reports failure if the two diverge:
+
+.. code-block:: python
+
+    @context(stack_prog(d.int()))
+    @prop('Stack implementation matches model')
+    def _stack_model(prog: StackProg[int]):
+        return evaluator_stack_prog(
+            list, _push, _pop, prog
+        )
+
+    if __name__ == '__main__':
+        import sys
+        success = check(_stack_model)
+        sys.exit(0 if success else -1)
+
+Notice how the property is expressed at a high level: we simply state that running any random stack program should yield the same observable behavior from both the model and the implementation. The generator takes care of producing valid programs, the evaluator compares the two systems, and the shrinker will find a minimal failing program if the implementation diverges.
 
 .. tip::
 
     If you would like to see an example of modeling in the real world, I would like to plug Typeset again (one of my other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Rust+Python implementation of this project.
 
     `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
+
+Nondeterminism
+^^^^^^^^^^^^^^
+When the system under test may be accessed by multiple clients or processes concurrently, the order in which operations arrive is not under our control. Different runs of the same set of operations may produce different results depending on scheduling decisions made by the runtime.
+
+Rather than actually running things concurrently (which is difficult to reproduce and control), we can model this nondeterminism by generating random interleavings of operations. We then run each interleaving sequentially against the system under test and check that it behaves correctly. This makes our tests deterministic and reproducible (given the same PRNG seed), while still exploring the space of possible orderings.
+
+The approach extends the mutable state modeling technique as follows:
+
+1. Define the set of operations that concurrent clients could perform, using the same modeling AST approach as before.
+2. Generate randomly ordered interleavings of operations from multiple clients.
+3. Execute each generated sequence sequentially against both the reference model and the system under test.
+4. Compare results; any valid ordering should produce consistent behavior.
+
+Lets consider a simple example with a shared counter that supports :code:`increment`, :code:`decrement` and :code:`read` operations:
+
+.. code-block:: python
+
+    @dataclass
+    class CounterOp: pass
+
+    @dataclass
+    class Increment(CounterOp):
+        client: int
+
+    @dataclass
+    class Decrement(CounterOp):
+        client: int
+
+    @dataclass
+    class Read(CounterOp):
+        client: int
+
+    CounterProg = List[CounterOp]
+
+    # Reference model
+    def model_counter(prog: CounterProg) -> List[int]:
+        state = 0
+        reads = []
+        for op in prog:
+            match op:
+                case Increment(_): state += 1
+                case Decrement(_): state -= 1
+                case Read(_): reads.append(state)
+        return reads
+
+We then generate random interleavings of operations from multiple clients. The key is that each client has a fixed sequence of operations it wants to perform, but the order in which different clients' operations are interleaved is random:
+
+.. code-block:: python
+
+    def interleave_generator(
+        num_clients: int,
+        ops_per_client: int
+        ) -> g.Generator[CounterProg]:
+
+        def _trim(
+            prog: CounterProg
+            ) -> fs.Stream[CounterProg]:
+            def _step(i: int) -> Maybe[Tuple[CounterProg, int]]:
+                if i < 0: return Nothing
+                return Some((prog[:i] + prog[i + 1:], i - 1))
+            return fs.unfold(_step, len(prog) - 1)
+
+        def _impl(state: a.State) -> g.Sample[CounterProg]:
+            # Build per-client operation sequences
+            queues: List[List[CounterOp]] = []
+            for client in range(num_clients):
+                ops = []
+                for _ in range(ops_per_client):
+                    state, op_kind = a.choice(
+                        state, ['inc', 'dec', 'read']
+                    )
+                    match op_kind:
+                        case 'inc': ops.append(Increment(client))
+                        case 'dec': ops.append(Decrement(client))
+                        case 'read': ops.append(Read(client))
+                queues.append(ops)
+
+            # Randomly interleave the queues
+            prog: CounterProg = []
+            indices = [0] * num_clients
+            total = num_clients * ops_per_client
+            for _ in range(total):
+                active = [
+                    c for c in range(num_clients)
+                    if indices[c] < len(queues[c])
+                ]
+                state, client = a.choice(state, active)
+                prog.append(queues[client][indices[client]])
+                indices[client] += 1
+
+            return state, Some(s.unfold(prog, _trim))
+
+        return _impl
+
+The property then checks that the system under test produces the same observable results as the model for any random interleaving:
+
+.. code-block:: python
+
+    def counter_spec(
+        impl_counter: Callable[[CounterProg], List[int]]
+        ):
+        @context(d.bind(
+            partial(interleave_domain, d.small_nat()),
+            d.small_nat()
+        ))
+        @prop('Counter is consistent under any interleaving')
+        def _counter_consistent(prog: CounterProg):
+            return model_counter(prog) == impl_counter(prog)
+
+        return _counter_consistent
+
+The key insight here is that the nondeterminism is entirely captured by the generator. We do not need threads, locks, or any concurrency primitives; the generator explores the space of possible interleavings, and the evaluator runs each one sequentially and deterministically. This means that when a counterexample is found, it is perfectly reproducible, and the shrinker can minimize it to a smallest failing interleaving.
 
 Summary
 -------
@@ -715,6 +923,7 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to abstract over specifications.
 * Learned how to make user defined domains.
 * Learned about modeling.
+* Learned about testing nondeterministic systems by generating random operation orderings.
 
 Moving on from this tutorial, please:
 

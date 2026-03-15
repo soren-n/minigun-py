@@ -97,23 +97,23 @@ repos:
         # Skip temporarily due to mypy internal error
         stages: [manual]
 
-      # Run tests with coverage (pre-push stage)
+      # Run tests with coverage (manual stage - CI handles this on push/PR)
       - id: test-coverage
         name: Tests with Coverage
         entry: uv run coverage run -m minigun.cli --time-budget 60
         language: system
         always_run: true
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
-      # Coverage report (pre-push stage)
+      # Coverage report (manual stage - CI handles this on push/PR)
       - id: coverage-report
         name: Coverage Report
         entry: uv run coverage report --show-missing --fail-under=60
         language: system
         always_run: true
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
       # Emoji scanner (optional, manual stage)
       - id: emoji-scan
@@ -135,5 +135,5 @@ ci:
     autoupdate_branch: ''
     autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
     autoupdate_schedule: weekly
-    skip: [mypy, type-check-local, emoji-scan]  # Skip resource-intensive and optional hooks in CI
+    skip: [mypy, type-check-local, test-coverage, coverage-report, emoji-scan]  # Skip resource-intensive and optional hooks in CI
     submodules: false
