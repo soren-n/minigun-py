@@ -39,9 +39,9 @@ uv run ruff format
 # Type checking
 uv run mypy minigun/
 
-# Run coverage analysis
-uv run coverage run -m pytest
-uv run coverage report
+# Run coverage analysis (uses minigun's own CLI, not pytest)
+uv run coverage run -m minigun.cli --time-budget 60
+uv run coverage report --show-missing --fail-under=60
 ```
 
 ### Build and Development
@@ -90,6 +90,9 @@ Minigun is a property-based testing library organized in 5 architectural layers:
 
 ## Key Patterns
 
+### Property DSL
+Tests are defined using the `@prop` decorator (with optional `@context` for explicit domains) and composed with `conj()`, `disj()`, `impl()`, `neg()`. Run via `check()`. See `specify.py` docstring for examples.
+
 ### Generator Composition
 Generators in `generate.py` follow functional composition patterns using combinators like `bind`, `map`, and `choose`.
 
@@ -108,6 +111,9 @@ The `BudgetAllocator` class manages time-based test allocation:
 - Secretary Problem optimization for infinite cardinality domains
 - Proportional scaling when over budget
 
+### Two-Phase Execution
+The orchestrator runs all test modules twice: first a calibration phase (measures timing per property), then an execution phase (runs with budget-allocated attempts). This is coordinated between `orchestrator.py`, `reporter.py`, and `budget.py`.
+
 ## Testing Structure
 
 Test modules in `tests/`:
@@ -116,10 +122,15 @@ Test modules in `tests/`:
 - `comprehensive.py` - Complex integration tests with cardinality optimization
 - `additional.py` - Supplementary test cases
 
+## CI
+
+CI runs: `ruff format --check`, `ruff check` (including import sorting), coverage with 60% minimum, and distribution build/install check. Scope includes `minigun`, `tests`, and `scripts` directories.
+
 ## Project Configuration
 
 - Uses uv for dependency management
 - Python >=3.12 required
 - Configured with ruff for linting/formatting (80 char line limit)
-- mypy for strict type checking
+- mypy for strict type checking (strict settings enabled)
 - Rich output formatting for enhanced UX
+- Semantic versioning via `python-semantic-release`; version tracked in both `pyproject.toml` and `minigun/__init__.py`
