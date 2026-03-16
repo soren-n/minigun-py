@@ -18,22 +18,21 @@ Built-in Generators:
 The generator system integrates with the cardinality analysis system to provide
 optimal test attempt allocation based on domain complexity.
 
-Example:
-    ```python
-    import minigun.generate as g
-    import minigun.arbitrary as a
+Example::
 
-    # Create generators for custom data
-    person_gen = g.map(
-        lambda name, age: {"name": name, "age": age},
-        g.str(),
-        g.nat(0, 120)
-    )
+        import minigun.generate as g
+        import minigun.arbitrary as a
 
-    # Sample values
-    state = a.seed(42)
-    state, maybe_person = person_gen(state)
-    ```
+        # Create generators for custom data
+        person_gen = g.map(
+            lambda name, age: {"name": name, "age": age},
+            g.str(),
+            g.nat(0, 120)
+        )
+
+        # Sample values
+        state = a.seed(42)
+        state, maybe_person = person_gen(state)
 """
 
 # External module dependencies

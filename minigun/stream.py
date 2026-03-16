@@ -15,18 +15,17 @@ Streams enable memory-efficient processing of large or infinite data sets
 while maintaining functional purity and composability. They're particularly
 important in the shrinking system where they represent trees of shrunk values.
 
-Example:
-    ```python
-    import minigun.stream as fs
+Example::
 
-    # Create infinite stream of natural numbers
-    nats = fs.unfold(lambda n: Some((n, n + 1)), 0)
+        import minigun.stream as fs
 
-    # Transform and take first 10 even numbers
-    evens = fs.map(lambda x: x * 2, nats)
-    first_10_evens = fs.to_list(evens, 10)
-    # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
-    ```
+        # Create infinite stream of natural numbers
+        nats = fs.unfold(lambda n: Some((n, n + 1)), 0)
+
+        # Transform and take first 10 even numbers
+        evens = fs.map(lambda x: x * 2, nats)
+        first_10_evens = fs.to_list(evens, 10)
+        # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 """
 
 # External module dependencies

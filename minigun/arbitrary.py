@@ -14,18 +14,17 @@ Key Components:
 The module follows functional programming principles with immutable state and
 pure functions that explicitly thread PRNG state through computations.
 
-Example:
-    ```python
-    import minigun.arbitrary as a
+Example::
 
-    # Initialize state
-    state = a.seed(42)
+        import minigun.arbitrary as a
 
-    # Generate values with explicit state threading
-    state, value1 = a.int(state, 1, 100)
-    state, value2 = a.bool(state)
-    state, chosen = a.choice(state, ["a", "b", "c"])
-    ```
+        # Initialize state
+        state = a.seed(42)
+
+        # Generate values with explicit state threading
+        state, value1 = a.int(state, 1, 100)
+        state, value2 = a.bool(state)
+        state, chosen = a.choice(state, ["a", "b", "c"])
 """
 
 # External module dependencies
