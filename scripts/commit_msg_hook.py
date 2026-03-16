@@ -54,7 +54,7 @@ def main():
         sys.exit(0)
 
     if not validate_commit_message(commit_message):
-        print("❌ Invalid commit message format!")
+        print("Invalid commit message format!")
         print()
         print("Commit messages should follow conventional commits format:")
         print("  <type>[optional scope]: <description>")
@@ -72,7 +72,7 @@ def main():
         print("See SEMANTIC_VERSIONING.md for more details.")
         sys.exit(1)
 
-    print("✅ Commit message format is valid")
+    print("Commit message format is valid")
     sys.exit(0)
 
 

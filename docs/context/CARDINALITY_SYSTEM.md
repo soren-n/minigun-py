@@ -235,10 +235,10 @@ def test_sort_preserves(lst: list[int]) -> bool:
 Budget information displayed in test output:
 
 ```
-📊 Global Calibration Phase
+Global Calibration Phase
 Running 10 silent tests per property to measure execution time...
 
-🚀 Global Execution Phase
+Global Execution Phase
 test_sorting         [O(n)] ■■■■■■■■■■ 89 attempts  (1.2s)
 test_binary_search   [O(log n)] ■■■■■■■■■■ 200 attempts (0.8s)
 test_graph_coloring  [O(∞)] ■■■■■■■■■■ 1000 attempts (15.2s)

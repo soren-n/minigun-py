@@ -10,13 +10,13 @@ from pathlib import Path
 
 def run_command(cmd: list[str], description: str) -> bool:
     """Run a command and return success status."""
-    print(f"🔧 {description}...")
+    print(f"{description}...")
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print(f"✅ {description} completed successfully")
+        print(f"{description} completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} failed: {e.stderr}")
+        print(f"{description} failed: {e.stderr}")
         return False
 
 
@@ -24,7 +24,7 @@ def setup_git_hooks():
     """Setup git hooks for commit message validation."""
     git_dir = Path(".git")
     if not git_dir.exists():
-        print("❌ Not in a git repository")
+        print("Not in a git repository")
         return False
 
     hooks_dir = git_dir / "hooks"
@@ -40,12 +40,12 @@ def setup_git_hooks():
     commit_msg_hook.symlink_to(hook_script)
     commit_msg_hook.chmod(0o755)
 
-    print("✅ Git commit-msg hook installed")
+    print("Git commit-msg hook installed")
     return True
 
 
 def main():
-    print("🚀 Setting up semantic versioning environment...\n")
+    print("Setting up semantic versioning environment...\n")
 
     # Install python-semantic-release as a dev tool
     if not run_command(
@@ -58,7 +58,7 @@ def main():
     if not setup_git_hooks():
         return 1
 
-    print("\n🎉 Setup complete!")
+    print("\nSetup complete!")
     print("\nNext steps:")
     print("1. Make sure PYPI_API_TOKEN is set in GitHub repository secrets")
     print("2. Start using conventional commit messages:")

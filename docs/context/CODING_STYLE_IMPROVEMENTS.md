@@ -27,7 +27,7 @@ Use Python 3.12+ `match/case` syntax instead of sequential `elif` blocks and `is
 **ALWAYS use this pattern for Maybe types:**
 
 ```python
-# ✅ CORRECT - Use pattern matching with early returns
+# CORRECT - Use pattern matching with early returns
 match maybe_value:
     case Maybe.empty:
         return early_failure_case
@@ -37,7 +37,7 @@ match maybe_value:
     case _:
         raise AssertionError("Invariant")
 
-# ❌ WRONG - Don't use isinstance checks
+# WRONG - Don't use isinstance checks
 if maybe_value is Nothing:
     return early_failure_case
 if not isinstance(maybe_value, Some):
@@ -49,7 +49,7 @@ value = maybe_value.unwrap()
 **ALWAYS use pattern matching for probability thresholds:**
 
 ```python
-# ✅ CORRECT - Clear pattern matching with guard clauses
+# CORRECT - Clear pattern matching with guard clauses
 match probability:
     case _ if probability < 0.5:
         value = small_option
@@ -60,7 +60,7 @@ match probability:
     case _:
         value = max_option
 
-# ❌ WRONG - Don't use nested ternary operators
+# WRONG - Don't use nested ternary operators
 value = (
     small_option if prob < 0.5 else
     medium_option if prob < 0.75 else
@@ -73,7 +73,7 @@ value = (
 **ALWAYS use this pattern for type origin checking:**
 
 ```python
-# ✅ CORRECT - Pattern matching with early return for None
+# CORRECT - Pattern matching with early return for None
 origin = get_origin(T)
 if origin is None:
     return default_case
@@ -86,7 +86,7 @@ match origin:
     case _:
         return default_case
 
-# ❌ WRONG - Don't use sequential if statements
+# WRONG - Don't use sequential if statements
 if origin is not None:
     if origin == target_type1:
         return handle_type1(T)
@@ -99,7 +99,7 @@ return default_case
 **ALWAYS use pattern matching for type checking:**
 
 ```python
-# ✅ CORRECT - Pattern matching for type dispatch
+# CORRECT - Pattern matching for type dispatch
 match value:
     case str():
         return handle_string(value)
@@ -108,7 +108,7 @@ match value:
     case _:
         return handle_other(value)
 
-# ❌ WRONG - Don't use isinstance chains
+# WRONG - Don't use isinstance chains
 if isinstance(value, str):
     return handle_string(value)
 elif isinstance(value, int):
