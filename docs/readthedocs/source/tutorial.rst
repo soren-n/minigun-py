@@ -2,7 +2,7 @@ Tutorial
 ========
 This tutorial covers property-based testing techniques and how to apply them with Minigun.
 
-For motivation on why you should use a QuickCheck-like system for testing, I recommend watching the following videos:
+For motivation on why you should use a QuickCheck-like system for testing, we recommend watching the following videos:
 
 - `Computerphile ft. John Hughes - Code Checking Automation <https://www.youtube.com/watch?v=AfaNEebCDos>`_
 - `John Hughes - Testing the Hard Stuff and Staying Sane <https://www.youtube.com/watch?v=zi0rHwfiX1Q>`_
@@ -10,7 +10,7 @@ For motivation on why you should use a QuickCheck-like system for testing, I rec
 
 .. note::
 
-    If you wish to learn more about the subject beyond this tutorial, I can recommend Jan Midtgaard's `lecture materials <https://janmidtgaard.dk/quickcheck/index.html>`_. It is OCaml based but translates easily to other QuickCheck-like libraries for other languages, such as Minigun.
+    If you wish to learn more about the subject beyond this tutorial, we recommend Jan Midtgaard's `lecture materials <https://janmidtgaard.dk/quickcheck/index.html>`_. It is OCaml based but translates easily to other QuickCheck-like libraries for other languages, such as Minigun.
 
 Installation
 ------------
@@ -30,15 +30,15 @@ At first software testing might seem paradoxical: what is the implementation of 
 
 From the perspective of a programmer, the discipline of testing and verification forces us to abstract away the functionality of software from its implementation details. That is, there might be many possible implementations of a piece of software, but there should only be one definition of its functionality.
 
-When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without losing functionality.
+When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing pins down functionality regardless of how it is optimized or what implementation details are used, such that we can focus our efforts on the engineering of said implementation details without losing functionality.
 
 Additionally, having a testing strategy improves the maintainability of our projects long term; making it possible to make large changes to the codebase without loss of functionality: confidently upgrading dependencies, large scale refactoring and rewrites, sometimes even migrating to another language or platform. It encodes the semantics of our projects; *what* they are supposed to do, in contrast to *how* they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
 
 The problems with unit-testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Traditionally we do software testing by writing unit-tests by hand. Since it is not tractable to test all input-output cases of a program (neither to write nor to evaluate them), we instead break these cases into classes based on some definition of similarity. We then find representatives within these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being regularized with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
+Traditionally we do software testing by writing unit-tests by hand. Since it is not tractable to test all input-output cases of a program (neither to write nor to evaluate them), we instead break these cases into classes based on some definition of similarity. We then find representatives within these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being well-behaved with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
 
-This leads us to the first problem with hand written unit-tests; an implementation randomly picked from the set of all possible implementations of an interface, would most likely not be regularized. As such, a representative passing testing, should on average not give us much confidence in our implementations; i.e. hand written unit-tests gives a very shallow level of testing.
+This leads us to the first problem with hand written unit-tests; an arbitrary implementation of an interface would most likely not be well-behaved in this way. As such, a representative passing testing does not give us much confidence; i.e. hand written unit-tests give a very shallow level of testing.
 
 The second problem with hand written unit-tests is that they become a ball and chain around the interfaces of the programs we are developing; it makes it difficult to refactor them (which we would often need to do during development) because we need to rewrite a lot of unit-tests whenever we do. This incentivizes us to either try to define good interfaces and tests prior to implementation, a.k.a. waterfall, or to wait with testing altogether until we are much further with the development, again not agile.
 
@@ -46,7 +46,7 @@ Property-based testing is the solution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 The solution to the first problem is to realize that the aforementioned test case classes simply *are* the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
 
-Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assistant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most programmers have, and often further, programmers are not even aware this is a possibility.
+Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assistant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires a different skillset from what most programmers have, and often further, programmers are not even aware this is a possibility.
 
 Property-based testing serves as a practical approximation towards what we do in formal verification. The random selection of test cases means, that with each evaluation of our testing strategy, we grow more confident in our implementation as more cases are shown to be covered.
 
@@ -65,13 +65,13 @@ Implementations of QuickCheck-like libraries are now available for all major and
 QuickCheck implements utility for working with the following three concepts:
 
 :Generation:
-    The library provides implementations of random instance generators for the intrinsic types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom domains.
+    The library provides implementations of random instance generators for the built-in types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom domains.
 
 :Shrinking:
-    Since a randomly generated input instance can be quite large, and it is only a small or specific part of the input that is causing the failure, we work with the concept of shrinking. The failing input instance is interatively shrunk or trimmed, until a smallest possible failing instance is found. Again, the library provides implementations for shrinkers of the intrinsic types of the target language; as well as utility and combinators for user defined shrinkers.
+    Since a randomly generated input instance can be quite large, and it is only a small or specific part of the input that is causing the failure, we work with the concept of shrinking. The failing input instance is iteratively shrunk or trimmed, until a smallest possible failing instance is found. Again, the library provides implementations for shrinkers of the built-in types of the target language; as well as utility and combinators for user defined shrinkers.
 
 :Printing:
-    Once a smallest failing input instance is found, we wish to be able to print it out in a user friendly way. For this the library provides pretty printers for intrinsic types of the target languages; as well as utility and combinators for user defined pretty printers.
+    Once a smallest failing input instance is found, we wish to be able to print it out in a user friendly way. For this the library provides pretty printers for built-in types of the target languages; as well as utility and combinators for user defined pretty printers.
 
 These three concepts put together is usually called a strategy; in Minigun it is called a :code:`Domain[A]`, and the generation and shrinking is joined under one type of :code:`Generator[A]`.
 
@@ -132,6 +132,35 @@ At last there is the executable section, where the implementation is checked aga
         @prop('Length distributes over concatenation via addition')
         def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
             return len(xs + ys) == len(xs) + len(ys)
+
+Running tests
+^^^^^^^^^^^^^
+Save the example above as :code:`test_list.py` and run it directly:
+
+.. code-block:: shell
+
+    $ python3 test_list.py
+
+Minigun also ships with a CLI test runner that discovers and runs test modules with a time budget. If you have a :code:`tests/` directory with test modules, you can run:
+
+.. code-block:: shell
+
+    $ minigun --time-budget 30
+
+This will discover all test modules, run a calibration phase to measure execution time per property, then allocate attempts proportionally within the time budget. The output looks something like:
+
+.. code-block:: text
+
+    Test Summary
+    ╭──────────┬───────┬────────┬────────┬──────────┬─────────╮
+    │ Module   │ Tests │ Passed │ Failed │ Duration │ Status  │
+    ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
+    │ positive │  34   │   34   │   0    │  7.698s  │ ✅ PASS │
+    ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
+    │ TOTAL    │  34   │   34   │   0    │ 12.816s  │ ✅ PASS │
+    ╰──────────┴───────┴────────┴────────┴──────────┴─────────╯
+
+See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules, :code:`--quiet` for CI output, and :code:`--json` for structured output.
 
 Composing specifications
 ------------------------
@@ -254,7 +283,7 @@ What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code
 The above example is a naive and shallow specification for immutable stacks; it does not capture more complex interactions with the stack interface; and therefore does not challenge the implementation very deeply. A more complete specification would be to model programs over the stack interface; i.e. arbitrary sequences of applications of :code:`push` and :code:`pop`.
 
 .. note::
-    For Python implementations you generally do not need to go any deeper that the above example does (in the author's experience). It is mostly for lower level languages where you have to deal with concepts such as under- and over flows, and generally have more administrative implementation details to get right regarding resource management. But if you want to be more complete in your specifications, and want to go deeper, please checkout the section about Modeling.
+    For Python implementations you generally do not need to go any deeper that the above example does (in practice). It is mostly for lower level languages where you have to deal with concepts such as under- and over flows, and generally have more administrative implementation details to get right regarding resource management. But if you want to be more complete in your specifications, and want to go deeper, please checkout the section about Modeling.
 
 Refining domains
 ----------------
@@ -528,11 +557,11 @@ A :code:`Trimmer[A]` will take an instance of :code:`A`, and produce a lazy stre
 
 A :code:`Shrinker[A]` will take an instance of :code:`A`, and produce a lazy tree of shrunk instances of :code:`A`. Think of the shrinker as being the given trimmer lazy recursively applied to the shrunk values. The reason it is a tree, is because you can use multiple trimmers to build it; each step down the tree a trimmer is selected from the given trimmers in a rotating manner.
 
-If you need examples for further clarification, then the following section on Modeling will define a custom generator and trimmer. Also please check out the implementation of Minigun, where there are implementations for all of Python's intrinsic types.
+If you need examples for further clarification, then the following section on Modeling will define a custom generator and trimmer. Also please check out the implementation of Minigun, where there are implementations for all of Python's built-in types.
 
 Modeling
 --------
-Modeling in the context of property-based testing is a general technique where we build a simplified, unoptimized and ideally correct reference implementation for an interface under test. We then use this implementation as the ground truth to test other implementations against; think bisimulation. There are various strategies for doing this, depending on what we are testing.
+Modeling in the context of property-based testing is a general technique where we build a simplified, unoptimized and ideally correct reference implementation for an interface under test. We then use this implementation as the ground truth to test other implementations against; think of it as running both systems side-by-side and comparing their behavior. There are various strategies for doing this, depending on what we are testing.
 
 Before we get into specifics, let us put emphasis on simplified and unoptimized; this is such that we have a better argument for correctness; the smaller the reference code is relative to the production code, all else being equal, it should have fewer bugs. Also, If we build the reference implementation in a language which handles various administrative aspects of the runtime, such as memory and other resources, then we again have a better argument for correctness. The same goes for type-safe languages such as Haskell, OCaml and others in that family. Ultimately, if we were to extract the reference implementation from a specification in a proof assistant then we would have the best grip on correctness.
 
@@ -793,7 +822,7 @@ Notice how the property is expressed at a high level: we simply state that runni
 
 .. tip::
 
-    If you would like to see an example of modeling in the real world, I would like to plug Typeset again (one of my other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Rust+Python implementation of this project.
+    If you would like to see an example of modeling in the real world, we would like to plug Typeset again (one of our other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Rust+Python implementation of this project.
 
     `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
 
