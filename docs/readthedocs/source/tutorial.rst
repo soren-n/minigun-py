@@ -1,8 +1,8 @@
 Tutorial
 ========
-This tutorial covers techniques and strategies of property-based testing and how to implement them with Minigun.
+This tutorial covers property-based testing techniques and how to apply them with Minigun.
 
-If you would like a bit of motivation as to why you should use a QuickCheck-like system for testing, then I would recommend that you watch the following videos:
+For motivation on why you should use a QuickCheck-like system for testing, I recommend watching the following videos:
 
 - `Computerphile ft. John Hughes - Code Checking Automation <https://www.youtube.com/watch?v=AfaNEebCDos>`_
 - `John Hughes - Testing the Hard Stuff and Staying Sane <https://www.youtube.com/watch?v=zi0rHwfiX1Q>`_
@@ -14,7 +14,7 @@ If you would like a bit of motivation as to why you should use a QuickCheck-like
 
 Installation
 ------------
-Minigun is currently only supported for Python >=3.12, although it might work with older versions. It is distributed with pip and can be installed with the following example command:
+Minigun is currently only supported for Python >=3.12, although it might work with older versions. It is distributed via PyPI and can be installed with the following command:
 
 .. code-block:: shell
 
@@ -22,21 +22,21 @@ Minigun is currently only supported for Python >=3.12, although it might work wi
 
 Introduction
 ------------
-First an introduction and perspectivation to the concept and history of property-based testing and QuickCheck.
+First an overview of the concept and history of property-based testing and QuickCheck.
 
 Why do we want to test software?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-At first software testing might seem paradoxical; what is the implementation of a program, if not an expression of the intended functionality? Why should we write additional code to express the intended functionality, it seems like a duplicate effort?
+At first software testing might seem paradoxical: what is the implementation of a program, if not an expression of the intended functionality? Why should we write additional code to express the intended functionality? It seems like a duplicate effort.
 
-From the perspective of a programmer, the discipline of testing and verification forces us to abstract away the functionality of software from its implementation details. Meaning, there might be many possible implementations of a piece of software, but there should only be one definition of its functionality.
+From the perspective of a programmer, the discipline of testing and verification forces us to abstract away the functionality of software from its implementation details. That is, there might be many possible implementations of a piece of software, but there should only be one definition of its functionality.
 
-When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without loosing functionality.
+When authoring production code we care about more than the bare minimum of providing the intended functionality; we also care about performance and other runtime characteristics. These additional properties add complexity to our codebases, which during development *will* be at odds with functionality. Testing captures and fixes functionality modulo performance and other implementation details, such that we can focus our efforts on the engineering of said implementation details without losing functionality.
 
 Additionally, having a testing strategy improves the maintainability of our projects long term; making it possible to make large changes to the codebase without loss of functionality: confidently upgrading dependencies, large scale refactoring and rewrites, sometimes even migrating to another language or platform. It encodes the semantics of our projects; *what* they are supposed to do, in contrast to *how* they do it. It becomes part of the documentation of our projects, making it possible for programmers to come and go, without leaving knowledge gaps.
 
 The problems with unit-testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Traditionally we do software testing by writing unit-tests by hand. Since it is not tractable to test all input-output cases of a program (both to write them, but also to evaluate them), we instead break these cases into classes based on some defintion of similarity. We then find representatives within these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being regularized with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
+Traditionally we do software testing by writing unit-tests by hand. Since it is not tractable to test all input-output cases of a program (neither to write nor to evaluate them), we instead break these cases into classes based on some definition of similarity. We then find representatives within these classes to write tests for, in the hope that if a test passes for a representative, then the other cases in its class would pass as well. Notice that this assumption relies on implementations being regularized with regards to these classes; i.e. that the evaluation of any test case in a given class, would traverse similar or the same code paths.
 
 This leads us to the first problem with hand written unit-tests; an implementation randomly picked from the set of all possible implementations of an interface, would most likely not be regularized. As such, a representative passing testing, should on average not give us much confidence in our implementations; i.e. hand written unit-tests gives a very shallow level of testing.
 
@@ -44,13 +44,13 @@ The second problem with hand written unit-tests is that they become a ball and c
 
 Property-based testing is the solution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-The solution to the first problem is to realize that the before mentioned test case classes simply *are* the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
+The solution to the first problem is to realize that the aforementioned test case classes simply *are* the properties that our specifications are composed of, and that the representatives should be automatically and randomly selected rather than hand picked as a fixed set. This is property-based testing in a nutshell.
 
-Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assisant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most programmers have, and often further, programmers are not even aware this is a possibility.
+Ideally we should formally verify our software against the specification rather than test it; e.g. in Coq or some other proof assistant, however this is still quite time consuming, and as such is still mostly reserved for critical or foundational systems. It also requires an orthogonal skillset to what most programmers have, and often further, programmers are not even aware this is a possibility.
 
 Property-based testing serves as a practical approximation towards what we do in formal verification. The random selection of test cases means, that with each evaluation of our testing strategy, we grow more confident in our implementation as more cases are shown to be covered.
 
-Regarding the second problem, property-based testing does not definitvely solve it; in general it is not solveable, we can not avoid having to write *some* testing code. But property-based testing does alleviate the second problem, since we do end up writing *much less* testing code; as such refactoring it or entirely scrapping it is less painful.
+Regarding the second problem, property-based testing does not definitively solve it; in general it is not solvable, we can not avoid having to write *some* testing code. But property-based testing does alleviate the second problem, since we do end up writing *much less* testing code; as such refactoring it or entirely scrapping it is less painful.
 
 QuickCheck
 ^^^^^^^^^^
@@ -100,7 +100,7 @@ Next a law is defined with the name :code:`_list_len_concat_add_dist`. It is dec
 
 The :code:`@context` decorator will quantify the domain of the law; here positionally giving the parameters :code:`xs` and :code:`ys` the type :code:`list[int]` via :code:`d.list(d.int())`.
 
-The :code:`@prop` decorator defines a human readable description for the specfication, and in turn converts the law into a property.
+The :code:`@prop` decorator defines a human readable description for the specification, and in turn converts the law into a property.
 
 At last there is the executable section, where the implementation is checked against the specification.
 
@@ -178,7 +178,7 @@ Template specifications
 -----------------------
 We might wish to capture certain concepts as specifications, and repurpose them by instantiating them for different implementations. For example we could wish to define specifications for queues, stacks or some network protocol, or more abstractly for concepts such as monoids or abelian groups.
 
-To do this with Minigun you can use the technique of template specifications (we could also call it parameterized or higher-kinded specifications). Python being a programming language of course supports this out of the box via functions, so we can template (or parameterize) our specifications as we otherwise would.
+To do this with Minigun you can use the technique of template specifications (we could also call it parameterized or higher-kinded specifications). Python supports this naturally via functions, so we can template (or parameterize) our specifications as we otherwise would.
 
 .. code-block:: python
 
@@ -212,7 +212,7 @@ To do this with Minigun you can use the technique of template specifications (we
         def _pop_dec(s: S):
             if length(s) == 0: return True
             _, s1 = pop(s)
-            return length(s) == length(s1) - 1
+            return length(s) - 1 == length(s1)
 
         @context(stack_domain, item_domain)
         @prop('Stack push and pop are inverse')
@@ -249,7 +249,7 @@ To do this with Minigun you can use the technique of template specifications (we
         success = check(_stack_int)
         sys.exit(0 if success else -1)
 
-What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code:`_pop` together implements the specification of :code:`_stack`, a relationship which is represented by :code:`_stack_int`. We can then run :code:`check` to test if the implmentation adheres to the specfication of :code:`_stack` (at least for the unit test cases generated during that given run).
+What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code:`_pop` together implements the specification of :code:`_stack`, a relationship which is represented by :code:`_stack_int`. We can then run :code:`check` to test if the implementation adheres to the specification of :code:`_stack` (at least for the unit test cases generated during that given run).
 
 The above example is a naive and shallow specification for immutable stacks; it does not capture more complex interactions with the stack interface; and therefore does not challenge the implementation very deeply. A more complete specification would be to model programs over the stack interface; i.e. arbitrary sequences of applications of :code:`push` and :code:`pop`.
 
@@ -262,7 +262,7 @@ Often the input domains to interfaces are not as general as their types suggests
 
 Map
 ^^^
-As our first example, lets consider samplers for even and odd natural numbers, both of which are subsets of the Python type :code:`int`.
+As our first example, lets consider domains for even and odd natural numbers, both of which are subsets of the Python type :code:`int`.
 
 .. code-block:: python
 
@@ -288,7 +288,7 @@ As our first example, lets consider samplers for even and odd natural numbers, b
 
 Here we :code:`map` over the natural numbers, and use them as indices into the sets of even and odd natural numbers.
 
-To use our new samplers, we would instantiate them the same as we would other domains defined in :code:`minigun.domain`:
+To use our new domains, we instantiate them the same as we would other domains defined in :code:`minigun.domain`:
 
 .. code-block:: python
 
@@ -360,13 +360,13 @@ To generate valid instances we need to define a refined domain:
     def directed_graph() -> d.Domain[Dict[int, List[int]]]:
         return d.bind(sized_directed_graph, d.small_nat())
 
-Here we define two samplers over directed graphs. The first will sample directed graphs of a given size, the second is defined using :code:`bind` which will sample from the domain of small natural numbers (0 <= n <=100) and use it as the size argument for the sized sampler.
+Here we define two domains over directed graphs. The first generates directed graphs of a given size, the second is defined using :code:`bind` which draws from the domain of small natural numbers (0 <= n <=100) and use it as the size argument for the sized sampler.
 
 Also notice the use of :code:`permanent_path`, which is a helper function providing a path to a permanent filesystem directory within the :code:`.minigun` test directory. Here we use this path to store a rendered image of the diagram of generated graphs; and the pretty printed representation of the graph is the permanent filesystem path to the image.
 
 Choice
 ^^^^^^
-When defining samplers for inductive datastructures such as various forms of trees, e.g. ASTs, it is useful to use :code:`choice` and :code:`weighted_choice`. Where :code:`choice` takes an variadic number of samplers over the same domain, and randomly chooses one of them during sampling. :code:`weighted_choice` is simply the weighted version of :code:`choice`, where you additionally define the number of chances for each sampler to be choosen.
+When defining domains for inductive datastructures such as various forms of trees, e.g. ASTs, it is useful to use :code:`choice` and :code:`weighted_choice`. Where :code:`choice` takes a variadic number of generators over the same type, and uniformly selects one during sampling. :code:`weighted_choice` is the weighted version of :code:`choice`, where you additionally define the relative weight for each generator to be chosen.
 
 Lets consider an AST for arithmetic expressions:
 
@@ -526,7 +526,7 @@ You will not be able to compose domains for all datatypes using the combinators 
 
 A :code:`Trimmer[A]` will take an instance of :code:`A`, and produce a lazy stream of shrunk instances of :code:`A` from that given instance. Exactly how you are going to implement a trimmer depends on your datatype.
 
-A :code:`Shrinker[A]` will take an instance of :code:`A`, and produce a lazy tree of shrunk instances of :code:`A`. Think of the shrinker as being the given trimmer lazy recursively applied to the shrunk values. The reason it is a tree, is because you can use multiple trimmers to build it; each step down the tree a trimmer is selected from the given trimmers in a rotating manor.
+A :code:`Shrinker[A]` will take an instance of :code:`A`, and produce a lazy tree of shrunk instances of :code:`A`. Think of the shrinker as being the given trimmer lazy recursively applied to the shrunk values. The reason it is a tree, is because you can use multiple trimmers to build it; each step down the tree a trimmer is selected from the given trimmers in a rotating manner.
 
 If you need examples for further clarification, then the following section on Modeling will define a custom generator and trimmer. Also please check out the implementation of Minigun, where there are implementations for all of Python's intrinsic types.
 
@@ -534,7 +534,7 @@ Modeling
 --------
 Modeling in the context of property-based testing is a general technique where we build a simplified, unoptimized and ideally correct reference implementation for an interface under test. We then use this implementation as the ground truth to test other implementations against; think bisimulation. There are various strategies for doing this, depending on what we are testing.
 
-Before we get into specifics, let us put emphasis on simplified and unoptimized; this is such that we have a better argument for correctness; the smaller the reference code is relative to the production code, all things being equal, it should also have relatively fewer bugs. Also, If we build the reference implementation in a language which handles various administrative aspects of the runtime, such as memory and other resources, then we again have a better argument for correctness. The same goes for type-safe languages such as Haskell, OCaml and others in that family. Ultimately, if we were to extract the reference implementation from a specification in a proof assistant then we would have the best grip on correctness.
+Before we get into specifics, let us put emphasis on simplified and unoptimized; this is such that we have a better argument for correctness; the smaller the reference code is relative to the production code, all else being equal, it should have fewer bugs. Also, If we build the reference implementation in a language which handles various administrative aspects of the runtime, such as memory and other resources, then we again have a better argument for correctness. The same goes for type-safe languages such as Haskell, OCaml and others in that family. Ultimately, if we were to extract the reference implementation from a specification in a proof assistant then we would have the best grip on correctness.
 
 Lets consider modeling strategies for software with different challenges:
 
@@ -891,6 +891,19 @@ We then generate random interleavings of operations from multiple clients. The k
 
         return _impl
 
+We wrap the generator in a domain, pairing it with a simple printer:
+
+.. code-block:: python
+
+    def interleave_domain(
+        num_clients: int,
+        ops_per_client: int
+        ) -> d.Domain[CounterProg]:
+        return d.Domain(
+            interleave_generator(num_clients, ops_per_client),
+            p.list(p.by(str))
+        )
+
 The property then checks that the system under test produces the same observable results as the model for any random interleaving:
 
 .. code-block:: python
@@ -899,7 +912,10 @@ The property then checks that the system under test produces the same observable
         impl_counter: Callable[[CounterProg], List[int]]
         ):
         @context(d.bind(
-            partial(interleave_domain, d.small_nat()),
+            lambda n: d.bind(
+                lambda m: interleave_domain(n, m),
+                d.small_nat()
+            ),
             d.small_nat()
         ))
         @prop('Counter is consistent under any interleaving')
