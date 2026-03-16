@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v2.4.3 (2026-03-16)
+
+### Bug Fixes
+
+- Convert markdown code blocks to RST in module docstrings
+  ([#18](https://github.com/soren-n/minigun-py/pull/18),
+  [`8ef907a`](https://github.com/soren-n/minigun-py/commit/8ef907acd40f3bfc04c67b537e4e712f7b6a785a))
+
+
 ## v2.4.2 (2025-09-30)
 
 ### Bug Fixes
