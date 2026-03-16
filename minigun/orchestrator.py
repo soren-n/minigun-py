@@ -127,7 +127,7 @@ class TestOrchestrator:
     ) -> PhaseResult:
         """Execute calibration phase for all modules."""
         if not self.config.json_output:
-            print("📊 Global Calibration Phase")
+            print("Global Calibration Phase")
             print(
                 "Measuring execution time per property (adaptive calibration)..."
             )
@@ -158,7 +158,7 @@ class TestOrchestrator:
     ) -> PhaseResult:
         """Execute execution phase for all modules."""
         if not self.config.json_output:
-            print("\n🚀 Global Execution Phase")
+            print("\nGlobal Execution Phase")
 
         start_time = time.time()
         overall_success = True

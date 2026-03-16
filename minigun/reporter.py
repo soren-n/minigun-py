@@ -167,7 +167,7 @@ class TestReporter:
     def start_testing(self, total_modules: int):
         """Start the overall testing process."""
         self.total_modules = total_modules  # Store total number of modules
-        title = f"[bold blue]🚀 Minigun Property-Based Testing[/bold blue]\n[dim]⏱️  Time Budget: {self.time_budget:.1f}s[/dim]"
+        title = f"[bold blue]Minigun Property-Based Testing[/bold blue]\n[dim]Time Budget: {self.time_budget:.1f}s[/dim]"
 
         self.console.print(
             Panel.fit(
@@ -216,7 +216,7 @@ class TestReporter:
         if self.verbose and not calibration_only:
             # Don't print module headers during calibration phase
             self.console.print(
-                f"\n[bold cyan]📦 Testing module: {module_name}[/bold cyan]"
+                f"\n[bold cyan]Testing module: {module_name}[/bold cyan]"
             )
 
     def start_test(self, test_name: str) -> None:
@@ -224,7 +224,7 @@ class TestReporter:
         # Only print during execution phase, not calibration
         if self.verbose and not getattr(self, "calibration_only", False):
             self.console.print(
-                f"  [yellow]⏱️  Running:[/yellow] {test_name}", end=""
+                f"  [yellow]Running:[/yellow] {test_name}", end=""
             )
 
     def end_test(
@@ -274,11 +274,11 @@ class TestReporter:
         if self.verbose and not getattr(self, "calibration_only", False):
             if success:
                 self.console.print(
-                    f" [green]✅ PASS[/green] [dim]({duration:.3f}s)[/dim]"
+                    f" [green]PASS[/green] [dim]({duration:.3f}s)[/dim]"
                 )
             else:
                 self.console.print(
-                    f" [red]❌ FAIL[/red] [dim]({duration:.3f}s)[/dim]"
+                    f" [red]FAIL[/red] [dim]({duration:.3f}s)[/dim]"
                 )
                 if counter_example:
                     formatted_example = format_counter_example(counter_example)
@@ -316,9 +316,9 @@ class TestReporter:
             duration = self.current_module.duration
 
             if self.current_module.success:
-                status_text = "[green]✅ ALL PASSED[/green]"
+                status_text = "[green]ALL PASSED[/green]"
             else:
-                status_text = f"[red]❌ {failed} FAILED[/red]"
+                status_text = f"[red]{failed} FAILED[/red]"
 
             self.console.print(
                 f"  [bold]{status_text}[/bold] [dim]({passed}/{total} tests, {duration:.3f}s)[/dim]"
@@ -351,7 +351,7 @@ class TestReporter:
 
         # Show the execution plan (budget info now in table title)
         self.console.print(
-            "\n[bold green]🚀 Starting Execution Phase[/bold green]"
+            "\n[bold green]Starting Execution Phase[/bold green]"
         )
 
         # Create and show the execution plan table with budget info in title
@@ -362,7 +362,7 @@ class TestReporter:
             )
 
         plan_table = Table(
-            title=f"📋 Property Testing Plan ({budget_status})", box=box.ROUNDED
+            title=f"Property Testing Plan ({budget_status})", box=box.ROUNDED
         )
         plan_table.add_column(
             "Property", style="yellow", no_wrap=True, width=30
@@ -422,7 +422,7 @@ class TestReporter:
 
         # Create cardinality analysis table
         card_table = Table(
-            title="🧮 Cardinality-Based Complexity Analysis", box=box.ROUNDED
+            title="Cardinality-Based Complexity Analysis", box=box.ROUNDED
         )
         card_table.add_column(
             "Property", style="yellow", no_wrap=True, width=30
@@ -489,7 +489,7 @@ class TestReporter:
         table.add_column("Status", justify="center")
 
         for module in self.module_results:
-            status = "✅ PASS" if module.success else "❌ FAIL"
+            status = "PASS" if module.success else "FAIL"
             status_style = "green" if module.success else "red"
 
             table.add_row(
@@ -503,7 +503,7 @@ class TestReporter:
 
         # Add totals row
         table.add_section()
-        overall_status = "✅ PASS" if all_passed else "❌ FAIL"
+        overall_status = "PASS" if all_passed else "FAIL"
         overall_style = "green" if all_passed else "red"
         table.add_row(
             "[bold]TOTAL[/bold]",
@@ -539,12 +539,12 @@ class TestReporter:
 
         if all_passed:
             result_panel = Panel.fit(
-                f"[bold green]🎉 All {total_tests} tests passed! 🎉[/bold green]\n[dim]{budget_info}[/dim]",
+                f"[bold green]All {total_tests} tests passed![/bold green]\n[dim]{budget_info}[/dim]",
                 border_style="green",
             )
         else:
             result_panel = Panel.fit(
-                f"[bold red]💥 {total_failed} of {total_tests} tests failed[/bold red]\n[dim]{budget_info}[/dim]",
+                f"[bold red]{total_failed} of {total_tests} tests failed[/bold red]\n[dim]{budget_info}[/dim]",
                 border_style="red",
             )
 
@@ -564,7 +564,7 @@ class TestReporter:
 
         # Only show the calibration message once globally
         if not self.global_calibration_started:
-            self.console.print("\n[bold blue]📊 Calibration Phase[/bold blue]")
+            self.console.print("\n[bold blue]Calibration Phase[/bold blue]")
             self.console.print(
                 "Running 10 silent tests per property to measure execution time..."
             )
@@ -606,7 +606,7 @@ class TestReporter:
                 )
 
             plan_table = Table(
-                title=f"📋 Property Testing Plan ({budget_status})",
+                title=f"Property Testing Plan ({budget_status})",
                 box=box.ROUNDED,
             )
             plan_table.add_column(
@@ -653,7 +653,7 @@ class TestReporter:
             self._print_budget_analysis()
 
             self.console.print(
-                "\n[bold green]🚀 Starting Execution Phase[/bold green]"
+                "\n[bold green]Starting Execution Phase[/bold green]"
             )
             self.global_execution_started = True
 
@@ -699,7 +699,7 @@ class TestReporter:
                 - self.budget_allocator.time_budget
             )
             analysis_parts.append(
-                f"[yellow]⚠️  Over budget by {over_budget:.1f}s ({((self.budget_allocator.total_estimated_time / self.budget_allocator.time_budget) * 100):.0f}%) - tests scaled down[/yellow]"
+                f"[yellow]Over budget by {over_budget:.1f}s ({((self.budget_allocator.total_estimated_time / self.budget_allocator.time_budget) * 100):.0f}%) - tests scaled down[/yellow]"
             )
 
             if over_budget > 5:
@@ -707,14 +707,14 @@ class TestReporter:
                     self.budget_allocator.total_estimated_time * 1.1
                 )  # 10% buffer
                 analysis_parts.append(
-                    f"[dim]💡 Suggestion: Try --time-budget {suggested_budget:.0f} for full coverage[/dim]"
+                    f"[dim]Suggestion: Try --time-budget {suggested_budget:.0f} for full coverage[/dim]"
                 )
         elif (
             self.budget_allocator.total_estimated_time
             < self.budget_allocator.time_budget * 0.5
         ):
             analysis_parts.append(
-                "[green]✅ Well under budget - all properties get ideal attempts[/green]"
+                "[green]Well under budget - all properties get ideal attempts[/green]"
             )
 
         # Performance insights
@@ -724,7 +724,7 @@ class TestReporter:
             ]
             times = [f"{p.estimated_time:.1f}s" for p in slowest_props]
             analysis_parts.append(
-                f"[dim]🐌 Slowest: {', '.join(f'{name} ({time})' for name, time in zip(prop_names, times, strict=False))}[/dim]"
+                f"[dim]Slowest: {', '.join(f'{name} ({time})' for name, time in zip(prop_names, times, strict=False))}[/dim]"
             )
 
         if high_attempt_props:
@@ -734,13 +734,13 @@ class TestReporter:
             ]
             attempts = [f"{p.final_attempts:,}" for p in high_attempt_props]
             analysis_parts.append(
-                f"[dim]🔍 Most attempts: {', '.join(f'{name} ({att})' for name, att in zip(prop_names, attempts, strict=False))}[/dim]"
+                f"[dim]Most attempts: {', '.join(f'{name} ({att})' for name, att in zip(prop_names, attempts, strict=False))}[/dim]"
             )
 
         # Print analysis if we have insights
         if analysis_parts:
             self.console.print(
-                "\n[bold bright_blue]💡 Budget Analysis[/bold bright_blue]"
+                "\n[bold bright_blue]Budget Analysis[/bold bright_blue]"
             )
             for part in analysis_parts:
                 self.console.print(f"  {part}")

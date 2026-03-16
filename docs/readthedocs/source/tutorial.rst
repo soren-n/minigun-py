@@ -155,9 +155,9 @@ This will discover all test modules, run a calibration phase to measure executio
     ╭──────────┬───────┬────────┬────────┬──────────┬─────────╮
     │ Module   │ Tests │ Passed │ Failed │ Duration │ Status  │
     ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
-    │ positive │  34   │   34   │   0    │  7.698s  │ ✅ PASS │
+    │ positive │  34   │   34   │   0    │  7.698s  │ PASS    │
     ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
-    │ TOTAL    │  34   │   34   │   0    │ 12.816s  │ ✅ PASS │
+    │ TOTAL    │  34   │   34   │   0    │ 12.816s  │ PASS    │
     ╰──────────┴───────┴────────┴────────┴──────────┴─────────╯
 
 See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules, :code:`--quiet` for CI output, and :code:`--json` for structured output.

@@ -115,16 +115,6 @@ repos:
         pass_filenames: false
         stages: [manual]
 
-      # Emoji scanner (optional, manual stage)
-      - id: emoji-scan
-        name: Emoji Scanner
-        entry: uv run python scripts/emoji_scanner.py
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [manual]
-        args: [.]
-
 # CI configuration for pre-commit.ci
 ci:
     autofix_commit_msg: |
@@ -135,5 +125,5 @@ ci:
     autoupdate_branch: ''
     autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
     autoupdate_schedule: weekly
-    skip: [mypy, type-check-local, test-coverage, coverage-report, emoji-scan]  # Skip resource-intensive and optional hooks in CI
+    skip: [mypy, type-check-local, test-coverage, coverage-report]  # Skip resource-intensive hooks in CI
     submodules: false
