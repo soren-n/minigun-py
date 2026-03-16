@@ -20,23 +20,22 @@ Test Execution Flow:
 The module integrates with the reporter system for sophisticated output
 including cardinality analysis, budget allocation, and performance metrics.
 
-Example:
-    ```python
-    from minigun.specify import prop, context, check, conj
-    import minigun.domain as d
+Example::
 
-    @prop("list length distributes over concatenation")
-    def test_list_length(xs: list[int], ys: list[int]):
-        return len(xs + ys) == len(xs) + len(ys)
+        from minigun.specify import prop, context, check, conj
+        import minigun.domain as d
 
-    @context(d.list(d.int(), 0, 10))
-    @prop("sorted lists remain sorted after append")
-    def test_sorted_append(xs: list[int]):
-        return xs == sorted(xs) if len(xs) <= 1 else True
+        @prop("list length distributes over concatenation")
+        def test_list_length(xs: list[int], ys: list[int]):
+            return len(xs + ys) == len(xs) + len(ys)
 
-    # Run conjunction of tests
-    success = check(conj(test_list_length, test_sorted_append))
-    ```
+        @context(d.list(d.int(), 0, 10))
+        @prop("sorted lists remain sorted after append")
+        def test_sorted_append(xs: list[int]):
+            return xs == sorted(xs) if len(xs) <= 1 else True
+
+        # Run conjunction of tests
+        success = check(conj(test_list_length, test_sorted_append))
 """
 
 # External module dependencies
