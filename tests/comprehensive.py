@@ -178,6 +178,43 @@ def test_choice_selection(seed_val: int) -> bool:
             return True  # Empty generation is valid
 
 
+@context(d.small_nat(), d.int_range(0, 8), d.int_range(0, 8))
+@prop("bounded_str respects length bounds")
+def test_bounded_str_bounds(seed_val: int, lower: int, upper: int) -> bool:
+    if lower > upper:
+        return True  # skip invalid
+    state = a.seed(seed_val)
+    sampler, _ = g.bounded_str(lower, upper, "abc")
+    state, maybe = sampler(state)
+    match maybe:
+        case Some(dissection):
+            value = sh.head(dissection)
+            return (
+                isinstance(value, str)
+                and lower <= len(value) <= upper
+                and all(ch in "abc" for ch in value)
+            )
+        case Maybe.empty:
+            return True
+
+
+@prop("bounded_str covers its full length range")
+def test_bounded_str_length_coverage() -> bool:
+    # Regression test: bounded_str previously always emitted
+    # fixed-length strings (upper-lower), never varying across the range.
+    state = a.seed(0xC0FFEE)
+    sampler, _ = g.bounded_str(3, 7, "ab")
+    observed: set[int] = set()
+    for _ in range(400):
+        state, maybe = sampler(state)
+        match maybe:
+            case Some(dissection):
+                observed.add(len(sh.head(dissection)))
+            case Maybe.empty:
+                continue
+    return observed == {3, 4, 5, 6, 7}
+
+
 @context(d.small_nat(), d.int_range(1, 5))
 @prop("list generator produces lists of correct size range")
 def test_list_size(seed_val: int, max_size: int) -> bool:
@@ -555,6 +592,8 @@ def test() -> bool:
             test_map_associative,
             test_filter_predicate,
             test_choice_selection,
+            test_bounded_str_bounds,
+            test_bounded_str_length_coverage,
             test_list_size,
             test_dict_size,
             test_set_size,

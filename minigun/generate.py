@@ -487,8 +487,9 @@ def bounded_str(
     assert lower_bound <= upper_bound
 
     def _impl(state: a.State) -> Sample[_str]:
+        state, length = a.int(state, lower_bound, upper_bound)
         result = ""
-        for _ in range(upper_bound - lower_bound):
+        for _ in range(length):
             state, index = a.int(state, 0, len(alphabet) - 1)
             result += alphabet[index]
         return state, Some(s.str()(result))
