@@ -76,6 +76,7 @@ Minigun is a property-based testing library organized in 5 architectural layers:
 ### Layer 3: Generation System
 - `generate.py` - Data generators, combinators, and composition (core)
 - `domain.py` - High-level domain specifications
+- `cardinality.py` - Cardinality algebra used by generators and the testing framework to size attempts
 
 ### Layer 4: Testing Framework
 - `specify.py` - Property definition DSL and test execution engine
