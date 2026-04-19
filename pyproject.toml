@@ -23,7 +23,6 @@ classifiers = [
 ]
 dependencies = [
     "returns>=0.25.0",
-    "tqdm>=4.67.1",
     "typeset-soren-n>=2.0.8",
     "rich>=13.0.0",
 ]
@@ -35,7 +34,7 @@ Documentation = "https://minigun.readthedocs.io/en/stable/"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0",
+    "mypy>=1.18.0",
     "sphinx>=8.2.3",
     "sphinx-rtd-theme>=3.0.2",
 ]

@@ -29,7 +29,6 @@ pip install -e .[dev,quality]
 ```toml
 dependencies = [
     "returns>=0.25.0",      # Monadic types (Maybe, etc.)
-    "tqdm>=4.67.1",         # Progress bars
     "typeset-soren-n>=2.0.8",  # Type utilities
     "rich>=13.0.0",         # Terminal formatting
 ]
@@ -39,7 +38,7 @@ dependencies = [
 ```toml
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0",         # Static type checking
+    "mypy>=1.18.0",         # Static type checking
     "sphinx>=8.2.3",        # Documentation generation
     "sphinx-rtd-theme>=3.0.2",  # Documentation theme
 ]
