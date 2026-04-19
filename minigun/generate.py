@@ -51,7 +51,7 @@ from builtins import set as _set
 from builtins import str as _str
 from builtins import tuple as _tuple
 from collections.abc import Callable
-from functools import partial
+from functools import cache, partial
 from inspect import Parameter, signature
 from typing import Any, cast, get_args, get_origin
 
@@ -84,6 +84,19 @@ type Generator[T] = _tuple[Sampler[T], c.Cardinality]
 ###############################################################################
 
 
+@cache
+def _arity_info(func: Callable[..., Any]) -> _tuple[_int, _bool]:
+    """Return (argument_count, is_variadic) for func, cached by identity."""
+    try:
+        parameters = signature(func).parameters
+    except (TypeError, ValueError):
+        return 0, True
+    return (
+        len(parameters),
+        any(p.kind == Parameter.VAR_POSITIONAL for p in parameters.values()),
+    )
+
+
 def map[*P, R](
     func: Callable[[*P], R], *generators: Generator[Any]
 ) -> Generator[R]:
@@ -98,12 +111,7 @@ def map[*P, R](
     :rtype: `Generator[R]`
     """
 
-    func_parameters = signature(func).parameters
-    argument_count = len(func_parameters)
-    func_is_variadic = any(
-        parameter.kind == Parameter.VAR_POSITIONAL
-        for parameter in func_parameters.values()
-    )
+    argument_count, func_is_variadic = _arity_info(func)
     assert len(generators) == argument_count or func_is_variadic, (
         f"Function {func} expected {argument_count} "
         f"arguments, but got {len(generators)} generators."
@@ -147,12 +155,7 @@ def bind[*P, R](
     :rtype: `Generator[R]`
     """
 
-    func_parameters = signature(func).parameters
-    argument_count = len(func_parameters)
-    func_is_variadic = any(
-        parameter.kind == Parameter.VAR_POSITIONAL
-        for parameter in func_parameters.values()
-    )
+    argument_count, func_is_variadic = _arity_info(func)
     assert len(generators) == argument_count or func_is_variadic, (
         f"Function {func} expected {argument_count} "
         f"arguments, but got {len(generators)} generators."
