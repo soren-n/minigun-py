@@ -183,6 +183,36 @@ def bind[*P, R](
     return _impl, combined_cardinality
 
 
+def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
+    """Defer construction of a generator until the first sample is drawn.
+
+    Useful for recursive generator definitions where eager construction
+    (including ``inspect.signature`` calls and cardinality arithmetic
+    performed by combinators such as ``map``, ``bind`` and ``choice``)
+    would otherwise blow up construction time exponentially in the
+    recursion depth. The inner generator is built once and then reused.
+
+    Cardinality is reported as ``Infinite`` since the inner generator
+    is unknown at construction time; combinators that see this value
+    fall back to their infinite-cardinality strategies.
+
+    :param thunk: A zero-argument callable returning a generator of type `T`.
+    :type thunk: `() -> Generator[T]`
+
+    :return: A generator of type `T` that builds its inner generator on demand.
+    :rtype: `Generator[T]`
+    """
+    cached: _list[Generator[T]] = []
+
+    def _impl(state: a.State) -> Sample[T]:
+        if not cached:
+            cached.append(thunk())
+        sampler, _ = cached[0]
+        return sampler(state)
+
+    return _impl, c.Infinite()
+
+
 def filter[T](
     predicate: Callable[[T], _bool], generator: Generator[T]
 ) -> Generator[T]:

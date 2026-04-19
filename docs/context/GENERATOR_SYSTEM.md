@@ -189,6 +189,29 @@ def filter[T](predicate: Callable[[T], bool], generator: Generator[T]) -> Genera
 
 **Important:** May fail if no generated values satisfy predicate. Use sparingly and with predicates that have high success rates.
 
+### 4. Lazy Combinator
+**Purpose:** Defer construction of a generator until the first sample is drawn — required for recursive generator definitions where eager composition of `map`, `bind`, `choice`, etc. would produce exponential construction-time blowup in the recursion depth.
+
+```python
+def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
+    cached: list[Generator[T]] = []
+
+    def _impl(state: a.State) -> Sample[T]:
+        if not cached:
+            cached.append(thunk())
+        sampler, _ = cached[0]
+        return sampler(state)
+
+    return _impl, c.Infinite()
+```
+
+**Key Features:**
+- **Deferred construction** — `thunk()` is not called during generator assembly, only on the first sample.
+- **Memoized** — the inner generator is built once and then reused for every subsequent sample.
+- **Infinite cardinality** — reported as `c.Infinite()` since the inner generator is unknown at construction; downstream combinators that see this value fall back to their infinite-cardinality strategies.
+
+**When to use:** Type-directed or recursive generators (e.g., expression trees, grammars) where the full generator graph is larger than the samples you actually draw.
+
 ## Collection Generator Internals
 
 ### Bounded List Generator
@@ -280,7 +303,8 @@ def test_string_repeat(n: int, s: str) -> bool:
 ## Performance Considerations
 
 ### Generator Composition Overhead
-- **Deep composition** can create performance bottlenecks
+- **Deep composition** can create performance bottlenecks; use `g.lazy(thunk)` to break eager cardinality arithmetic in recursive definitions
+- **Signature introspection** in `map`/`bind` is cached per callable identity (`functools.cache` on `_arity_info`), so repeated construction of the same combinator is cheap
 - **Early failure** propagation minimizes wasted computation
 - **Stream laziness** prevents memory issues with large collections
 

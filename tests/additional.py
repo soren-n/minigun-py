@@ -162,6 +162,34 @@ def test_word_generator_validity(seed_val: int) -> bool:
     return False
 
 
+@context(d.small_nat())
+@prop("lazy defers inner construction and reuses the built generator")
+def test_lazy_generator_defers_and_memoizes(seed_val: int) -> bool:
+    build_count = [0]
+
+    def _build():
+        build_count[0] += 1
+        return g.int_range(1, 10)
+
+    lazy_gen = g.lazy(_build)
+    sampler, cardinality = lazy_gen
+
+    if not isinstance(cardinality, c.Infinite):
+        return False
+    if build_count[0] != 0:
+        return False
+
+    state = a.seed(seed_val)
+    for _ in range(3):
+        state, maybe_result = sampler(state)
+        if isinstance(maybe_result, Some):
+            value = sh.head(maybe_result.unwrap())
+            if not (isinstance(value, int) and 1 <= value <= 10):
+                return False
+
+    return build_count[0] == 1
+
+
 ###############################################################################
 # Additional tests for pretty.py - testing output formatting
 ###############################################################################
@@ -837,6 +865,7 @@ def test() -> bool:
             test_one_of_generator,
             test_str_generator_validity,
             test_word_generator_validity,
+            test_lazy_generator_defers_and_memoizes,
             # Pretty module tests
             test_int_printer,
             test_str_printer,
