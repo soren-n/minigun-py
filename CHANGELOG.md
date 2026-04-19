@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v2.5.0 (2026-04-19)
+
+### Bug Fixes
+
+- Vary bounded_str length across [lower, upper]
+  ([`3479cd1`](https://github.com/soren-n/minigun-py/commit/3479cd1de380c5f8814890384c04b17942a10239))
+
+- **reporter**: Remove duplicate execution_start_time assignment
+  ([`d5aca1d`](https://github.com/soren-n/minigun-py/commit/d5aca1d98f89f2a6c2e68b727a28eea09a04970b))
+
+### Features
+
+- Expose primary API from minigun package root
+  ([`7ecd966`](https://github.com/soren-n/minigun-py/commit/7ecd966c9496203ace7af7646eb74e14a2c7ea97))
+
+- **generate**: Add lazy() for deferred generator construction
+  ([`a153d6d`](https://github.com/soren-n/minigun-py/commit/a153d6d018dd1a7aad0f9d9b14ed440390596863))
+
+### Performance Improvements
+
+- **generate**: Cache bounded_str cardinality
+  ([`22123ac`](https://github.com/soren-n/minigun-py/commit/22123acd4682e5e4c6aee42432838ea545dc5002))
+
+- **generate**: Cache inspect.signature lookup in map/bind
+  ([`827d2cf`](https://github.com/soren-n/minigun-py/commit/827d2cfc23ebce24746e72a1d58c71771b42f471))
+
+
 ## v2.4.3 (2026-03-16)
 
 ### Bug Fixes

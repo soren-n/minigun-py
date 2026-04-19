@@ -1,7 +1,7 @@
 from minigun import domain, generate
 from minigun.specify import Spec, check, conj, context, disj, impl, neg, prop
 
-__version__ = "2.4.3"
+__version__ = "2.5.0"
 
 __all__ = [
     "Spec",
