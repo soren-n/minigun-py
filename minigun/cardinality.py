@@ -43,27 +43,27 @@ class _SymbolicExpr(ABC):
     def variables(self) -> set[str]:
         pass
 
-    def __add__(self, other):
+    def __add__(self, other: "_SymbolicExpr | int | float") -> "_SymbolicExpr":
         if isinstance(other, int | float):
             other = _Const(float(other))
         return _Add(self, other).simplify()
 
-    def __mul__(self, other):
+    def __mul__(self, other: "_SymbolicExpr | int | float") -> "_SymbolicExpr":
         if isinstance(other, int | float):
             other = _Const(float(other))
         return _Mul(self, other).simplify()
 
-    def __pow__(self, other):
+    def __pow__(self, other: "_SymbolicExpr | int | float") -> "_SymbolicExpr":
         if isinstance(other, int | float):
             other = _Const(float(other))
         return _Pow(self, other).simplify()
 
-    def __radd__(self, other):
+    def __radd__(self, other: "_SymbolicExpr | int | float") -> "_SymbolicExpr":
         if isinstance(other, int | float):
             return _Const(float(other)) + self
         return NotImplemented
 
-    def __rmul__(self, other):
+    def __rmul__(self, other: "_SymbolicExpr | int | float") -> "_SymbolicExpr":
         if isinstance(other, int | float):
             return _Const(float(other)) * self
         return NotImplemented
@@ -302,7 +302,9 @@ class _Log(_SymbolicExpr):
 class Cardinality(ABC):
     """Abstract base class for cardinality expressions."""
 
-    def __init__(self):
+    _symbolic: "_SymbolicExpr | None"
+
+    def __init__(self) -> None:
         object.__setattr__(self, "_symbolic", None)
 
     @abstractmethod
@@ -324,6 +326,7 @@ class Cardinality(ABC):
         """Convert to internal symbolic representation."""
         if self._symbolic is None:
             object.__setattr__(self, "_symbolic", self._create_symbolic())
+        assert self._symbolic is not None
         return self._symbolic
 
     @abstractmethod
@@ -372,7 +375,7 @@ class Finite(Cardinality):
 
     value: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -394,7 +397,7 @@ class Variable(Cardinality):
 
     name: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -419,7 +422,7 @@ class Sum(Cardinality):
     left: Cardinality
     right: Cardinality
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -459,7 +462,7 @@ class Product(Cardinality):
     left: Cardinality
     right: Cardinality
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -506,7 +509,7 @@ class Exponential(Cardinality):
     base: Cardinality
     exponent: Cardinality
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -552,7 +555,7 @@ class Exponential(Cardinality):
 class Infinite(Cardinality):
     """Infinite cardinality: |S| = ∞"""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
 
     def __str__(self) -> str:
@@ -573,10 +576,9 @@ class Linear(Cardinality):
     """Linear cardinality: |S| = O(n)"""
 
     variable: Variable
-    coefficient: Cardinality
+    coefficient: Cardinality | None = None
 
-    def __post_init__(self):
-        super().__init__()
+    def __post_init__(self) -> None:
         if self.coefficient is None:
             object.__setattr__(self, "coefficient", Finite(1))
 
@@ -586,16 +588,21 @@ class Linear(Cardinality):
         return f"O({self.coefficient} × {self.variable.name})"
 
     def evaluate(self, context: dict[str, int] | None = None) -> float:
-        coeff = self.coefficient.evaluate(context)
+        coeff = self.coefficient.evaluate(context) if self.coefficient else 1.0
         var_val = self.variable.evaluate(context)
         return coeff * var_val
 
     def simplify(self) -> "Cardinality":
-        simplified_coeff = self.coefficient.simplify()
+        simplified_coeff = (
+            self.coefficient.simplify() if self.coefficient else Finite(1)
+        )
         return Linear(self.variable, simplified_coeff)
 
     def _create_symbolic(self) -> _SymbolicExpr:
-        return self.coefficient._to_symbolic() * self.variable._to_symbolic()
+        coeff_sym = (
+            self.coefficient._to_symbolic() if self.coefficient else _Const(1.0)
+        )
+        return coeff_sym * self.variable._to_symbolic()
 
 
 @dataclass(frozen=True)
@@ -606,7 +613,7 @@ class Polynomial(Cardinality):
     degree: int
     coefficient: Cardinality | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
         if self.coefficient is None:
             object.__setattr__(self, "coefficient", Finite(1))
@@ -648,7 +655,7 @@ class Logarithmic(Cardinality):
     variable: Variable
     coefficient: Cardinality | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
         if self.coefficient is None:
             object.__setattr__(self, "coefficient", Finite(1))
@@ -696,7 +703,7 @@ class SymbolicCardinality(Cardinality):
 
     symbolic_expr: _SymbolicExpr
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__init__()
         object.__setattr__(self, "_symbolic", self.symbolic_expr)
 
@@ -801,7 +808,7 @@ def calculate_attempts_from_generators(
         return 100
 
     # Extract cardinalities and calculate product
-    total_cardinality = ONE
+    total_cardinality: Cardinality = ONE
     for _param, maybe_generator in generators.items():
         if maybe_generator is not None:
             # Handle Maybe[Generator] case
@@ -855,15 +862,15 @@ def infer_cardinality_from_type(type_hint: Any) -> Cardinality:
 
         elif origin is dict:
             if len(args) >= 2:
-                key_card = infer_cardinality_from_type(args[0])
-                val_card = infer_cardinality_from_type(args[1])
+                key_card = infer_cardinality_from_type(args[0])  # type: ignore[misc]
+                val_card = infer_cardinality_from_type(args[1])  # type: ignore[misc]
                 combined = (key_card * val_card)._to_symbolic()
                 return BigO(combined ** _Var("n"))
             return BigO(_Const(256) ** _Var("n"))
 
         elif origin is tuple:
             if args:
-                product = ONE
+                product: Cardinality = ONE
                 for arg in args:
                     element_card = infer_cardinality_from_type(arg)
                     product = product * element_card

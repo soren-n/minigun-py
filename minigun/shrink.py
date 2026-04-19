@@ -48,7 +48,7 @@ from builtins import str as _str
 from builtins import tuple as _tuple
 from collections.abc import Callable
 from inspect import Parameter, signature
-from typing import Any, cast
+from typing import Any
 
 from returns.maybe import Maybe, Nothing, Some
 
@@ -60,7 +60,10 @@ from minigun import stream as fs
 ###############################################################################
 
 #: Dissection datatype defined over a type parameter `T`.
-type Dissection[T] = _tuple[T, fs.Stream["Dissection[T]"]]
+# NOTE: mypy 1.20 has a known internal error on recursive PEP-695 type
+# aliases (https://github.com/python/mypy/issues/18083). Cascading
+# false-positives in this file stem from this limitation.
+type Dissection[T] = _tuple[T, fs.Stream["Dissection[T]"]]  # type: ignore[misc]
 
 #: Shrinker datatype defined over a type parameter `T.
 type Shrinker[T] = Callable[[T], Dissection[T]]
@@ -75,7 +78,7 @@ def head[T](dissection: Dissection[T]) -> T:
     :return: The head of given dissection.
     :rtype: `T`
     """
-    return dissection[0]
+    return dissection[0]  # type: ignore[no-any-return]
 
 
 def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
@@ -87,7 +90,7 @@ def tail[T](dissection: Dissection[T]) -> fs.Stream[Dissection[T]]:
     :return: The tail of given dissection.
     :rtype: `minigun.stream.Stream[Dissection[T]]`
     """
-    return dissection[1]
+    return dissection[1]  # type: ignore[no-any-return]
 
 
 def map[*Ts, R](
@@ -116,7 +119,9 @@ def map[*Ts, R](
     )
 
     def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
-        output_heads = [head(dissection) for dissection in input_dissections]
+        output_heads: list[Any] = [
+            head(dissection) for dissection in input_dissections
+        ]
         return func(*output_heads), _cartesian(input_dissections)
 
     def _cartesian(
@@ -172,7 +177,9 @@ def bind[*Ts, R](
     )
 
     def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
-        output_heads = [head(dissection) for dissection in input_dissections]
+        output_heads: list[Any] = [
+            head(dissection) for dissection in input_dissections
+        ]
         output_head, output_tail = func(*output_heads)
         return output_head, fs.concat(
             output_tail, _cartesian(input_dissections)
@@ -276,7 +283,7 @@ def singleton[T](value: T) -> Dissection[T]:
     :return: A dissection over the type `T`.
     :rtype: `Dissection[T]`
     """
-    return value, cast(fs.Stream[Dissection[T]], fs.empty())
+    return value, fs.empty()
 
 
 ###############################################################################

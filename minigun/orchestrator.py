@@ -17,6 +17,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from minigun.reporter import JSONReporter, TestReporter, set_reporter
+
 
 @dataclass
 class TestModule:
@@ -85,8 +87,6 @@ class TestOrchestrator:
 
     def _execute_verbose_mode(self, modules: list[TestModule]) -> bool:
         """Execute tests in verbose mode with rich output and two-phase process."""
-        from minigun.reporter import TestReporter, set_reporter
-
         reporter = TestReporter(self.config.time_budget, verbose=True)
         set_reporter(reporter)
         reporter.start_testing(len(modules))
@@ -104,8 +104,6 @@ class TestOrchestrator:
 
     def _execute_json_mode(self, modules: list[TestModule]) -> bool:
         """Execute tests in JSON mode with structured output."""
-        from minigun.reporter import JSONReporter, set_reporter
-
         module_names = [module.name for module in modules]
         reporter = JSONReporter(self.config.time_budget, modules=module_names)
         set_reporter(reporter)
