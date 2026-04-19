@@ -471,6 +471,20 @@ def prop(bias: _float) -> Generator[_bool]:
 ###############################################################################
 # Strings
 ###############################################################################
+@cache
+def _bounded_str_cardinality(
+    lower_bound: _int, upper_bound: _int, alphabet_size: _int
+) -> c.Cardinality:
+    """Cardinality for bounded strings: sum of |alphabet|^l for l in [lo, hi]."""
+    string_cardinality: c.Cardinality = c.Finite(0)
+    alphabet_card = c.Finite(alphabet_size)
+    for length in range(lower_bound, upper_bound + 1):
+        string_cardinality = string_cardinality + (
+            alphabet_card ** c.Finite(length)
+        )
+    return string_cardinality
+
+
 def bounded_str(
     lower_bound: _int, upper_bound: _int, alphabet: _str
 ) -> Generator[_str]:
@@ -497,15 +511,9 @@ def bounded_str(
             result += alphabet[index]
         return state, Some(s.str()(result))
 
-    # Cardinality for bounded strings: sum over all possible lengths
-    # For each length l in [lower_bound, upper_bound], there are |alphabet|^l strings
-    string_cardinality = c.Finite(0)
-    for length in range(lower_bound, upper_bound + 1):
-        string_cardinality = string_cardinality + (
-            c.Finite(len(alphabet)) ** c.Finite(length)
-        )
-
-    return _impl, string_cardinality
+    return _impl, _bounded_str_cardinality(
+        lower_bound, upper_bound, len(alphabet)
+    )
 
 
 def str() -> Generator[_str]:
