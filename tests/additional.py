@@ -2,6 +2,8 @@
 # Focusing on edge cases, error conditions, and advanced functionality
 
 # External imports
+import contextlib
+import io
 import string
 
 from returns.maybe import Maybe, Some
@@ -681,7 +683,10 @@ def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
         o.TestModule("sometimes_pass", sometimes_pass),
     ]
 
-    result = orchestrator.execute_tests(modules)
+    # Suppress the orchestrator's own quiet-mode output so it doesn't
+    # interleave with the parent test runner's output.
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = orchestrator.execute_tests(modules)
 
     # Result should be boolean
     return isinstance(result, bool)
