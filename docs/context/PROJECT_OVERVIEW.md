@@ -131,7 +131,6 @@ Catch subtle bugs that example-based tests might miss:
 
 **Core Runtime:**
 - `returns` - Monadic types (Maybe, etc.)
-- `tqdm` - Progress bars
 - `typeset-soren-n` - Type utilities
 - `rich` - Terminal formatting
 

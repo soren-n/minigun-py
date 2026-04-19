@@ -30,7 +30,7 @@ Create a test module in `tests/` directory:
 
 ```python
 # tests/my_tests.py
-from minigun.specify import prop, check, conj
+from minigun import prop, check, conj
 
 @prop("reversing a list twice gives the original")
 def test_reverse(lst: list[int]):
@@ -53,7 +53,7 @@ minigun --time-budget 30
 ## Using as a Library
 
 ```python
-from minigun.specify import prop, check
+from minigun import prop, check
 
 @prop("reversing a list twice gives the original")
 def test_reverse(lst: list[int]):
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 ### Basic Properties
 
 ```python
-from minigun.specify import prop
+from minigun import prop
 
 @prop("addition is commutative")
 def test_add_commute(x: int, y: int):
@@ -142,10 +142,9 @@ def test_add_commute(x: int, y: int):
 ### Custom Domains
 
 ```python
-import minigun.domain as d
-from minigun.specify import prop, context
+from minigun import prop, context, domain as d
 
-@context(d.int(1, 100), d.int(1, 100))
+@context(d.int_range(1, 100), d.int_range(1, 100))
 @prop("division reverses multiplication")
 def test_div(x: int, y: int):
     return (x * y) // y == x
@@ -154,7 +153,7 @@ def test_div(x: int, y: int):
 ### Combining Properties
 
 ```python
-from minigun.specify import prop, check, conj
+from minigun import prop, check, conj
 
 @prop("property 1")
 def test_1(x: int):

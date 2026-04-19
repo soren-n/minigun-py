@@ -51,7 +51,7 @@ from builtins import set as _set
 from builtins import str as _str
 from builtins import tuple as _tuple
 from collections.abc import Callable
-from functools import partial
+from functools import cache, partial
 from inspect import Parameter, signature
 from typing import Any, cast, get_args, get_origin
 
@@ -84,6 +84,19 @@ type Generator[T] = _tuple[Sampler[T], c.Cardinality]
 ###############################################################################
 
 
+@cache
+def _arity_info(func: Callable[..., Any]) -> _tuple[_int, _bool]:
+    """Return (argument_count, is_variadic) for func, cached by identity."""
+    try:
+        parameters = signature(func).parameters
+    except (TypeError, ValueError):
+        return 0, True
+    return (
+        len(parameters),
+        any(p.kind == Parameter.VAR_POSITIONAL for p in parameters.values()),
+    )
+
+
 def map[*P, R](
     func: Callable[[*P], R], *generators: Generator[Any]
 ) -> Generator[R]:
@@ -98,12 +111,7 @@ def map[*P, R](
     :rtype: `Generator[R]`
     """
 
-    func_parameters = signature(func).parameters
-    argument_count = len(func_parameters)
-    func_is_variadic = any(
-        parameter.kind == Parameter.VAR_POSITIONAL
-        for parameter in func_parameters.values()
-    )
+    argument_count, func_is_variadic = _arity_info(func)
     assert len(generators) == argument_count or func_is_variadic, (
         f"Function {func} expected {argument_count} "
         f"arguments, but got {len(generators)} generators."
@@ -147,12 +155,7 @@ def bind[*P, R](
     :rtype: `Generator[R]`
     """
 
-    func_parameters = signature(func).parameters
-    argument_count = len(func_parameters)
-    func_is_variadic = any(
-        parameter.kind == Parameter.VAR_POSITIONAL
-        for parameter in func_parameters.values()
-    )
+    argument_count, func_is_variadic = _arity_info(func)
     assert len(generators) == argument_count or func_is_variadic, (
         f"Function {func} expected {argument_count} "
         f"arguments, but got {len(generators)} generators."
@@ -178,6 +181,36 @@ def bind[*P, R](
     for _, cardinality in generators:
         combined_cardinality = combined_cardinality * cardinality
     return _impl, combined_cardinality
+
+
+def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
+    """Defer construction of a generator until the first sample is drawn.
+
+    Useful for recursive generator definitions where eager construction
+    (including ``inspect.signature`` calls and cardinality arithmetic
+    performed by combinators such as ``map``, ``bind`` and ``choice``)
+    would otherwise blow up construction time exponentially in the
+    recursion depth. The inner generator is built once and then reused.
+
+    Cardinality is reported as ``Infinite`` since the inner generator
+    is unknown at construction time; combinators that see this value
+    fall back to their infinite-cardinality strategies.
+
+    :param thunk: A zero-argument callable returning a generator of type `T`.
+    :type thunk: `() -> Generator[T]`
+
+    :return: A generator of type `T` that builds its inner generator on demand.
+    :rtype: `Generator[T]`
+    """
+    cached: _list[Generator[T]] = []
+
+    def _impl(state: a.State) -> Sample[T]:
+        if not cached:
+            cached.append(thunk())
+        sampler, _ = cached[0]
+        return sampler(state)
+
+    return _impl, c.Infinite()
 
 
 def filter[T](
@@ -468,6 +501,20 @@ def prop(bias: _float) -> Generator[_bool]:
 ###############################################################################
 # Strings
 ###############################################################################
+@cache
+def _bounded_str_cardinality(
+    lower_bound: _int, upper_bound: _int, alphabet_size: _int
+) -> c.Cardinality:
+    """Cardinality for bounded strings: sum of |alphabet|^l for l in [lo, hi]."""
+    string_cardinality: c.Cardinality = c.Finite(0)
+    alphabet_card = c.Finite(alphabet_size)
+    for length in range(lower_bound, upper_bound + 1):
+        string_cardinality = string_cardinality + (
+            alphabet_card ** c.Finite(length)
+        )
+    return string_cardinality
+
+
 def bounded_str(
     lower_bound: _int, upper_bound: _int, alphabet: _str
 ) -> Generator[_str]:
@@ -487,21 +534,16 @@ def bounded_str(
     assert lower_bound <= upper_bound
 
     def _impl(state: a.State) -> Sample[_str]:
+        state, length = a.int(state, lower_bound, upper_bound)
         result = ""
-        for _ in range(upper_bound - lower_bound):
+        for _ in range(length):
             state, index = a.int(state, 0, len(alphabet) - 1)
             result += alphabet[index]
         return state, Some(s.str()(result))
 
-    # Cardinality for bounded strings: sum over all possible lengths
-    # For each length l in [lower_bound, upper_bound], there are |alphabet|^l strings
-    string_cardinality = c.Finite(0)
-    for length in range(lower_bound, upper_bound + 1):
-        string_cardinality = string_cardinality + (
-            c.Finite(len(alphabet)) ** c.Finite(length)
-        )
-
-    return _impl, string_cardinality
+    return _impl, _bounded_str_cardinality(
+        lower_bound, upper_bound, len(alphabet)
+    )
 
 
 def str() -> Generator[_str]:

@@ -7,10 +7,13 @@ import argparse
 import importlib.util
 import inspect
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 
-def discover_test_modules(test_dir: Path) -> dict[str, callable]:
+def discover_test_modules(
+    test_dir: Path,
+) -> dict[str, Callable[[], bool]]:
     """
     Discover test modules in a directory.
 
@@ -19,7 +22,7 @@ def discover_test_modules(test_dir: Path) -> dict[str, callable]:
     :param test_dir: Directory to search for test modules
     :return: Dictionary mapping module names to test functions
     """
-    test_modules = {}
+    test_modules: dict[str, Callable[[], bool]] = {}
 
     if not test_dir.exists() or not test_dir.is_dir():
         return test_modules
@@ -86,7 +89,7 @@ def run_tests(
 
     # Filter modules if specified
     if modules:
-        filtered_modules = {}
+        filtered_modules: dict[str, Callable[[], bool]] = {}
         for module in modules:
             if module in test_modules:
                 filtered_modules[module] = test_modules[module]
@@ -118,7 +121,7 @@ def run_tests(
     return orchestrator.execute_tests(test_module_objects)
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="Minigun Property-Based Testing CLI - Discovers and runs test modules",
