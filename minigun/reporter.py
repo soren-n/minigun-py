@@ -149,7 +149,9 @@ class TestReporter:
         self.module_results: list[ModuleResult] = []
         self.current_module: ModuleResult | None = None
         self.overall_start_time = time.time()
-        self.execution_start_time = None  # Track when execution phase starts
+        self.execution_start_time: float | None = (
+            None  # Track when execution phase starts
+        )
         self.pure_test_execution_time = (
             0.0  # Track only actual property testing time, excluding overhead
         )
@@ -164,7 +166,7 @@ class TestReporter:
         self.modules_processed = 0  # Track number of modules processed
         self.total_modules = 0  # Total number of modules to process
 
-    def start_testing(self, total_modules: int):
+    def start_testing(self, total_modules: int) -> None:
         """Start the overall testing process."""
         self.total_modules = total_modules  # Store total number of modules
         title = f"[bold blue]Minigun Property-Based Testing[/bold blue]\n[dim]Time Budget: {self.time_budget:.1f}s[/dim]"
@@ -405,9 +407,6 @@ class TestReporter:
 
         self.global_execution_started = True
 
-        # Start execution timing here
-        self.execution_start_time = time.time()
-
     def print_cardinality_analysis(self) -> None:
         """Print cardinality analysis table for all tests."""
         # Collect all tests with cardinality info
@@ -442,6 +441,7 @@ class TestReporter:
         total_time = 0.0
         for _module_name, test in cardinality_tests:
             info = test.cardinality_info
+            assert info is not None  # filtered above
 
             # Truncate property name if too long (max 30 chars with ellipsis)
             property_name = self._truncate_property_name(test.name)
