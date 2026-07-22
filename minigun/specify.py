@@ -23,25 +23,27 @@ including cardinality analysis, budget allocation, and performance metrics.
 Example::
 
         from minigun.specify import prop, context, check, conj
-        import minigun.domain as d
+        import minigun.generate as g
 
         @prop("list length distributes over concatenation")
         def test_list_length(xs: list[int], ys: list[int]):
             return len(xs + ys) == len(xs) + len(ys)
 
-        @context(d.list(d.int(), 0, 10))
-        @prop("sorted lists remain sorted after append")
-        def test_sorted_append(xs: list[int]):
-            return xs == sorted(xs) if len(xs) <= 1 else True
+        @context(g.bounded_list(0, 10, g.int()))
+        @prop("ordered lists are sorted")
+        def test_ordered_sorted(xs: list[int]):
+            return len(xs) <= 10
 
         # Run conjunction of tests
-        success = check(conj(test_list_length, test_sorted_append))
+        success = check(conj(test_list_length, test_ordered_sorted))
 """
 
 # External module dependencies
 import os
+import pprint
 import secrets
 import shutil
+import textwrap
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -52,9 +54,7 @@ from typing import Any, cast
 # Internal module dependencies
 from minigun import arbitrary as a
 from minigun import cardinality as c
-from minigun import domain as d
 from minigun import generate as g
-from minigun import pretty as p
 from minigun import reporter as r
 from minigun import search as s
 from minigun.budget import baseline_attempts
@@ -76,7 +76,6 @@ class _Prop[**P](Spec):
     law: Callable[P, bool]
     ordering: list[str]
     generators: dict[str, g.Generator[Any] | None]
-    printers: dict[str, p.Printer[Any] | None]
 
 
 def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
@@ -100,11 +99,9 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
 
         # Try to infer generators
         generators: dict[str, g.Generator[Any] | None] = {}
-        printers: dict[str, p.Printer[Any] | None] = {}
         for param in params:
             param_type = param_types[param]
             generators[param] = g.infer(param_type)
-            printers[param] = p.infer(param_type)
 
         # Calculate optimal attempts based on generator cardinality
         total_cardinality = c.ONE
@@ -115,7 +112,7 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
         optimal_attempts = baseline_attempts(total_cardinality)
 
         # Done
-        return _Prop(desc, optimal_attempts, law, params, generators, printers)
+        return _Prop(desc, optimal_attempts, law, params, generators)
 
     return _decorate
 
@@ -155,17 +152,17 @@ def conj(*specs: Spec) -> Spec:
 
 
 ###############################################################################
-# Overwrite defaults or define generators and printers for law parameters
+# Overwrite default generators for law parameters
 ###############################################################################
 def context(
-    *lparams: d.Domain[Any], **kparams: d.Domain[Any]
+    *lparams: g.Generator[Any], **kparams: g.Generator[Any]
 ) -> Callable[[Spec], Spec]:
-    """A decorator for defining domains of a property's parameters.
+    """A decorator for defining generators of a property's parameters.
 
-    :param lparam: Domains of positional parameters.
-    :type lparam: tuple[`minigun.domain.Domain[Any]`, ...]
-    :param kparam: Domains of keyword parameters.
-    :type kparam: `dict[str, 'minigun.domain.Domain[Any]]`
+    :param lparam: Generators of positional parameters.
+    :type lparam: tuple[`minigun.generate.Generator[Any]`, ...]
+    :param kparam: Generators of keyword parameters.
+    :type kparam: `dict[str, minigun.generate.Generator[Any]]`
 
     :return: A property specification.
     :rtype: `Spec`
@@ -173,12 +170,12 @@ def context(
 
     def _decorate(spec: Spec) -> Spec:
         match spec:
-            case _Prop(desc, count, law, params, generators, printers):
+            case _Prop(desc, count, law, params, generators):
                 if len(lparams) > len(params):
                     raise TypeError(
                         f'Property "{desc}" takes {len(params)} parameters '
                         f"but context() received {len(lparams)} positional "
-                        "domains"
+                        "generators"
                     )
                 unknown = [param for param in kparams if param not in params]
                 if unknown:
@@ -187,14 +184,11 @@ def context(
                         f"{', '.join(sorted(unknown))}"
                     )
                 _generators = dict(generators)
-                _printers = dict(printers)
-                for param, domain in zip(params, lparams, strict=False):
-                    _generators[param] = domain.generate
-                    _printers[param] = domain.print
-                for param, domain in kparams.items():
-                    _generators[param] = domain.generate
-                    _printers[param] = domain.print
-                return _Prop(desc, count, law, params, _generators, _printers)
+                for param, generator in zip(params, lparams, strict=False):
+                    _generators[param] = generator
+                for param, generator in kparams.items():
+                    _generators[param] = generator
+                return _Prop(desc, count, law, params, _generators)
             case _:
                 raise AssertionError("Invariant")
 
@@ -229,58 +223,17 @@ def permanent_path(dir_path: Path | None = None) -> Path:
 ###############################################################################
 # Specification evaluation
 ###############################################################################
-def _call_context(
-    ordering: list[str], printers: dict[str, p.Printer[Any]]
-) -> p.Printer[dict[str, Any]]:
-    """Create a printer for call context that displays parameters in 'key = value' format.
-
-    This is an alternative to argument_pack that produces more readable output for counter-examples.
-
-    :param ordering: The order of parameters in the argument pack.
-    :type ordering: `list[str]`
-    :param printers: Value printers with which arguments are printed.
-    :type printers: `dict[str, p.Printer[Any]]`
-
-    :return: A printer that formats parameters as 'key = value' on separate lines.
-    :rtype: `p.Printer[dict[str, Any]]`
-    """
-    from functools import reduce
-
-    import typeset as ts
-
-    def _printer(args: dict[str, Any]) -> ts.Layout:
-        def _item(param: str) -> ts.Layout:
-            arg = args[param]
-            arg_printer = printers[param]
-            # Use pattern matching for type-specific handling
-            match arg:
-                case str():
-                    # For strings, we want to use repr() to get proper Python string representation
-                    return ts.parse(
-                        '{0} + "=" + {1}', ts.text(param), ts.text(repr(arg))
-                    )
-                case _:
-                    return ts.parse(
-                        '{0} + "=" + {1}', ts.text(param), arg_printer(arg)
-                    )
-
-        # Create items
-        if not ordering:
-            return ts.null()
-
-        items = [_item(param) for param in ordering]
-
-        # Join items with forced line breaks using @ operator
-        if len(items) == 1:
-            return items[0]
-
-        return reduce(
-            lambda result, layout: ts.parse("{0} @ {1}", result, layout),
-            items[1:],
-            items[0],
-        )
-
-    return _printer
+def _format_counter_example(ordering: list[str], args: dict[str, Any]) -> str:
+    """Format counter-example arguments as 'param = value' lines."""
+    lines: list[str] = []
+    for param in ordering:
+        rendered = pprint.pformat(args[param], width=72, sort_dicts=False)
+        if "\n" in rendered:
+            indented = textwrap.indent(rendered, "  ")
+            lines.append(f"{param} =\n{indented}")
+        else:
+            lines.append(f"{param} = {rendered}")
+    return "\n".join(lines)
 
 
 def check(spec: Spec) -> bool:
@@ -313,7 +266,7 @@ def _run_calibration(spec: Spec) -> bool:
 
     def _visit_calibration(state: a.State, spec: Spec) -> tuple[a.State, bool]:
         match spec:
-            case _Prop(desc, _attempts, law, _ordering, generators, _printers):
+            case _Prop(desc, _attempts, law, _ordering, generators):
                 # Get reporter for rich console output
                 reporter = r.get_reporter()
 
@@ -432,7 +385,7 @@ def _run_execution(spec: Spec) -> bool:
         state: a.State, spec: Spec, neg: bool = False
     ) -> tuple[a.State, bool]:
         match spec:
-            case _Prop(desc, _attempts, law, _ordering, generators, _printers):
+            case _Prop(desc, _attempts, law, _ordering, generators):
                 # Get reporter for rich console output
                 reporter = r.get_reporter()
 
@@ -455,23 +408,6 @@ def _run_execution(spec: Spec) -> bool:
                             )
                         return state, False
                     _generators[param] = generator
-
-                local_printers: dict[str, p.Printer[Any]] = {}
-                for param, param_printer in _printers.items():
-                    if param_printer is None:
-                        error_msg = (
-                            "No printer was inferred or defined "
-                            f'for parameter "{param}" of property "{desc}"'
-                        )
-                        duration = time.time() - start_time
-                        if reporter:
-                            reporter.end_test(
-                                desc, False, duration, error_message=error_msg
-                            )
-                        return state, False
-                    local_printers[param] = param_printer
-
-                printer = _call_context(_ordering, local_printers)
 
                 # Use budget-allocated attempts instead of default attempts
                 if (
@@ -507,7 +443,9 @@ def _run_execution(spec: Spec) -> bool:
                     if reporter:
                         reporter.end_test(desc, True, duration)
                     return state, True
-                counter_example = p.render(printer(counter_ex.args))
+                counter_example = _format_counter_example(
+                    _ordering, counter_ex.args
+                )
 
                 # Build error message with exception info if present
                 if counter_ex.exception:

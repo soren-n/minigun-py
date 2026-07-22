@@ -22,7 +22,6 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
-    "typeset-soren-n>=2.0.8",
     "rich>=13.0.0",
 ]
 

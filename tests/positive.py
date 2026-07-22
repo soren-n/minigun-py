@@ -1,7 +1,7 @@
 # External imports
 from collections.abc import Callable
 
-import minigun.domain as d
+import minigun.generate as g
 
 # Internal imports
 from minigun.specify import Spec, check, conj, context, prop
@@ -29,7 +29,7 @@ type Inverse[T] = Callable[[T], T]
 
 
 def _operator_commute[T](
-    name: str, value_domain: d.Domain[T], operator: Operator[T]
+    name: str, value_domain: g.Generator[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain, value_domain)
     @prop(f"{name} is commutative")
@@ -40,7 +40,7 @@ def _operator_commute[T](
 
 
 def _operator_assoc[T](
-    name: str, value_domain: d.Domain[T], operator: Operator[T]
+    name: str, value_domain: g.Generator[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain, value_domain, value_domain)
     @prop(f"{name} is associative")
@@ -51,7 +51,7 @@ def _operator_assoc[T](
 
 
 def _operator_identity[T](
-    name: str, identity: T, value_domain: d.Domain[T], operator: Operator[T]
+    name: str, identity: T, value_domain: g.Generator[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain)
     @prop(f'"{identity}" is identity under {name}')
@@ -64,7 +64,7 @@ def _operator_identity[T](
 def _operator_inverse[T](
     name: str,
     identity: T,
-    value_domain: d.Domain[T],
+    value_domain: g.Generator[T],
     operator: Operator[T],
     inverse: Inverse[T],
 ) -> Spec:
@@ -79,7 +79,7 @@ def _operator_inverse[T](
 def _operators_dist[T](
     plus_name: str,
     times_name: str,
-    value_domain: d.Domain[T],
+    value_domain: g.Generator[T],
     plus: Operator[T],
     times: Operator[T],
 ) -> Spec:
@@ -94,7 +94,7 @@ def _operators_dist[T](
 
 
 def _operator_moniod[T](
-    name: str, identity: T, value_domain: d.Domain[T], operator: Operator[T]
+    name: str, identity: T, value_domain: g.Generator[T], operator: Operator[T]
 ) -> Spec:
     return conj(
         _operator_identity(name, identity, value_domain, operator),
@@ -105,7 +105,7 @@ def _operator_moniod[T](
 def _operator_abelian[T](
     name: str,
     identity: T,
-    value_domain: d.Domain[T],
+    value_domain: g.Generator[T],
     operator: Operator[T],
     inverse: Inverse[T],
 ) -> Spec:
@@ -122,7 +122,7 @@ def _operators_ring[T](
     times_name: str,
     plus_identity: T,
     times_identity: T,
-    value_domain: d.Domain[T],
+    value_domain: g.Generator[T],
     plus: Operator[T],
     times: Operator[T],
     inverse: Inverse[T],
@@ -144,7 +144,7 @@ _int_ring = _operators_ring(
     "integer multiplication",
     0,
     1,
-    d.int(),
+    g.int(),
     lambda a, b: a + b,
     lambda a, b: a * b,
     lambda a: -a,
@@ -158,37 +158,37 @@ def float_equal(a: float, b: float, epsilon: float = 1e-8) -> bool:
     return abs(a - b) <= epsilon
 
 
-@context(d.float())
+@context(g.float())
 @prop("Zero is neutral element of float addition")
 def _pos_black_float_add_zero(a: float) -> bool:
     return float_equal(a + 0, a)
 
 
-@context(d.float())
+@context(g.float())
 @prop("One is neutral element of float multiplication")
 def _pos_black_float_mul_one(a: float) -> bool:
     return float_equal(a * 1, a)
 
 
-@context(d.float(), d.float())
+@context(g.float(), g.float())
 @prop("Float addition is commutative")
 def _pos_black_float_add_commute(a: float, b: float) -> bool:
     return float_equal(a + b, b + a)
 
 
-@context(d.float(), d.float(), d.float())
+@context(g.float(), g.float(), g.float())
 @prop("Float addition is associative")
 def _pos_black_float_add_assoc(a: float, b: float, c: float) -> bool:
     return float_equal(a + (b + c), (a + b) + c)
 
 
-@context(d.float())
+@context(g.float())
 @prop("Float addition has inverse")
 def _pos_black_float_add_inverse(a: float) -> bool:
     return float_equal(a + (-a), 0.0)
 
 
-@context(d.float(), d.float())
+@context(g.float(), g.float())
 @prop("Float multiplication is commutative")
 def _pos_black_float_mul_commute(a: float, b: float) -> bool:
     return float_equal(a * b, b * a)
@@ -198,18 +198,18 @@ def _pos_black_float_mul_commute(a: float, b: float) -> bool:
 # Positive black-box testing of str
 ###############################################################################
 _string_concat_moniod = _operator_moniod(
-    "string concatenation", "", d.str(), lambda a, b: a + b
+    "string concatenation", "", g.str(), lambda a, b: a + b
 )
 
 
-@context(d.str())
+@context(g.str())
 @prop("String append length identity")
 def _pos_black_str_append_length_identity(s: str) -> bool:
     s1 = s + "a"
     return len(s1) == len(s) + 1
 
 
-@context(d.str(), d.str())
+@context(g.str(), g.str())
 @prop("String concat length distribute")
 def _pos_black_str_concat_length_dist(xs: str, ys: str) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
@@ -219,18 +219,18 @@ def _pos_black_str_concat_length_dist(xs: str, ys: str) -> bool:
 # Positive black-box testing of lists
 ###############################################################################
 _list_concat_moniod = _operator_moniod(
-    "list concatenation", [], d.list(d.int()), lambda a, b: a + b
+    "list concatenation", [], g.list(g.int()), lambda a, b: a + b
 )
 
 
-@context(d.list(d.int()), d.int())
+@context(g.list(g.int()), g.int())
 @prop("list append identity")
 def _pos_black_list_append_identity(xs: list[int], x: int) -> bool:
     xs.append(x)
     return xs[-1] == x
 
 
-@context(d.list(d.int()), d.int())
+@context(g.list(g.int()), g.int())
 @prop("list append length identity")
 def _pos_black_list_append_length_identity(xs: list[int], x: int) -> bool:
     xs1 = xs.copy()
@@ -238,7 +238,7 @@ def _pos_black_list_append_length_identity(xs: list[int], x: int) -> bool:
     return len(xs1) == len(xs) + 1
 
 
-@context(d.list(d.int()), d.int())
+@context(g.list(g.int()), g.int())
 @prop("list remove identity")
 def _pos_black_list_remove_identity(xs: list[int], x: int) -> bool:
     xs1 = xs.copy()
@@ -247,7 +247,7 @@ def _pos_black_list_remove_identity(xs: list[int], x: int) -> bool:
     return xs == xs1
 
 
-@context(d.list(d.int()), d.int())
+@context(g.list(g.int()), g.int())
 @prop("list remove length identity")
 def _pos_black_list_remove_length_identity(xs: list[int], x: int) -> bool:
     xs.append(x)
@@ -256,7 +256,7 @@ def _pos_black_list_remove_length_identity(xs: list[int], x: int) -> bool:
     return len(xs1) == len(xs) - 1
 
 
-@context(d.list(d.int()), d.list(d.int()))
+@context(g.list(g.int()), g.list(g.int()))
 @prop("list length concat distributes with add")
 def _pos_black_list_concat_length_add_dist(
     xs: list[int], ys: list[int]
@@ -264,7 +264,7 @@ def _pos_black_list_concat_length_add_dist(
     return len(xs + ys) == len(xs) + len(ys)
 
 
-@context(d.list(d.int(), ordered=True))
+@context(g.list(g.int(), ordered=True))
 @prop("Ordered list items are sorted")
 def _pos_black_list_sorted(xs: list[int]) -> bool:
     if len(xs) == 0:
@@ -275,7 +275,7 @@ def _pos_black_list_sorted(xs: list[int]) -> bool:
 ###############################################################################
 # Positive black-box testing of dictionaries
 ###############################################################################
-@context(d.dict(d.int(), d.int()), d.int(), d.int())
+@context(g.dict(g.int(), g.int()), g.int(), g.int())
 @prop("Dictionary insert identity")
 def _pos_black_dict_insert_identity(
     kvs: dict[int, int], k: int, v: int
@@ -284,7 +284,7 @@ def _pos_black_dict_insert_identity(
     return kvs[k] == v
 
 
-@context(d.dict(d.int(), d.int()), d.int(), d.int())
+@context(g.dict(g.int(), g.int()), g.int(), g.int())
 @prop("Dictionary remove identity")
 def _pos_black_dict_remove_identity(
     kvs: dict[int, int], k: int, v: int

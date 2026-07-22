@@ -15,9 +15,7 @@ tasks:
   - source/tutorial.rst
   - ../minigun/__init__.py
   - ../minigun/arbitrary.py
-  - ../minigun/domain.py
   - ../minigun/generate.py
-  - ../minigun/pretty.py
   - ../minigun/search.py
   - ../minigun/shrink.py
   - ../minigun/specify.py

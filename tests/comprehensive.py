@@ -3,7 +3,6 @@
 
 # Internal imports
 import minigun.arbitrary as a
-import minigun.domain as d
 import minigun.generate as g
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, prop
@@ -13,7 +12,7 @@ from minigun.specify import Spec, check, conj, context, prop
 ###############################################################################
 
 
-@context(d.int_range(-1000, 1000), d.int_range(-1000, 1000))
+@context(g.int_range(-1000, 1000), g.int_range(-1000, 1000))
 @prop("nat generates values within bounds")
 def test_nat_bounds(lower: int, upper: int) -> bool:
     if lower < 0 or lower > upper:
@@ -24,7 +23,7 @@ def test_nat_bounds(lower: int, upper: int) -> bool:
     return lower <= value <= upper
 
 
-@context(d.int_range(-1000, 1000), d.int_range(-1000, 1000))
+@context(g.int_range(-1000, 1000), g.int_range(-1000, 1000))
 @prop("int generates values within bounds")
 def test_int_bounds(lower: int, upper: int) -> bool:
     if lower > upper:
@@ -35,7 +34,7 @@ def test_int_bounds(lower: int, upper: int) -> bool:
     return lower <= value <= upper
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("bool generates only True or False")
 def test_bool_values(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -43,7 +42,7 @@ def test_bool_values(seed_val: int) -> bool:
     return isinstance(value, bool)
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("probability generates values in [0,1]")
 def test_probability_bounds(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -56,7 +55,7 @@ def test_probability_bounds(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("map preserves structure with identity function")
 def test_map_identity(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -77,7 +76,7 @@ def test_map_identity(seed_val: int) -> bool:
     return dissection1.head == dissection2.head
 
 
-@context(d.small_nat(), d.small_nat())
+@context(g.small_nat(), g.small_nat())
 @prop("map composition is associative")
 def test_map_associative(seed_val: int, offset: int) -> bool:
     state = a.seed(seed_val)
@@ -105,7 +104,7 @@ def test_map_associative(seed_val: int, offset: int) -> bool:
     return dissection1.head == dissection2.head
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("filter only generates values satisfying predicate")
 def test_filter_predicate(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -126,7 +125,7 @@ def test_filter_predicate(seed_val: int) -> bool:
     return True
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("filtered shrink candidates satisfy the predicate")
 def test_filter_shrinks_satisfy_predicate(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -142,7 +141,7 @@ def test_filter_shrinks_satisfy_predicate(seed_val: int) -> bool:
     return all(candidate.head % 2 == 0 for candidate in shrunk)
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("choice selects from provided generators")
 def test_choice_selection(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -164,7 +163,7 @@ def test_choice_selection(seed_val: int) -> bool:
     )
 
 
-@context(d.small_nat(), d.int_range(0, 8), d.int_range(0, 8))
+@context(g.small_nat(), g.int_range(0, 8), g.int_range(0, 8))
 @prop("bounded_str respects length bounds")
 def test_bounded_str_bounds(seed_val: int, lower: int, upper: int) -> bool:
     if lower > upper:
@@ -197,12 +196,12 @@ def test_bounded_str_length_coverage() -> bool:
     return observed == {3, 4, 5, 6, 7}
 
 
-@context(d.small_nat(), d.int_range(1, 5))
+@context(g.small_nat(), g.int_range(1, 5))
 @prop("list generator produces lists of correct size range")
 def test_list_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    list_gen = g.bounded_list(0, max_size, d.int_range(0, 100).generate)
+    list_gen = g.bounded_list(0, max_size, g.int_range(0, 100))
 
     state, dissection = list_gen.sample(state)
     if dissection is None:
@@ -211,14 +210,12 @@ def test_list_size(seed_val: int, max_size: int) -> bool:
     return isinstance(value, list) and 0 <= len(value) <= max_size
 
 
-@context(d.small_nat(), d.int_range(1, 5))
+@context(g.small_nat(), g.int_range(1, 5))
 @prop("dict generator produces dicts of correct size range")
 def test_dict_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    dict_gen = g.bounded_dict(
-        0, max_size, d.int_range(0, 100).generate, g.str()
-    )
+    dict_gen = g.bounded_dict(0, max_size, g.int_range(0, 100), g.str())
 
     state, dissection = dict_gen.sample(state)
     if dissection is None:
@@ -227,12 +224,12 @@ def test_dict_size(seed_val: int, max_size: int) -> bool:
     return isinstance(value, dict) and 0 <= len(value) <= max_size
 
 
-@context(d.small_nat(), d.int_range(1, 5))
+@context(g.small_nat(), g.int_range(1, 5))
 @prop("set generator produces sets of correct size range")
 def test_set_size(seed_val: int, max_size: int) -> bool:
     state = a.seed(seed_val)
 
-    set_gen = g.bounded_set(0, max_size, d.int_range(0, 100).generate)
+    set_gen = g.bounded_set(0, max_size, g.int_range(0, 100))
 
     state, dissection = set_gen.sample(state)
     if dissection is None:
@@ -246,7 +243,7 @@ def test_set_size(seed_val: int, max_size: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("int domain respects bounds")
 def test_int_domain_bounds(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -259,13 +256,13 @@ def test_int_domain_bounds(seed_val: int) -> bool:
     return -100 <= dissection.head <= 100
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("bounded_list domain respects size bounds")
 def test_bounded_list_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    list_domain = d.bounded_list(2, 5, d.small_int())
-    state, dissection = list_domain.generate.sample(state)
+    list_gen = g.bounded_list(2, 5, g.small_int())
+    state, dissection = list_gen.sample(state)
 
     if dissection is None:
         return True
@@ -273,7 +270,7 @@ def test_bounded_list_domain(seed_val: int) -> bool:
     return isinstance(value, list) and 2 <= len(value) <= 5
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("list shrinking respects the lower size bound")
 def test_bounded_list_shrink_lower_bound(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -286,13 +283,13 @@ def test_bounded_list_shrink_lower_bound(seed_val: int) -> bool:
     return all(len(candidate.head) >= 2 for candidate in shrunk)
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("tuple domain produces tuples of correct arity")
 def test_tuple_domain_arity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    tuple_domain = d.tuple(d.bool(), d.small_int(), d.str())
-    state, dissection = tuple_domain.generate.sample(state)
+    tuple_gen = g.tuple(g.bool(), g.small_int(), g.str())
+    state, dissection = tuple_gen.sample(state)
 
     if dissection is None:
         return True
@@ -306,13 +303,13 @@ def test_tuple_domain_arity(seed_val: int) -> bool:
     )
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("optional domain produces None or values")
 def test_optional_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    optional_domain = d.optional(d.small_int())
-    state, dissection = optional_domain.generate.sample(state)
+    optional_gen = g.optional(g.small_int())
+    state, dissection = optional_gen.sample(state)
 
     if dissection is None:
         return True
@@ -325,7 +322,7 @@ def test_optional_domain(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("shrinking int produces smaller values")
 def test_int_shrinking_decreases(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -345,7 +342,7 @@ def test_int_shrinking_decreases(seed_val: int) -> bool:
     return True
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("shrinking list produces shorter lists")
 def test_list_shrinking_shortens(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -373,7 +370,7 @@ def test_list_shrinking_shortens(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("stream map preserves length for finite streams")
 def test_stream_map_length(seed_val: int) -> bool:
     # Create a finite stream from a list
@@ -393,7 +390,7 @@ def test_stream_map_length(seed_val: int) -> bool:
     return original_length == mapped_length
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("stream filter produces only matching elements")
 def test_stream_filter(seed_val: int) -> bool:
     # Create a stream of numbers
@@ -416,7 +413,7 @@ def test_stream_filter(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("search finds counterexamples for false properties")
 def test_search_finds_counterexamples(seed_val: int) -> bool:
     from minigun.search import find_counter_example
@@ -427,7 +424,7 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
     def false_law(x):
         return x != x  # x should always equal itself
 
-    generators = {"x": d.int_range(0, 100).generate}
+    generators = {"x": g.int_range(0, 100)}
 
     state, counter = find_counter_example(state, 50, false_law, generators)
 
@@ -438,7 +435,7 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
     return "x" in counter.args and isinstance(counter.args["x"], int)
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("search doesn't find counterexamples for true properties")
 def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
     from minigun.search import find_counter_example
@@ -449,7 +446,7 @@ def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
     def true_law(x):
         return x == x  # x should always equal itself
 
-    generators = {"x": d.int_range(0, 100).generate}
+    generators = {"x": g.int_range(0, 100)}
 
     state, counter = find_counter_example(state, 50, true_law, generators)
 
@@ -462,11 +459,11 @@ def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(d.small_nat())
+@context(g.small_nat())
 @prop("property specification creates valid spec objects")
 def test_property_specification_execution(seed_val: int) -> bool:
     # Create a simple property that should always pass
-    @context(d.small_int())
+    @context(g.small_int())
     @prop("identity property")
     def identity_prop(x: int) -> bool:
         return x == x
