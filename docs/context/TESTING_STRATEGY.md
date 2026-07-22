@@ -201,7 +201,7 @@ def test_generation_diversity(seed: int) -> bool:
 @prop("basic arithmetic property")
 
 # Specific domains for edge cases
-@context(d.one_of([0, 1, -1]))
+@context(d.int_range(-1, 1))
 @prop("behavior at special values")
 ```
 
@@ -252,14 +252,14 @@ def test_shrinking_effectiveness(seed: int) -> bool:
 **Run specific test modules as needed:**
 
 ```bash
-# Run all tests
-uv run minigun-test
+# Run all tests (time budget is required)
+uv run minigun --time-budget 30
 
 # Run specific modules
-uv run minigun-test --modules positive comprehensive
+uv run minigun --time-budget 45 --modules positive comprehensive
 
 # Quiet mode for CI/CD
-uv run minigun-test --quiet
+uv run minigun --time-budget 60 --quiet
 ```
 
 ### 2. Progress Reporting
