@@ -8,7 +8,7 @@ test specification composition, and counterexample search coordination.
 Key Components:
     - @prop decorator: Define properties with automatic type inference
     - @context decorator: Explicit domain specification for parameters
-    - Spec composition: conj(), disj(), impl(), neg() for logical operations
+    - Spec composition: conj() and neg() for logical operations
     - check(): Main test execution function with reporter integration
 
 Test Execution Flow:
@@ -153,43 +153,6 @@ def conj(*specs: Spec) -> Spec:
     :rtype: `Spec`
     """
     return _Conj(specs)
-
-
-@dataclass
-class _Disj(Spec):
-    specs: tuple[Spec, ...]
-
-
-def disj(*specs: Spec) -> Spec:
-    """A constructor for the disjunction of specfications.
-
-    :param specs: Terms of the disjunction.
-    :type specs: `Spec`
-
-    :return: A disjunction of specifications.
-    :rtype: `Spec`
-    """
-    return _Disj(specs)
-
-
-@dataclass
-class _Impl(Spec):
-    premise: Spec
-    conclusion: Spec
-
-
-def impl(premise: Spec, conclusion: Spec) -> Spec:
-    """A constructor for the implication of two specfications.
-
-    :param premise: The premise of the implication.
-    :type premise: `Spec`
-    :param conclusion: The conclusion of the implication.
-    :type conclusion: `Spec`
-
-    :return: A conjunction of specifications.
-    :rtype: `Spec`
-    """
-    return _Impl(premise, conclusion)
 
 
 ###############################################################################
@@ -338,9 +301,7 @@ def check(spec: Spec) -> bool:
 def _run_calibration(spec: Spec) -> bool:
     """Run tests in calibration mode to measure pure execution time."""
 
-    def _visit_calibration(
-        state: a.State, spec: Spec, neg: bool = False
-    ) -> tuple[a.State, bool]:
+    def _visit_calibration(state: a.State, spec: Spec) -> tuple[a.State, bool]:
         match spec:
             case _Prop(desc, _attempts, law, _ordering, generators, _printers):
                 # Get reporter for rich console output
@@ -444,25 +405,13 @@ def _run_calibration(spec: Spec) -> bool:
                 return state, True
 
             case _Neg(term):
-                return _visit_calibration(state, term, not neg)
+                return _visit_calibration(state, term)
             case _Conj(terms):
                 for term in terms:
                     state, success = _visit_calibration(state, term)
                     if not success:
                         return state, False
                 return state, True
-            case _Disj(terms):
-                for term in terms:
-                    state, success = _visit_calibration(state, term)
-                    if not success:
-                        continue
-                    return state, True
-                return state, False
-            case _Impl(premise, conclusion):
-                state, success = _visit_calibration(state, premise)
-                if not success:
-                    return state, False
-                return _visit_calibration(state, conclusion)
             case _:
                 raise AssertionError("Invariant")
 
@@ -592,24 +541,20 @@ def _run_execution(spec: Spec) -> bool:
             case _Neg(term):
                 return _visit(state, term, not neg)
             case _Conj(terms):
+                if neg:
+                    # De Morgan: neg(conj(...)) holds when at least one
+                    # negated term holds.
+                    for term in terms:
+                        state, success = _visit(state, term, neg=True)
+                        if success:
+                            return state, True
+                    return state, False
                 for term in terms:
                     state, success = _visit(state, term)
                     if success:
                         continue
                     return state, False
                 return state, True
-            case _Disj(terms):
-                for term in terms:
-                    state, success = _visit(state, term)
-                    if not success:
-                        continue
-                    return state, True
-                return state, False
-            case _Impl(premise, conclusion):
-                state, success = _visit(state, premise)
-                if not success:
-                    return state, False
-                return _visit(state, conclusion)
             case _:
                 raise AssertionError("Invariant")
 

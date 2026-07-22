@@ -169,11 +169,8 @@ A specification in Minigun's environment is represented as an instance of :code:
 ``minigun.specify.conj``
     For a check of a conjunction to succeed, checks of all of its terms must succeed.
 
-``minigun.specify.disj``
-    For a check of a disjunction to succeed, a check of at least one of its terms must succeed.
-
-``minigun.specify.impl``
-    For a check of an implication to succeed, first the premise must succeed, and then only if the premise succeeded will the conclusion be checked.
+``minigun.specify.neg``
+    For a check of a negation to succeed, the check of its term must fail.
 
 A simple example of how to use :code:`conj`, is to extend our example from earlier with an additional specification:
 
