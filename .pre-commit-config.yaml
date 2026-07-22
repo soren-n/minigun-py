@@ -36,7 +36,7 @@ repos:
 
   # Ruff - extremely fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.9
+    rev: v0.15.22
     hooks:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix]
@@ -44,7 +44,7 @@ repos:
 
   # MyPy type checking (temporarily disabled due to internal error)
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
+    rev: v2.3.0
     hooks:
       - id: mypy
         exclude: ^(tests/|scripts/)

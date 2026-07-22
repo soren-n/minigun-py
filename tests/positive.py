@@ -1,6 +1,5 @@
 # External imports
 from collections.abc import Callable
-from typing import TypeVar
 
 from returns.maybe import Maybe
 
@@ -29,12 +28,11 @@ from minigun.specify import Spec, check, conj, context, prop
 ###############################################################################
 # Abstract specifications
 ###############################################################################
-T = TypeVar("T")
-Operator = Callable[[T, T], T]
-Inverse = Callable[[T], T]
+type Operator[T] = Callable[[T, T], T]
+type Inverse[T] = Callable[[T], T]
 
 
-def _operator_commute(
+def _operator_commute[T](
     name: str, value_domain: d.Domain[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain, value_domain)
@@ -45,7 +43,7 @@ def _operator_commute(
     return _operator_commute_impl
 
 
-def _operator_assoc(
+def _operator_assoc[T](
     name: str, value_domain: d.Domain[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain, value_domain, value_domain)
@@ -56,7 +54,7 @@ def _operator_assoc(
     return _operator_assoc_impl
 
 
-def _operator_identity(
+def _operator_identity[T](
     name: str, identity: T, value_domain: d.Domain[T], operator: Operator[T]
 ) -> Spec:
     @context(value_domain)
@@ -67,7 +65,7 @@ def _operator_identity(
     return _operator_neutral_impl
 
 
-def _operator_inverse(
+def _operator_inverse[T](
     name: str,
     identity: T,
     value_domain: d.Domain[T],
@@ -82,7 +80,7 @@ def _operator_inverse(
     return _operator_inverse_impl
 
 
-def _operators_dist(
+def _operators_dist[T](
     plus_name: str,
     times_name: str,
     value_domain: d.Domain[T],
@@ -99,7 +97,7 @@ def _operators_dist(
     return _operators_dist_impl
 
 
-def _operator_moniod(
+def _operator_moniod[T](
     name: str, identity: T, value_domain: d.Domain[T], operator: Operator[T]
 ) -> Spec:
     return conj(
@@ -108,7 +106,7 @@ def _operator_moniod(
     )
 
 
-def _operator_abelian(
+def _operator_abelian[T](
     name: str,
     identity: T,
     value_domain: d.Domain[T],
@@ -123,7 +121,7 @@ def _operator_abelian(
     )
 
 
-def _operators_ring(
+def _operators_ring[T](
     plus_name: str,
     times_name: str,
     plus_identity: T,
