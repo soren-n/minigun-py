@@ -324,13 +324,13 @@ def braid[T](*streams: Stream[T]) -> Stream[T]:
 
     def _impl(streams: list[Stream[T]]) -> StreamResult[T]:
         while len(streams) != 0:
+            stream = streams.pop(0)
             try:
-                stream = streams.pop(0)
                 next_value, next_stream = stream()
-                streams.append(next_stream)
-                return next_value, partial(_impl, streams)
-            except:
-                pass
+            except StopIteration:
+                continue
+            streams.append(next_stream)
+            return next_value, partial(_impl, streams)
         raise StopIteration
 
     return partial(_impl, list(streams))

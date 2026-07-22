@@ -308,20 +308,27 @@ def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
     :return: A dissection of trimmed interations over the given value.
     :rtype: `Dissection[T]`
     """
+
+    # Bind the complementary trimmer set per iteration: the mapped stream
+    # is forced lazily, after the loop variable has moved on.
+    def _child(rest: list[Trimmer[T]]) -> Callable[[T], Dissection[T]]:
+        def _mapping(shrunk_more: T) -> Dissection[T]:
+            return unfold(shrunk_more, *rest)
+
+        return _mapping
+
     _trimmers: list[Trimmer[T]] = list(trimmers)
     dissections: list[Dissection[T]] = []
     for index, trimmer in enumerate(trimmers):
-        other_timmers = _trimmers[:index] + _trimmers[index + 1 :]
+        other_trimmers = _trimmers[:index] + _trimmers[index + 1 :]
         maybe_shrunk, shrunk_stream = fs.next(trimmer(value))
         match maybe_shrunk:
             case Maybe.empty:
                 continue
             case Some(shrunk):
-
-                def _mapping(shrunk_more: T) -> Dissection[T]:
-                    return unfold(shrunk_more, *other_timmers)
-
-                dissections.append((shrunk, fs.map(_mapping, shrunk_stream)))
+                dissections.append(
+                    (shrunk, fs.map(_child(other_trimmers), shrunk_stream))
+                )
             case _:
                 raise AssertionError("Invariant")
     return value, fs.from_list(dissections)
