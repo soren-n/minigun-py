@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.0.1 (2026-07-22)
+
+### Bug Fixes
+
+- Keep reports printable on legacy Windows code pages
+  ([`f7100d4`](https://github.com/soren-n/minigun-py/commit/f7100d4e889dba0fe29d83c11d9e7dbadba33b99))
+
+
 ## v3.0.0 (2026-07-22)
 
 ### Bug Fixes

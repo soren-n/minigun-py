@@ -1,7 +1,7 @@
 from minigun import generate
 from minigun.specify import Spec, check, conj, context, neg, prop
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 __all__ = [
     "Spec",
