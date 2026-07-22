@@ -71,7 +71,9 @@ Minigun is a property-based testing library organized in layers:
   `random.Random` instance created by `seed()`; runs are fully determined
   by their seed. Draw functions thread state explicitly (state in,
   state out).
-- `util.py` - Optional-type annotation helpers.
+- `util.py` - Optional-type annotation helpers and the stdout encoding
+  guard (`relax_stdout_errors`) that keeps reports from crashing on
+  legacy Windows code pages.
 
 ### Core Data Structures
 - `stream.py` - Lazy functional streams; exhaustion is signalled by
