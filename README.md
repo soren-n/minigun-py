@@ -184,7 +184,7 @@ A: Yes, use the `@context` decorator with domain specifications. See documentati
 # Real-World Usage
 
 The following projects use Minigun for testing:
-- [Minigun](https://github.com/soren-n/minigun/tree/main/tests) (self-testing)
+- [Minigun](https://github.com/soren-n/minigun-py/tree/main/tests) (self-testing)
 - [Tickle](https://github.com/soren-n/tickle/tree/main/tests) (parsing library)
 
 If you have used Minigun for testing a public project, please file an issue with a link to add it to this list.

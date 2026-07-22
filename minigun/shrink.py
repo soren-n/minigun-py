@@ -65,7 +65,7 @@ from minigun import stream as fs
 # false-positives in this file stem from this limitation.
 type Dissection[T] = _tuple[T, fs.Stream["Dissection[T]"]]  # type: ignore[misc]
 
-#: Shrinker datatype defined over a type parameter `T.
+#: Shrinker datatype defined over a type parameter `T`.
 type Shrinker[T] = Callable[[T], Dissection[T]]
 
 

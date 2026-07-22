@@ -69,6 +69,13 @@ uv run mypy minigun/generate.py
 - **Generic parameters** - Use type variables for reusable functions
 - **Return types** - Always annotate return types explicitly
 
+**Known issue:** mypy currently crashes with an internal error on this
+codebase (reproduced on both 1.x and 2.x). The root cause is that
+`minigun/generate.py` defines public API functions named after builtins
+(`tuple`, `list`, `dict`, ...), which trips mypy's internal builtin lookup.
+Type checking is therefore not part of CI and the pre-commit mypy hooks are
+manual-stage only.
+
 ### 2. Code Formatting and Linting
 **Ruff for all formatting and linting:**
 
@@ -99,55 +106,37 @@ uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
-**Hook Configuration (`.pre-commit-config.yaml`):**
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: ruff-format
-        name: ruff format
-        entry: ruff format
-        language: system
-        types: [python]
-
-      - id: ruff-check
-        name: ruff check
-        entry: ruff check
-        language: system
-        types: [python]
-
-      - id: mypy
-        name: mypy
-        entry: mypy
-        language: system
-        types: [python]
-```
+**Hook configuration:** see `.pre-commit-config.yaml` for the authoritative
+setup. In summary: standard file-hygiene hooks plus ruff check/format run at
+the pre-commit stage; mypy and the test/coverage hooks are manual-stage only
+(mypy is excluded because it hits an internal error on this codebase, see
+below).
 
 ## Testing Workflow
 
 ### 1. Running Tests
-**Basic test execution (v2.2.0 with required time budget):**
+**Basic test execution (time budget is required):**
 ```bash
 # Run all tests with time budget (required parameter)
-uv run minigun-test --time-budget 30
+uv run minigun --time-budget 30
 
 # Run specific test modules with time budget
-uv run minigun-test --time-budget 45 --modules positive comprehensive
+uv run minigun --time-budget 45 --modules positive comprehensive
 
 # Run tests in quiet mode (CI/CD)
-uv run minigun-test --time-budget 60 --quiet
+uv run minigun --time-budget 60 --quiet
 
 # Run tests with JSON output (tool integration)
-uv run minigun-test --time-budget 30 --json
+uv run minigun --time-budget 30 --json
 
 # List available test modules
-uv run minigun-test --list-modules
+uv run minigun --list-modules
 
-# Alternative test runner (legacy)
-uv run test
+# Alternative: 'test' alias for the same CLI
+uv run test --time-budget 30
 ```
 
-**New CLI Features in v2.2.0:**
+**CLI features:**
 - **`--time-budget`** - Required parameter for time-based test allocation (in seconds)
 - **`--json`** - JSON output format for tool integration and CI/CD
 - **Two-phase execution** - Automatic calibration phase followed by optimized execution
@@ -157,7 +146,7 @@ uv run test
 1. **Write property** - Define what should be true
 2. **Choose domain** - Select appropriate test data
 3. **Implement test** - Use `@prop` and `@context` decorators
-4. **Verify failure** - Test with `@neg` if expecting failure
+4. **Verify failure** - Wrap with `neg(...)` if expecting failure
 5. **Run tests** - Check property holds
 6. **Debug shrinking** - Ensure counterexamples are minimal
 
@@ -175,7 +164,7 @@ def test_with_domain(x: int) -> bool:
     return some_operation(x) >= 0
 
 # 3. Test edge cases
-@context(d.one_of([0, -1, 1]))
+@context(d.int_range(-1, 1))
 @prop("edge case behavior")
 def test_edge_cases(x: int) -> bool:
     return some_operation(x) >= 0
@@ -183,8 +172,8 @@ def test_edge_cases(x: int) -> bool:
 
 ### 3. Coverage Analysis
 ```bash
-# Run tests with coverage
-uv run coverage run --source=minigun -m pytest tests/
+# Run tests with coverage (uses minigun's own CLI, not pytest)
+uv run coverage run -m minigun.cli --time-budget 60
 
 # Generate coverage report
 uv run coverage report
@@ -307,28 +296,20 @@ Fixes #123
 - **Minor** (x.Y.0) - New features, backward compatible
 - **Patch** (x.y.Z) - Bug fixes, backward compatible
 
-**Update version in:**
-- `pyproject.toml` - Project version
-- `minigun/__init__.py` - Package version
-- Documentation if needed
+**Versioning is automated** via `python-semantic-release` (configured in
+`pyproject.toml`). Version numbers are derived from conventional commit
+messages (`feat` bumps minor, `fix`/`perf` bump patch) and written to both
+`pyproject.toml` and `minigun/__init__.py`. Do not bump versions manually.
 
-### 2. Release Checklist
-1. **Update version** numbers
-2. **Update CHANGELOG.md** with release notes
-3. **Run full test suite** and verify all pass
-4. **Build documentation** and verify it renders correctly
-5. **Create release tag** in Git
-6. **Build and upload** to PyPI
-7. **Update GitHub release** with changelog
+### 2. Release Flow
+The `release.yml` GitHub Actions workflow runs on every push to `main`:
+1. `python-semantic-release` computes the next version from commits,
+   updates version files and `CHANGELOG.md`, and pushes a tag
+2. The package is built with `uv build` and published to PyPI
+3. A GitHub release is created with the built artifacts
 
-### 3. PyPI Publishing
-```bash
-# Build package
-uv build
-
-# Upload to PyPI (requires credentials)
-uv publish
-```
+A release can also be triggered manually via `workflow_dispatch` with an
+explicit bump type (patch/minor/major).
 
 ## Performance Optimization
 
@@ -336,7 +317,7 @@ uv publish
 **Profile test performance:**
 ```bash
 # Profile test execution
-python -m cProfile -o profile.stats -m minigun.cli
+python -m cProfile -o profile.stats -m minigun.cli --time-budget 30
 
 # Analyze profile results
 python -c "import pstats; pstats.Stats('profile.stats').sort_stats('cumulative').print_stats(20)"

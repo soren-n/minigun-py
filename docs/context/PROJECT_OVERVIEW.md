@@ -142,7 +142,7 @@ Catch subtle bugs that example-based tests might miss:
 
 ## Version and Compatibility
 
-- **Current Version:** 2.2.0
+- **Current Version:** see `minigun/__init__.py` (managed by python-semantic-release)
 - **Python Requirement:** >=3.12
 - **License:** GPLv3
 - **Package Name:** `minigun-soren-n` (on PyPI)
