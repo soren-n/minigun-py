@@ -475,49 +475,44 @@ def test_property_specification_execution(seed_val: int) -> bool:
 ###############################################################################
 # Running all comprehensive tests
 ###############################################################################
-def test() -> bool:
-    """Run all comprehensive tests."""
-    return check(
-        conj(
-            # Arbitrary module tests
-            test_nat_bounds,
-            test_int_bounds,
-            test_bool_values,
-            test_probability_bounds,
-            # Generate module tests
-            test_map_identity,
-            test_map_associative,
-            test_filter_predicate,
-            test_filter_shrinks_satisfy_predicate,
-            test_choice_selection,
-            test_bounded_str_bounds,
-            test_bounded_str_length_coverage,
-            test_list_size,
-            test_dict_size,
-            test_set_size,
-            # Domain module tests
-            test_int_domain_bounds,
-            test_bounded_list_domain,
-            test_bounded_list_shrink_lower_bound,
-            test_tuple_domain_arity,
-            test_optional_domain,
-            # Shrink module tests
-            test_int_shrinking_decreases,
-            test_list_shrinking_shortens,
-            # Stream module tests
-            test_stream_map_length,
-            test_stream_filter,
-            # Search module tests
-            test_search_finds_counterexamples,
-            test_search_no_counterexamples_for_true_props,
-            # Integration tests
-            test_property_specification_execution,
-        )
-    )
+spec = conj(
+    # Arbitrary module tests
+    test_nat_bounds,
+    test_int_bounds,
+    test_bool_values,
+    test_probability_bounds,
+    # Generate module tests
+    test_map_identity,
+    test_map_associative,
+    test_filter_predicate,
+    test_filter_shrinks_satisfy_predicate,
+    test_choice_selection,
+    test_bounded_str_bounds,
+    test_bounded_str_length_coverage,
+    test_list_size,
+    test_dict_size,
+    test_set_size,
+    # Domain module tests
+    test_int_domain_bounds,
+    test_bounded_list_domain,
+    test_bounded_list_shrink_lower_bound,
+    test_tuple_domain_arity,
+    test_optional_domain,
+    # Shrink module tests
+    test_int_shrinking_decreases,
+    test_list_shrinking_shortens,
+    # Stream module tests
+    test_stream_map_length,
+    test_stream_filter,
+    # Search module tests
+    test_search_finds_counterexamples,
+    test_search_no_counterexamples_for_true_props,
+    # Integration tests
+    test_property_specification_execution,
+)
 
 
 if __name__ == "__main__":
     import sys
 
-    success = test()
-    sys.exit(0 if success else -1)
+    sys.exit(0 if check(spec) else -1)

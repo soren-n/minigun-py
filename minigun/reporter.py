@@ -1,33 +1,13 @@
-# Test reporting with rich formatting
 """
-Rich Console Reporting and Budget Allocation System.
+Test Reporting
 
-This module provides comprehensive test reporting with rich console output,
-cardinality-aware budget allocation, and detailed performance analysis.
+Reporters are passive sinks: the orchestrator drives the run and calls the
+reporter's hooks; reporters accumulate results and render them. Three
+renderings are provided:
 
-Key Components:
-    - TestReporter: Main reporting interface with rich console output
-    - BudgetAllocator: Time budget distribution using Secretary Problem optimization
-    - PropertyComplexity: Tracking for optimal vs allocated attempts
-    - Execution plan tables, progress tracking, and cardinality analysis
-
-Features:
-    - Beautiful console output with tables, panels, and progress indicators
-    - Two-phase testing: calibration followed by budget-aware execution
-    - Cardinality analysis showing theoretical vs practical attempt allocation
-    - Comprehensive timing analysis and resource utilization metrics
-    - Module-based test organization and summary reporting
-
-Integration:
-    Works seamlessly with minigun.specify.check() to provide rich output
-    for property-based testing with optimal resource allocation.
-
-Example:
-    ```python
-    reporter = TestReporter(time_budget=30.0, verbose=True)
-    set_reporter(reporter)
-    # Reporter is automatically used by check() function
-    ```
+    - RichReporter: rich console output with tables and progress
+    - QuietReporter: single pass/fail line for CI pipelines
+    - JSONReporter: structured output for tool integration
 """
 
 import json
@@ -42,36 +22,26 @@ from rich.panel import Panel
 from rich.table import Table
 
 from minigun.budget import BudgetAllocator
+from minigun.cardinality import Cardinality
 
 
-def format_counter_example(counter_example: str) -> str:
-    """Format a counter-example string in a more readable way.
-
-    Since we now use _call_context printer, the input should already be in the desired format.
-    This function mainly serves as a pass-through with minimal cleanup if needed.
-    """
-    # The counter-example should already be in the correct format thanks to _call_context
-    # Just return it as-is, maybe with some light cleanup
-    return counter_example.strip()
-
-
+###############################################################################
+# Result model
+###############################################################################
 @dataclass
 class CardinalityInfo:
-    """Cardinality analysis information for a test."""
+    """Domain size and attempt allocation for a test."""
 
-    domain_size: Any  # Cardinality object from minigun.cardinality
-    optimal_limit: int | str
+    domain_size: Cardinality
+    attempt_limit: int
     allocated_attempts: int
-    estimated_time: float = 0.0  # Estimated execution time in seconds
+    estimated_time: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         return {
             "domain_size": str(self.domain_size),
-            "optimal_limit": int(self.optimal_limit)
-            if isinstance(self.optimal_limit, int | str)
-            and str(self.optimal_limit).isdigit()
-            else str(self.optimal_limit),
+            "attempt_limit": self.attempt_limit,
             "allocated_attempts": self.allocated_attempts,
             "estimated_time": self.estimated_time,
         }
@@ -139,229 +109,126 @@ class ModuleResult:
         }
 
 
-class TestReporter:
-    """Test reporter with rich console formatting."""
+###############################################################################
+# Reporter base: result accumulation with display hooks
+###############################################################################
+class Reporter:
+    """Accumulates results; subclasses override the display hooks."""
 
-    def __init__(self, time_budget: float, verbose: bool = True):
-        self.console = Console()
-        self.verbose = verbose
-        self.time_budget = time_budget  # Time budget in seconds (required)
+    def __init__(self, time_budget: float, seed: int):
+        self.time_budget = time_budget
+        self.seed = seed
         self.module_results: list[ModuleResult] = []
-        self.current_module: ModuleResult | None = None
+        self._current_module: ModuleResult | None = None
         self.overall_start_time = time.time()
-        self.execution_start_time: float | None = (
-            None  # Track when execution phase starts
-        )
-        self.pure_test_execution_time = (
-            0.0  # Track only actual property testing time, excluding overhead
-        )
-        self.budget_allocator = BudgetAllocator(time_budget)
-        self.global_calibration_started = (
-            False  # Track if we've started global calibration
-        )
-        self.global_execution_started = (
-            False  # Track if we've shown the execution plan
-        )
-        self.is_last_module = False  # Track if we're processing the last module
-        self.modules_processed = 0  # Track number of modules processed
-        self.total_modules = 0  # Total number of modules to process
+        self.pure_test_execution_time = 0.0
 
-    def start_testing(self, total_modules: int) -> None:
-        """Start the overall testing process."""
-        self.total_modules = total_modules  # Store total number of modules
-        title = f"[bold blue]Minigun Property-Based Testing[/bold blue]\n[dim]Time Budget: {self.time_budget:.1f}s[/dim]"
+    # --- Result accumulation ------------------------------------------------
+    @property
+    def overall_success(self) -> bool:
+        """Whether all recorded tests passed."""
+        return all(module.success for module in self.module_results)
 
+    @property
+    def total_tests(self) -> int:
+        return sum(module.total for module in self.module_results)
+
+    @property
+    def total_passed(self) -> int:
+        return sum(module.passed for module in self.module_results)
+
+    @property
+    def total_failed(self) -> int:
+        return sum(module.failed for module in self.module_results)
+
+    # --- Run lifecycle hooks ------------------------------------------------
+    def start_run(self, module_names: list[str]) -> None:
+        """The run begins; calibration follows."""
+        self.overall_start_time = time.time()
+
+    def show_plan(self, allocator: BudgetAllocator) -> None:
+        """Calibration is done and the budget has been allocated."""
+
+    def start_module(self, module_name: str) -> None:
+        """Execution of a module's spec begins."""
+        self._current_module = ModuleResult(name=module_name)
+
+    def start_test(self, test_name: str) -> None:
+        """Execution of a property begins."""
+
+    def end_test(self, result: TestResult) -> None:
+        """Execution of a property ended."""
+        assert self._current_module is not None, (
+            "end_test called outside a module"
+        )
+        self._current_module.tests.append(result)
+        self.pure_test_execution_time += result.duration
+
+    def end_module(self) -> None:
+        """Execution of a module's spec ended."""
+        assert self._current_module is not None, (
+            "end_module called outside a module"
+        )
+        self._current_module.duration = sum(
+            test.duration for test in self._current_module.tests
+        )
+        self.module_results.append(self._current_module)
+        self._current_module = None
+
+    def finish(self) -> None:
+        """The run ended; render the summary."""
+
+
+###############################################################################
+# Quiet reporter
+###############################################################################
+class QuietReporter(Reporter):
+    """Minimal pass/fail output for CI pipelines."""
+
+    def finish(self) -> None:
+        status = "PASS" if self.overall_success else "FAIL"
+        print(f"Tests: {status}")
+        if not self.overall_success:
+            for module in self.module_results:
+                for test in module.tests:
+                    if test.success:
+                        continue
+                    print(f"FAIL [{module.name}] {test.name}")
+            print(f"Reproduce with: --seed {self.seed}")
+
+
+###############################################################################
+# Rich console reporter
+###############################################################################
+class RichReporter(Reporter):
+    """Rich console output with tables and progress lines."""
+
+    def __init__(self, time_budget: float, seed: int):
+        super().__init__(time_budget, seed)
+        self.console = Console()
+
+    def start_run(self, module_names: list[str]) -> None:
+        super().start_run(module_names)
         self.console.print(
             Panel.fit(
-                title,
+                "[bold blue]Minigun Property-Based Testing[/bold blue]\n"
+                f"[dim]Time Budget: {self.time_budget:.1f}s | "
+                f"Seed: {self.seed}[/dim]",
                 border_style="blue",
             )
         )
-        self.overall_start_time = time.time()
-
-    def is_over_budget(self) -> bool:
-        """Check if we're over the time budget."""
-        elapsed = time.time() - self.overall_start_time
-        return elapsed > self.time_budget
-
-    def register_property_for_budget(
-        self, name: str, cardinality: Any, optimal_attempts: int
-    ) -> int:
-        """Register a property for budget allocation and return allocated attempts."""
-        # Add property to budget allocator
-        self.budget_allocator.add_property(name, cardinality)
-        return optimal_attempts  # Return initial attempts, will be adjusted after calibration
-
-    def get_remaining_budget(self) -> float:
-        """Get remaining time budget in seconds."""
-        elapsed = time.time() - self.overall_start_time
-        return max(0, self.time_budget - elapsed)
-
-    def start_module(
-        self,
-        module_name: str,
-        is_last_module: bool = False,
-        calibration_only: bool = False,
-        execution_only: bool = False,
-    ) -> None:
-        """Start testing a module."""
-        self.current_module = ModuleResult(name=module_name)
-        self.is_last_module = is_last_module  # Store for later use
-
-        # Handle different phases
-        self.calibration_only = calibration_only
-        self.execution_only = execution_only
-
-        if not calibration_only:
-            self.modules_processed += 1  # Only count for execution phase
-
-        if self.verbose and not calibration_only:
-            # Don't print module headers during calibration phase
-            self.console.print(
-                f"\n[bold cyan]Testing module: {module_name}[/bold cyan]"
-            )
-
-    def start_test(self, test_name: str) -> None:
-        """Start an individual test."""
-        # Only print during execution phase, not calibration
-        if self.verbose and not getattr(self, "calibration_only", False):
-            self.console.print(
-                f"  [yellow]Running:[/yellow] {test_name}", end=""
-            )
-
-    def end_test(
-        self,
-        test_name: str,
-        success: bool,
-        duration: float,
-        counter_example: str | None = None,
-        error_message: str | None = None,
-        cardinality_info: CardinalityInfo | None = None,
-    ) -> None:
-        """End an individual test."""
-
-        # Record calibration timing with budget allocator (during calibration phase)
-        if (
-            getattr(self, "calibration_only", False)
-            and self.budget_allocator
-            and cardinality_info
-        ):
-            self.budget_allocator.record_calibration(
-                test_name, duration, cardinality_info.allocated_attempts
-            )
-            # Update estimated time from budget calculation
-            prop_budget = self.budget_allocator.get_property_budget(test_name)
-            if prop_budget:
-                cardinality_info.estimated_time = prop_budget.estimated_time
-
-        # Accumulate pure test execution time (only during execution phase, not calibration)
-        if self.execution_start_time is not None and not getattr(
-            self, "calibration_only", False
-        ):
-            self.pure_test_execution_time += duration
-
-        result = TestResult(
-            name=test_name,
-            success=success,
-            duration=duration,
-            counter_example=counter_example,
-            error_message=error_message,
-            cardinality_info=cardinality_info,
-        )
-
-        if self.current_module:
-            self.current_module.tests.append(result)
-
-        # Only print during execution phase, not calibration
-        if self.verbose and not getattr(self, "calibration_only", False):
-            if success:
-                self.console.print(
-                    f" [green]PASS[/green] [dim]({duration:.3f}s)[/dim]"
-                )
-            else:
-                self.console.print(
-                    f" [red]FAIL[/red] [dim]({duration:.3f}s)[/dim]"
-                )
-                if counter_example:
-                    formatted_example = format_counter_example(counter_example)
-                    self.console.print(
-                        Panel(
-                            formatted_example,
-                            title="[red]Counter Example[/red]",
-                            title_align="left",
-                            border_style="red",
-                            padding=(0, 1),
-                        )
-                    )
-                if error_message:
-                    self.console.print(f"    [red]Error:[/red] {error_message}")
-
-    def end_module(self, calibration_only: bool = False) -> None:
-        """End testing a module."""
-        if not self.current_module:
-            return
-
-        # Calculate module duration
-        self.current_module.duration = sum(
-            test.duration for test in self.current_module.tests
-        )
-
-        # Only add to results during execution phase, not calibration
-        if not calibration_only:
-            self.module_results.append(self.current_module)
-
-        # Print module summary (only for execution phase)
-        if self.verbose and not calibration_only:
-            passed = self.current_module.passed
-            failed = self.current_module.failed
-            total = self.current_module.total
-            duration = self.current_module.duration
-
-            if self.current_module.success:
-                status_text = "[green]ALL PASSED[/green]"
-            else:
-                status_text = f"[red]{failed} FAILED[/red]"
-
-            self.console.print(
-                f"  [bold]{status_text}[/bold] [dim]({passed}/{total} tests, {duration:.3f}s)[/dim]"
-            )
-
-        self.current_module = None
-
-    def finalize_global_calibration_and_allocate(self) -> None:
-        """Finalize global calibration phase and allocate budget for all modules."""
-        if not self.budget_allocator:
-            return
-
-        # Finalize the calibration and allocation
-        self.budget_allocator.finalize_allocation()
-
-        # Start execution timing and reset pure test execution time
-        self.execution_start_time = time.time()
-        self.pure_test_execution_time = (
-            0.0  # Reset to track only execution phase test time
-        )
-
-        # Print execution plan after global calibration
-        if self.verbose:
-            self.print_execution_plan()
-
-    def print_execution_plan(self) -> None:
-        """Print the execution plan table after calibration."""
-        if not self.budget_allocator:
-            return
-
-        # Show the execution plan (budget info now in table title)
+        self.console.print("\n[bold blue]Calibration Phase[/bold blue]")
         self.console.print(
-            "\n[bold green]Starting Execution Phase[/bold green]"
+            "Measuring execution time per property (adaptive calibration)..."
         )
 
-        # Create and show the execution plan table with budget info in title
-        budget_status = f"Budget: {self.budget_allocator.time_budget:.1f}s, Est: {self.budget_allocator.total_estimated_time:.1f}s"
-        if self.budget_allocator.scaling_factor < 1.0:
-            budget_status += (
-                f", Scaled: {self.budget_allocator.scaling_factor:.1f}x"
-            )
+    def show_plan(self, allocator: BudgetAllocator) -> None:
+        budget_status = (
+            f"Budget: {allocator.time_budget:.1f}s, "
+            f"Est: {allocator.total_estimated_time:.1f}s"
+        )
+        if allocator.scaling_factor < 1.0:
+            budget_status += f", Scaled: {allocator.scaling_factor:.1f}x"
 
         plan_table = Table(
             title=f"Property Testing Plan ({budget_status})", box=box.ROUNDED
@@ -378,108 +245,72 @@ class TestReporter:
         plan_table.add_column("Actual Attempts", justify="right", style="cyan")
         plan_table.add_column("Est. Time", justify="right", style="magenta")
 
-        # Populate the table
-        for prop in self.budget_allocator.properties:
-            truncated_name = self._truncate_property_name(prop.name)
-            # Display symbolic cardinality representation instead of numeric
-            cardinality_display = self._format_cardinality_display(
-                prop.cardinality
-            )
-            attempts_limit = (
-                prop.attempt_limit
-            )  # The theoretical Secretary Problem limit
-            est_attempts = prop.final_attempts  # The budget-allocated attempts
-            est_time = f"{prop.estimated_time:.2f}s"
-
+        for prop in allocator.properties:
             plan_table.add_row(
-                truncated_name,
-                cardinality_display,
-                str(attempts_limit),
-                str(est_attempts),
-                est_time,
+                _truncate(prop.name),
+                str(prop.cardinality),
+                str(prop.attempt_limit),
+                str(prop.final_attempts),
+                f"{prop.estimated_time:.2f}s",
             )
 
         self.console.print("\n")
         self.console.print(plan_table)
-
-        # Add budget analysis and suggestions
-        self._print_budget_analysis()
-
-        self.global_execution_started = True
-
-    def print_cardinality_analysis(self) -> None:
-        """Print cardinality analysis table for all tests."""
-        # Collect all tests with cardinality info
-        cardinality_tests = []
-        for module in self.module_results:
-            for test in module.tests:
-                if test.cardinality_info:
-                    cardinality_tests.append((module.name, test))
-
-        if not cardinality_tests:
-            return  # No cardinality info to display
-
-        # Create cardinality analysis table
-        card_table = Table(
-            title="Cardinality-Based Complexity Analysis", box=box.ROUNDED
+        self._print_budget_analysis(allocator)
+        self.console.print(
+            "\n[bold green]Starting Execution Phase[/bold green]"
         )
-        card_table.add_column(
-            "Property", style="yellow", no_wrap=True, width=30
-        )
-        card_table.add_column(
-            "Domain Size", justify="right", style="bright_blue"
-        )
-        card_table.add_column(
-            "Ideal Attempts", justify="right", style="bright_green"
-        )
-        card_table.add_column(
-            "Actual Attempts", justify="right", style="bright_magenta"
-        )
-        card_table.add_column("Est. Time", justify="right", style="bright_cyan")
 
-        total_attempts = 0
-        total_time = 0.0
-        for _module_name, test in cardinality_tests:
-            info = test.cardinality_info
-            assert info is not None  # filtered above
+    def start_module(self, module_name: str) -> None:
+        super().start_module(module_name)
+        self.console.print(
+            f"\n[bold cyan]Testing module: {module_name}[/bold cyan]"
+        )
 
-            # Truncate property name if too long (max 30 chars with ellipsis)
-            property_name = self._truncate_property_name(test.name)
+    def start_test(self, test_name: str) -> None:
+        self.console.print(f"  [yellow]Running:[/yellow] {test_name}", end="")
 
-            card_table.add_row(
-                property_name,
-                self._format_cardinality_display(info.domain_size),
-                str(info.optimal_limit),
-                str(info.allocated_attempts),
-                f"{info.estimated_time:.3f}s",
+    def end_test(self, result: TestResult) -> None:
+        super().end_test(result)
+        if result.success:
+            self.console.print(
+                f" [green]PASS[/green] [dim]({result.duration:.3f}s)[/dim]"
             )
-            total_attempts += info.allocated_attempts
-            total_time += info.estimated_time
+            return
+        self.console.print(
+            f" [red]FAIL[/red] [dim]({result.duration:.3f}s)[/dim]"
+        )
+        if result.counter_example:
+            self.console.print(
+                Panel(
+                    result.counter_example.strip(),
+                    title="[red]Counter Example[/red]",
+                    title_align="left",
+                    border_style="red",
+                    padding=(0, 1),
+                )
+            )
+        if result.error_message:
+            self.console.print(f"    [red]Error:[/red] {result.error_message}")
 
-        # Add totals row
-        card_table.add_section()
-        card_table.add_row(
-            "[bold]TOTAL[/bold]",
-            "",
-            "",
-            f"[bold bright_magenta]{total_attempts}[/bold bright_magenta]",
-            f"[bold bright_cyan]{total_time:.3f}s[/bold bright_cyan]",
+    def end_module(self) -> None:
+        assert self._current_module is not None
+        module = self._current_module
+        super().end_module()
+
+        if module.success:
+            status_text = "[green]ALL PASSED[/green]"
+        else:
+            status_text = f"[red]{module.failed} FAILED[/red]"
+        self.console.print(
+            f"  [bold]{status_text}[/bold] "
+            f"[dim]({module.passed}/{module.total} tests, "
+            f"{module.duration:.3f}s)[/dim]"
         )
 
-        self.console.print("\n")
-        self.console.print(card_table)
-
-    def print_summary(self) -> None:
-        """Print final test summary."""
+    def finish(self) -> None:
         total_duration = time.time() - self.overall_start_time
 
-        # Calculate totals
-        total_tests = sum(module.total for module in self.module_results)
-        total_passed = sum(module.passed for module in self.module_results)
-        total_failed = sum(module.failed for module in self.module_results)
-        all_passed = total_failed == 0
-
-        # Create summary table
         table = Table(title="Test Summary", box=box.ROUNDED)
         table.add_column("Module", style="cyan", no_wrap=True)
         table.add_column("Tests", justify="center")
@@ -491,7 +322,6 @@ class TestReporter:
         for module in self.module_results:
             status = "PASS" if module.success else "FAIL"
             status_style = "green" if module.success else "red"
-
             table.add_row(
                 module.name,
                 str(module.total),
@@ -501,15 +331,14 @@ class TestReporter:
                 f"[{status_style}]{status}[/{status_style}]",
             )
 
-        # Add totals row
         table.add_section()
-        overall_status = "PASS" if all_passed else "FAIL"
-        overall_style = "green" if all_passed else "red"
+        overall_status = "PASS" if self.overall_success else "FAIL"
+        overall_style = "green" if self.overall_success else "red"
         table.add_row(
             "[bold]TOTAL[/bold]",
-            f"[bold]{total_tests}[/bold]",
-            f"[bold green]{total_passed}[/bold green]",
-            f"[bold red]{total_failed}[/bold red]",
+            f"[bold]{self.total_tests}[/bold]",
+            f"[bold green]{self.total_passed}[/bold green]",
+            f"[bold red]{self.total_failed}[/bold red]",
             f"[bold]{total_duration:.3f}s[/bold]",
             f"[bold {overall_style}]{overall_status}[/bold {overall_style}]",
         )
@@ -517,227 +346,83 @@ class TestReporter:
         self.console.print("\n")
         self.console.print(table)
 
-        # Print cardinality analysis table
-        self.print_cardinality_analysis()
+        budget_usage = (self.pure_test_execution_time / self.time_budget) * 100
+        budget_info = (
+            f"Pure Test Time: {self.pure_test_execution_time:.3f}s / "
+            f"{self.time_budget:.1f}s ({budget_usage:.1f}%)"
+        )
 
-        # Final result panel - use pure test execution time for budget calculation
-        if self.pure_test_execution_time > 0:
-            # Use pure test execution time (excluding framework overhead)
-            execution_duration = self.pure_test_execution_time
-            budget_usage = (execution_duration / self.time_budget) * 100
-            budget_info = f"Pure Test Time: {execution_duration:.3f}s / {self.time_budget:.1f}s ({budget_usage:.1f}%)"
-        elif self.execution_start_time:
-            # Fallback to total execution time if pure test time not available
-            execution_duration = time.time() - self.execution_start_time
-            budget_usage = (execution_duration / self.time_budget) * 100
-            budget_info = f"Execution Time: {execution_duration:.3f}s / {self.time_budget:.1f}s ({budget_usage:.1f}%)"
-        else:
-            # Final fallback to total duration
-            execution_duration = total_duration
-            budget_usage = (execution_duration / self.time_budget) * 100
-            budget_info = f"Total Time: {execution_duration:.3f}s / {self.time_budget:.1f}s ({budget_usage:.1f}%)"
-
-        if all_passed:
+        if self.overall_success:
             result_panel = Panel.fit(
-                f"[bold green]All {total_tests} tests passed![/bold green]\n[dim]{budget_info}[/dim]",
+                f"[bold green]All {self.total_tests} tests passed![/bold green]"
+                f"\n[dim]{budget_info}[/dim]",
                 border_style="green",
             )
         else:
             result_panel = Panel.fit(
-                f"[bold red]{total_failed} of {total_tests} tests failed[/bold red]\n[dim]{budget_info}[/dim]",
+                f"[bold red]{self.total_failed} of {self.total_tests} "
+                f"tests failed[/bold red]\n"
+                f"[dim]{budget_info}[/dim]\n"
+                f"[dim]Reproduce with: --seed {self.seed}[/dim]",
                 border_style="red",
             )
 
         self.console.print("\n")
         self.console.print(result_panel)
 
-    def get_overall_success(self) -> bool:
-        """Return whether all tests passed."""
-        return all(module.success for module in self.module_results)
-
-    def start_calibration_phase(
-        self, property_names_and_cardinalities: list[tuple[str, Any]]
-    ) -> None:
-        """Begin calibration phase for all properties."""
-        if not self.budget_allocator:
-            return
-
-        # Only show the calibration message once globally
-        if not self.global_calibration_started:
-            self.console.print("\n[bold blue]Calibration Phase[/bold blue]")
-            self.console.print(
-                "Running 10 silent tests per property to measure execution time..."
-            )
-            self.global_calibration_started = True
-
-        # Add all properties for calibration
-        for name, cardinality in property_names_and_cardinalities:
-            self.budget_allocator.add_property(name, cardinality)
-
-    def record_calibration_result(
-        self, property_name: str, total_time: float, attempts: int
-    ) -> None:
-        """Record calibration timing result."""
-        if self.budget_allocator:
-            self.budget_allocator.record_calibration(
-                property_name, total_time, attempts
-            )
-
-    def finalize_calibration_and_show_plan(self) -> None:
-        """Finalize calibration and show the execution plan."""
-        if not self.budget_allocator:
-            return
-
-        # Show execution plan once calibration is complete across all modules and we haven't shown it yet
-        if (
-            not self.global_execution_started
-            and self.budget_allocator.is_calibration_complete()
-            and self.modules_processed >= self.total_modules
-        ):
-            self.budget_allocator.finalize_allocation()
-
-            # Show consolidated execution plan (budget info in table title)
-
-            # Create and show the execution plan table with budget info in title
-            budget_status = f"Budget: {self.budget_allocator.time_budget:.1f}s, Est: {self.budget_allocator.total_estimated_time:.1f}s"
-            if self.budget_allocator.scaling_factor < 1.0:
-                budget_status += (
-                    f", Scaled: {self.budget_allocator.scaling_factor:.1f}x"
-                )
-
-            plan_table = Table(
-                title=f"Property Testing Plan ({budget_status})",
-                box=box.ROUNDED,
-            )
-            plan_table.add_column(
-                "Property", style="yellow", no_wrap=True, width=30
-            )
-            plan_table.add_column(
-                "Domain Size", justify="right", style="bright_blue"
-            )
-            plan_table.add_column(
-                "Ideal Attempts", justify="right", style="bright_green"
-            )
-            plan_table.add_column(
-                "Actual Attempts", justify="right", style="cyan"
-            )
-            plan_table.add_column("Est. Time", justify="right", style="magenta")
-
-            # Populate the table
-            for prop in self.budget_allocator.properties:
-                truncated_name = self._truncate_property_name(prop.name)
-                # Display symbolic cardinality representation instead of numeric
-                cardinality_display = self._format_cardinality_display(
-                    prop.cardinality
-                )
-                attempts_limit = (
-                    prop.attempt_limit
-                )  # The theoretical Secretary Problem limit
-                est_attempts = (
-                    prop.final_attempts
-                )  # The budget-allocated attempts
-                est_time = f"{prop.estimated_time:.2f}s"
-
-                plan_table.add_row(
-                    truncated_name,
-                    cardinality_display,
-                    str(attempts_limit),
-                    str(est_attempts),
-                    est_time,
-                )
-
-            self.console.print("\n")
-            self.console.print(plan_table)
-
-            # Add budget analysis and suggestions
-            self._print_budget_analysis()
-
-            self.console.print(
-                "\n[bold green]Starting Execution Phase[/bold green]"
-            )
-            self.global_execution_started = True
-
-    def get_allocated_attempts_for_property(self, property_name: str) -> int:
-        """Get allocated attempts for a property during execution phase."""
-        if self.budget_allocator:
-            return self.budget_allocator.get_allocated_attempts(property_name)
-        return 100  # Fallback
-
-    def _print_budget_analysis(self) -> None:
+    def _print_budget_analysis(self, allocator: BudgetAllocator) -> None:
         """Print budget analysis and actionable suggestions."""
-        if not self.budget_allocator or not self.budget_allocator.properties:
+        if not allocator.properties:
             return
 
-        # Find slowest properties
         slowest_props = sorted(
-            [
-                p
-                for p in self.budget_allocator.properties
-                if p.estimated_time > 1.0
-            ],
+            [p for p in allocator.properties if p.estimated_time > 1.0],
             key=lambda p: p.estimated_time,
             reverse=True,
         )[:3]
-
-        # Find most expensive properties (high attempts)
         high_attempt_props = sorted(
-            [
-                p
-                for p in self.budget_allocator.properties
-                if p.final_attempts > 100
-            ],
+            [p for p in allocator.properties if p.final_attempts > 100],
             key=lambda p: p.final_attempts,
             reverse=True,
         )[:3]
 
         analysis_parts = []
 
-        # Budget status
-        if self.budget_allocator.scaling_factor < 1.0:
-            over_budget = (
-                self.budget_allocator.total_estimated_time
-                - self.budget_allocator.time_budget
-            )
+        if allocator.scaling_factor < 1.0:
+            over_budget = allocator.total_estimated_time - allocator.time_budget
+            over_percent = (
+                allocator.total_estimated_time / allocator.time_budget
+            ) * 100
             analysis_parts.append(
-                f"[yellow]Over budget by {over_budget:.1f}s ({((self.budget_allocator.total_estimated_time / self.budget_allocator.time_budget) * 100):.0f}%) - tests scaled down[/yellow]"
+                f"[yellow]Over budget by {over_budget:.1f}s "
+                f"({over_percent:.0f}%) - tests scaled down[/yellow]"
             )
-
             if over_budget > 5:
-                suggested_budget = (
-                    self.budget_allocator.total_estimated_time * 1.1
-                )  # 10% buffer
+                suggested_budget = allocator.total_estimated_time * 1.1
                 analysis_parts.append(
-                    f"[dim]Suggestion: Try --time-budget {suggested_budget:.0f} for full coverage[/dim]"
+                    f"[dim]Suggestion: Try --time-budget "
+                    f"{suggested_budget:.0f} for full coverage[/dim]"
                 )
-        elif (
-            self.budget_allocator.total_estimated_time
-            < self.budget_allocator.time_budget * 0.5
-        ):
+        elif allocator.total_estimated_time < allocator.time_budget * 0.5:
             analysis_parts.append(
-                "[green]Well under budget - all properties get ideal attempts[/green]"
+                "[green]Well under budget - all properties get ideal "
+                "attempts[/green]"
             )
 
-        # Performance insights
         if slowest_props:
-            prop_names = [
-                self._truncate_property_name(p.name, 25) for p in slowest_props
-            ]
-            times = [f"{p.estimated_time:.1f}s" for p in slowest_props]
-            analysis_parts.append(
-                f"[dim]Slowest: {', '.join(f'{name} ({time})' for name, time in zip(prop_names, times, strict=False))}[/dim]"
+            slowest = ", ".join(
+                f"{_truncate(p.name, 25)} ({p.estimated_time:.1f}s)"
+                for p in slowest_props
             )
+            analysis_parts.append(f"[dim]Slowest: {slowest}[/dim]")
 
         if high_attempt_props:
-            prop_names = [
-                self._truncate_property_name(p.name, 25)
+            most_attempts = ", ".join(
+                f"{_truncate(p.name, 25)} ({p.final_attempts:,})"
                 for p in high_attempt_props
-            ]
-            attempts = [f"{p.final_attempts:,}" for p in high_attempt_props]
-            analysis_parts.append(
-                f"[dim]Most attempts: {', '.join(f'{name} ({att})' for name, att in zip(prop_names, attempts, strict=False))}[/dim]"
             )
+            analysis_parts.append(f"[dim]Most attempts: {most_attempts}[/dim]")
 
-        # Print analysis if we have insights
         if analysis_parts:
             self.console.print(
                 "\n[bold bright_blue]Budget Analysis[/bold bright_blue]"
@@ -745,219 +430,50 @@ class TestReporter:
             for part in analysis_parts:
                 self.console.print(f"  {part}")
 
-    def _truncate_property_name(self, name: str, max_length: int = 30) -> str:
-        """Truncate property name if too long."""
-        if len(name) > max_length:
-            return name[: max_length - 3] + "..."
-        return name
 
-    def _format_cardinality_display(self, cardinality: Any) -> str:
-        """Format cardinality for display in tables."""
-        return str(cardinality)
+###############################################################################
+# JSON reporter
+###############################################################################
+class JSONReporter(Reporter):
+    """Structured JSON output for tool integration."""
 
+    def __init__(self, time_budget: float, seed: int):
+        super().__init__(time_budget, seed)
+        self._module_names: list[str] = []
 
-class JSONReporter:
-    """Test reporter with structured JSON output for tool integration."""
+    def start_run(self, module_names: list[str]) -> None:
+        super().start_run(module_names)
+        self._module_names = module_names
 
-    def __init__(self, time_budget: float, modules: list[str] | None = None):
-        self.time_budget = time_budget
-        self.requested_modules = modules or []
-        self.module_results: list[ModuleResult] = []
-        self.current_module: ModuleResult | None = None
-        self.overall_start_time = time.time()
-        self.execution_start_time: float | None = None
-        self.pure_test_execution_time = 0.0
-        self.budget_allocator = BudgetAllocator(time_budget)
-
-    def start_testing(self, total_modules: int) -> None:
-        """Start the overall testing process."""
-        self.overall_start_time = time.time()
-
-    def register_property_for_budget(
-        self, name: str, cardinality: Any, optimal_attempts: int
-    ) -> int:
-        """Register a property for budget allocation and return allocated attempts."""
-        if self.budget_allocator:
-            self.budget_allocator.add_property(name, cardinality)
-        return optimal_attempts
-
-    def get_remaining_budget(self) -> float:
-        """Get remaining time budget in seconds."""
-        elapsed = time.time() - self.overall_start_time
-        return max(0, self.time_budget - elapsed)
-
-    def is_over_budget(self) -> bool:
-        """Check if we're over the time budget."""
-        elapsed = time.time() - self.overall_start_time
-        return elapsed > self.time_budget
-
-    def start_module(
-        self,
-        module_name: str,
-        is_last_module: bool = False,
-        calibration_only: bool = False,
-        execution_only: bool = False,
-    ) -> None:
-        """Start testing a module."""
-        self.current_module = ModuleResult(name=module_name)
-
-    def start_test(self, test_name: str) -> None:
-        """Start an individual test."""
-        pass
-
-    def end_test(
-        self,
-        test_name: str,
-        success: bool,
-        duration: float,
-        counter_example: str | None = None,
-        error_message: str | None = None,
-        cardinality_info: CardinalityInfo | None = None,
-    ) -> None:
-        """End an individual test."""
-        # Record calibration timing with budget allocator (during calibration phase)
-        calibration_only = getattr(self, "calibration_only", False)
-        if calibration_only and self.budget_allocator and cardinality_info:
-            self.budget_allocator.record_calibration(
-                test_name, duration, cardinality_info.allocated_attempts
-            )
-            # Update estimated time from budget calculation
-            prop_budget = self.budget_allocator.get_property_budget(test_name)
-            if prop_budget:
-                cardinality_info.estimated_time = prop_budget.estimated_time
-
-        # Accumulate pure test execution time (only during execution phase)
-        if self.execution_start_time is not None and not calibration_only:
-            self.pure_test_execution_time += duration
-
-        result = TestResult(
-            name=test_name,
-            success=success,
-            duration=duration,
-            counter_example=counter_example,
-            error_message=error_message,
-            cardinality_info=cardinality_info,
-        )
-
-        if self.current_module:
-            self.current_module.tests.append(result)
-
-    def end_module(self, calibration_only: bool = False) -> None:
-        """End testing a module."""
-        if not self.current_module:
-            return
-
-        # Calculate module duration
-        self.current_module.duration = sum(
-            test.duration for test in self.current_module.tests
-        )
-
-        # Only add to results during execution phase, not calibration
-        if not calibration_only:
-            self.module_results.append(self.current_module)
-
-        self.current_module = None
-
-    def finalize_global_calibration_and_allocate(self) -> None:
-        """Finalize global calibration phase and allocate budget."""
-        if self.budget_allocator:
-            self.budget_allocator.finalize_allocation()
-        self.execution_start_time = time.time()
-        self.pure_test_execution_time = 0.0
-
-    def print_execution_plan(self) -> None:
-        """Print execution plan (no-op for JSON mode)."""
-        pass
-
-    def print_cardinality_analysis(self) -> None:
-        """Print cardinality analysis (no-op for JSON mode)."""
-        pass
-
-    def print_summary(self) -> None:
-        """Print final summary as JSON."""
+    def finish(self) -> None:
         total_duration = time.time() - self.overall_start_time
+        budget_usage = (self.pure_test_execution_time / self.time_budget) * 100
 
-        # Calculate totals
-        total_tests = sum(module.total for module in self.module_results)
-        total_passed = sum(module.passed for module in self.module_results)
-        total_failed = sum(module.failed for module in self.module_results)
-        overall_success = total_failed == 0
-
-        # Calculate execution duration and budget usage
-        if self.pure_test_execution_time > 0:
-            execution_duration = self.pure_test_execution_time
-        elif self.execution_start_time:
-            execution_duration = time.time() - self.execution_start_time
-        else:
-            execution_duration = total_duration
-
-        budget_usage = (execution_duration / self.time_budget) * 100
-
-        # Build JSON output
         output = {
-            "version": "1.0",
+            "version": "2.0",
             "timestamp": datetime.now().isoformat(),
             "config": {
                 "time_budget": self.time_budget,
-                "modules": self.requested_modules,
-                "quiet": False,
+                "seed": self.seed,
+                "modules": self._module_names,
             },
             "summary": {
-                "total_tests": total_tests,
-                "total_passed": total_passed,
-                "total_failed": total_failed,
+                "total_tests": self.total_tests,
+                "total_passed": self.total_passed,
+                "total_failed": self.total_failed,
                 "total_duration": round(total_duration, 3),
-                "execution_duration": round(execution_duration, 3),
+                "execution_duration": round(self.pure_test_execution_time, 3),
                 "budget_usage": round(budget_usage, 1),
-                "overall_success": overall_success,
+                "overall_success": self.overall_success,
             },
             "modules": [module.to_dict() for module in self.module_results],
         }
 
         print(json.dumps(output, indent=2))
 
-    def get_overall_success(self) -> bool:
-        """Return whether all tests passed."""
-        return all(module.success for module in self.module_results)
 
-    def start_calibration_phase(
-        self, property_names_and_cardinalities: list[tuple[str, Any]]
-    ) -> None:
-        """Begin calibration phase for all properties."""
-        if self.budget_allocator:
-            for name, cardinality in property_names_and_cardinalities:
-                self.budget_allocator.add_property(name, cardinality)
-
-    def record_calibration_result(
-        self, property_name: str, total_time: float, attempts: int
-    ) -> None:
-        """Record calibration timing result."""
-        if self.budget_allocator:
-            self.budget_allocator.record_calibration(
-                property_name, total_time, attempts
-            )
-
-    def finalize_calibration_and_show_plan(self) -> None:
-        """Finalize calibration and show plan (no-op for JSON mode)."""
-        pass
-
-    def get_allocated_attempts_for_property(self, property_name: str) -> int:
-        """Get allocated attempts for a property during execution phase."""
-        if self.budget_allocator:
-            return self.budget_allocator.get_allocated_attempts(property_name)
-        return 100
-
-
-# Global reporter instance
-_global_reporter: TestReporter | JSONReporter | None = None
-
-
-def set_reporter(reporter: TestReporter | JSONReporter) -> None:
-    """Set the global reporter instance."""
-    global _global_reporter
-    _global_reporter = reporter
-
-
-def get_reporter() -> TestReporter | JSONReporter | None:
-    """Get the global reporter instance."""
-    return _global_reporter
+def _truncate(name: str, max_length: int = 30) -> str:
+    """Truncate a property name if too long for table display."""
+    if len(name) > max_length:
+        return name[: max_length - 3] + "..."
+    return name

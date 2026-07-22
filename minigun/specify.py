@@ -1,24 +1,15 @@
 """
-Property Specification and Test Execution Engine
+Property Specification and Evaluation
 
-This module provides the core DSL for property-based testing specification and
-the execution engine for running tests. It implements the @prop decorator system,
-test specification composition, and counterexample search coordination.
+This module provides the DSL for defining property specifications and the
+evaluator for running them.
 
 Key Components:
     - @prop decorator: Define properties with automatic type inference
-    - @context decorator: Explicit domain specification for parameters
+    - @context decorator: Explicit generators for parameters
     - Spec composition: conj() and neg() for logical operations
-    - check(): Main test execution function with reporter integration
-
-Test Execution Flow:
-    1. Calibration phase: Measure timing for budget allocation
-    2. Execution phase: Run tests with allocated attempts
-    3. Shrinking: Find minimal counterexamples on failure
-    4. Reporting: Rich console output with progress and results
-
-The module integrates with the reporter system for sophisticated output
-including cardinality analysis, budget allocation, and performance metrics.
+    - check(): Standalone test execution with seed control
+    - evaluate(): Callback-driven evaluation used by the orchestrator
 
 Example::
 
@@ -30,12 +21,12 @@ Example::
             return len(xs + ys) == len(xs) + len(ys)
 
         @context(g.bounded_list(0, 10, g.int()))
-        @prop("ordered lists are sorted")
-        def test_ordered_sorted(xs: list[int]):
+        @prop("bounded lists respect their bounds")
+        def test_bounded_lists(xs: list[int]):
             return len(xs) <= 10
 
         # Run conjunction of tests
-        success = check(conj(test_list_length, test_ordered_sorted))
+        success = check(conj(test_list_length, test_bounded_lists))
 """
 
 # External module dependencies
@@ -55,10 +46,8 @@ from typing import Any, cast
 from minigun import arbitrary as a
 from minigun import cardinality as c
 from minigun import generate as g
-from minigun import reporter as r
 from minigun import search as s
 from minigun.budget import baseline_attempts
-from minigun.reporter import CardinalityInfo
 
 
 ###############################################################################
@@ -72,7 +61,6 @@ class Spec:
 @dataclass
 class _Prop[**P](Spec):
     desc: str
-    attempts: int
     law: Callable[P, bool]
     ordering: list[str]
     generators: dict[str, g.Generator[Any] | None]
@@ -103,16 +91,8 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
             param_type = param_types[param]
             generators[param] = g.infer(param_type)
 
-        # Calculate optimal attempts based on generator cardinality
-        total_cardinality = c.ONE
-        for generator in generators.values():
-            if generator is None:
-                continue
-            total_cardinality = total_cardinality * generator.cardinality
-        optimal_attempts = baseline_attempts(total_cardinality)
-
         # Done
-        return _Prop(desc, optimal_attempts, law, params, generators)
+        return _Prop(desc, law, params, generators)
 
     return _decorate
 
@@ -170,7 +150,7 @@ def context(
 
     def _decorate(spec: Spec) -> Spec:
         match spec:
-            case _Prop(desc, count, law, params, generators):
+            case _Prop(desc, law, params, generators):
                 if len(lparams) > len(params):
                     raise TypeError(
                         f'Property "{desc}" takes {len(params)} parameters '
@@ -188,7 +168,7 @@ def context(
                     _generators[param] = generator
                 for param, generator in kparams.items():
                     _generators[param] = generator
-                return _Prop(desc, count, law, params, _generators)
+                return _Prop(desc, law, params, _generators)
             case _:
                 raise AssertionError("Invariant")
 
@@ -220,9 +200,73 @@ def permanent_path(dir_path: Path | None = None) -> Path:
     return result
 
 
+def cleanup_temporary() -> None:
+    """Remove temporary directory fixtures created by temporary_path."""
+    temp_path = Path(".minigun", "temporary")
+    if temp_path.exists():
+        shutil.rmtree(temp_path)
+
+
 ###############################################################################
 # Specification evaluation
 ###############################################################################
+
+#: Callback deciding the number of attempts for a property, given the
+#: property and the total cardinality of its resolved generators.
+type AttemptsFor = Callable[["_Prop[Any]", c.Cardinality], int]
+
+#: Callback invoked when evaluation of a property starts.
+type OnStart = Callable[[str], None]
+
+#: Callback invoked with the outcome of a property:
+#: (desc, success, duration, counter_example, error_message).
+type OnResult = Callable[[str, bool, float, str | None, str | None], None]
+
+
+def collect_properties(spec: Spec) -> list["_Prop[Any]"]:
+    """Collect all properties contained in a specification.
+
+    :param spec: The specification to collect properties from.
+
+    :return: The properties in evaluation order.
+    """
+    match spec:
+        case _Prop():
+            return [spec]
+        case _Neg(term):
+            return collect_properties(term)
+        case _Conj(terms):
+            props: list[_Prop[Any]] = []
+            for term in terms:
+                props.extend(collect_properties(term))
+            return props
+        case _:
+            raise AssertionError("Invariant")
+
+
+def resolved_generators(
+    prop: "_Prop[Any]",
+) -> tuple[dict[str, g.Generator[Any]], c.Cardinality] | str:
+    """Resolve a property's generators and total cardinality.
+
+    :param prop: The property whose generators to resolve.
+
+    :return: The generators and their combined cardinality, or an error
+        message when a parameter has no inferred or defined generator.
+    """
+    generators: dict[str, g.Generator[Any]] = {}
+    total_cardinality = c.ONE
+    for param, generator in prop.generators.items():
+        if generator is None:
+            return (
+                "No generator was inferred or defined "
+                f'for parameter "{param}" of property "{prop.desc}"'
+            )
+        generators[param] = generator
+        total_cardinality = total_cardinality * generator.cardinality
+    return generators, total_cardinality
+
+
 def _format_counter_example(ordering: list[str], args: dict[str, Any]) -> str:
     """Format counter-example arguments as 'param = value' lines."""
     lines: list[str] = []
@@ -236,258 +280,147 @@ def _format_counter_example(ordering: list[str], args: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def check(spec: Spec) -> bool:
-    """Check an interface against its specification with calibration support.
+def evaluate(
+    state: a.State,
+    spec: Spec,
+    attempts_for: AttemptsFor,
+    on_start: OnStart,
+    on_result: OnResult,
+) -> tuple[a.State, bool]:
+    """Evaluate a specification, reporting each property's outcome.
 
-    :param spec: The specification to test against.
-    :type spec: `Spec`
+    :param state: The RNG state to evaluate with.
+    :param spec: The specification to evaluate.
+    :param attempts_for: Decides the number of attempts per property.
+    :param on_start: Invoked with the description when a property starts.
+    :param on_result: Invoked with each property's outcome.
 
-    :return: A boolean value representing whether the interfaces passed testing against their specification.
-    :rtype: `bool`
+    :return: The resulting RNG state and whether the specification holds.
     """
-    # Get reporter to check if we're in calibration mode
-    reporter = r.get_reporter()
 
-    # Check if we're in calibration-only mode
-    if (
-        reporter
-        and hasattr(reporter, "calibration_only")
-        and reporter.calibration_only
-    ):
-        # CALIBRATION MODE: Run tests in calibration mode
-        return _run_calibration(spec)
-    else:
-        # EXECUTION MODE: Run normal tests
-        return _run_execution(spec)
+    def _visit_prop(
+        state: a.State, prop: "_Prop[Any]", negated: bool
+    ) -> tuple[a.State, bool]:
+        on_start(prop.desc)
+        start_time = time.time()
 
+        resolution = resolved_generators(prop)
+        if isinstance(resolution, str):
+            duration = time.time() - start_time
+            on_result(prop.desc, False, duration, None, resolution)
+            return state, False
+        generators, total_cardinality = resolution
 
-def _run_calibration(spec: Spec) -> bool:
-    """Run tests in calibration mode to measure pure execution time."""
+        attempts = attempts_for(prop, total_cardinality)
+        state, counter_ex = s.find_counter_example(
+            state, attempts, prop.law, generators
+        )
+        duration = time.time() - start_time
 
-    def _visit_calibration(state: a.State, spec: Spec) -> tuple[a.State, bool]:
-        match spec:
-            case _Prop(desc, _attempts, law, _ordering, generators):
-                # Get reporter for rich console output
-                reporter = r.get_reporter()
-
-                if reporter:
-                    reporter.start_test(desc)
-
-                _generators: dict[str, g.Generator[Any]] = {}
-                total_cardinality = c.ONE
-                for param, generator in generators.items():
-                    if generator is None:
-                        error_msg = (
-                            "No generator was inferred or defined "
-                            f'for parameter "{param}" of property "{desc}"'
-                        )
-                        if reporter:
-                            reporter.end_test(
-                                desc, False, 0.0, error_message=error_msg
-                            )
-                        return state, False
-                    _generators[param] = generator
-                    total_cardinality = (
-                        total_cardinality * generator.cardinality
-                    )
-
-                # Register property with budget allocator during calibration (after cardinality calculation)
-                if (
-                    reporter
-                    and hasattr(reporter, "budget_allocator")
-                    and reporter.budget_allocator
-                    and hasattr(reporter, "calibration_only")
-                    and reporter.calibration_only
-                ):
-                    reporter.budget_allocator.add_property(
-                        desc, total_cardinality
-                    )
-
-                # Adaptive calibration: run until timing stabilizes
-                min_calibration_attempts = 10
-                max_calibration_attempts = 100
-                stability_epsilon = 0.15
-                stability_window = 5
-
-                attempt_times = []
-                calibration_state = a.seed()
-                start_time = time.time()
-
-                for total_attempts in range(1, max_calibration_attempts + 1):
-                    attempt_start = time.time()
-                    try:
-                        calibration_state, _ = s.find_counter_example(
-                            calibration_state, 1, law, _generators
-                        )
-                        attempt_times.append(time.time() - attempt_start)
-                    except Exception:
-                        # Count time until exception as valid calibration sample
-                        attempt_times.append(time.time() - attempt_start)
-                        # Continue calibration to get stable timing estimate
-
-                    if total_attempts < min_calibration_attempts:
-                        continue
-
-                    recent_times = attempt_times[-stability_window:]
-                    if len(recent_times) < stability_window:
-                        continue
-
-                    mean_time = sum(recent_times) / len(recent_times)
-                    if mean_time <= 0:
-                        continue
-
-                    variance = sum(
-                        (t - mean_time) ** 2 for t in recent_times
-                    ) / len(recent_times)
-                    coefficient_of_variation = (variance**0.5) / mean_time
-
-                    if coefficient_of_variation < stability_epsilon:
-                        break
-
-                pure_execution_time = time.time() - start_time
-                calibration_attempts = total_attempts
-
-                cardinality_info = CardinalityInfo(
-                    domain_size=total_cardinality,
-                    optimal_limit=calibration_attempts,
-                    allocated_attempts=calibration_attempts,
-                )
-
-                if reporter:
-                    reporter.end_test(
-                        desc,
-                        True,
-                        pure_execution_time,
-                        cardinality_info=cardinality_info,
-                    )
-
+        if counter_ex is None:
+            if not negated:
+                on_result(prop.desc, True, duration, None, None)
                 return state, True
+            error_msg = (
+                f'Found no counter example for "{prop.desc}" however one '
+                "was expected!"
+            )
+            on_result(prop.desc, False, duration, None, error_msg)
+            return state, False
 
+        if negated:
+            on_result(prop.desc, True, duration, None, None)
+            return state, True
+
+        counter_example = _format_counter_example(
+            prop.ordering, counter_ex.args
+        )
+        if counter_ex.exception:
+            error_msg = (
+                f'A test case of "{prop.desc}" raised an exception:\n'
+                f"{type(counter_ex.exception).__name__}: "
+                f"{counter_ex.exception}"
+            )
+        else:
+            error_msg = (
+                f'A test case of "{prop.desc}" failed with the following '
+                "counter example:"
+            )
+        on_result(prop.desc, False, duration, counter_example, error_msg)
+        return state, False
+
+    def _visit(
+        state: a.State, spec: Spec, negated: bool
+    ) -> tuple[a.State, bool]:
+        match spec:
+            case _Prop():
+                return _visit_prop(state, spec, negated)
             case _Neg(term):
-                return _visit_calibration(state, term)
+                return _visit(state, term, not negated)
             case _Conj(terms):
+                if negated:
+                    # De Morgan: neg(conj(...)) holds when at least one
+                    # negated term holds.
+                    for term in terms:
+                        state, success = _visit(state, term, True)
+                        if success:
+                            return state, True
+                    return state, False
                 for term in terms:
-                    state, success = _visit_calibration(state, term)
+                    state, success = _visit(state, term, False)
                     if not success:
                         return state, False
                 return state, True
             case _:
                 raise AssertionError("Invariant")
 
-    _, success = _visit_calibration(a.seed(), spec)
-    return success
+    return _visit(state, spec, False)
 
 
-def _run_execution(spec: Spec) -> bool:
-    """Run tests in execution mode (normal testing)."""
+def check(spec: Spec, seed: int | None = None) -> bool:
+    """Check a specification, printing failures to stdout.
 
-    def _visit(
-        state: a.State, spec: Spec, neg: bool = False
-    ) -> tuple[a.State, bool]:
-        match spec:
-            case _Prop(desc, _attempts, law, _ordering, generators):
-                # Get reporter for rich console output
-                reporter = r.get_reporter()
+    This is the standalone entry point for running a specification without
+    the time-budgeted orchestrator: every property gets a baseline number
+    of attempts derived from its input domain size.
 
-                # Start timing this test
-                start_time = time.time()
-                if reporter:
-                    reporter.start_test(desc)
+    :param spec: The specification to test against.
+    :type spec: `Spec`
+    :param seed: The seed for random generation; when None a fresh seed is
+        drawn and printed on failure so the run can be reproduced.
+    :type seed: `int | None`
 
-                _generators: dict[str, g.Generator[Any]] = {}
-                for param, generator in generators.items():
-                    if generator is None:
-                        error_msg = (
-                            "No generator was inferred or defined "
-                            f'for parameter "{param}" of property "{desc}"'
-                        )
-                        duration = time.time() - start_time
-                        if reporter:
-                            reporter.end_test(
-                                desc, False, duration, error_message=error_msg
-                            )
-                        return state, False
-                    _generators[param] = generator
+    :return: Whether the specification holds.
+    :rtype: `bool`
+    """
+    seed_value = seed if seed is not None else secrets.randbits(64)
+    state = a.seed(seed_value)
 
-                # Use budget-allocated attempts instead of default attempts
-                if (
-                    reporter
-                    and hasattr(reporter, "budget_allocator")
-                    and reporter.budget_allocator
-                ):
-                    allocated_attempts = (
-                        reporter.budget_allocator.get_allocated_attempts(desc)
-                    )
-                else:
-                    allocated_attempts = _attempts  # Fallback to default
+    def _attempts_for(
+        prop: "_Prop[Any]", total_cardinality: c.Cardinality
+    ) -> int:
+        return baseline_attempts(total_cardinality)
 
-                state, counter_ex = s.find_counter_example(
-                    state, allocated_attempts, law, _generators
-                )
+    def _on_start(desc: str) -> None:
+        pass
 
-                duration = time.time() - start_time
+    def _on_result(
+        desc: str,
+        success: bool,
+        duration: float,
+        counter_example: str | None,
+        error_message: str | None,
+    ) -> None:
+        if success:
+            return
+        print(f"FAIL: {desc}")
+        if error_message:
+            print(error_message)
+        if counter_example:
+            print(counter_example)
 
-                if counter_ex is None:
-                    if not neg:
-                        if reporter:
-                            reporter.end_test(desc, True, duration)
-                        return state, True
-                    error_msg = f'Found no counter example for "{desc}" however one was expected!'
-                    if reporter:
-                        reporter.end_test(
-                            desc, False, duration, error_message=error_msg
-                        )
-                    return state, False
-
-                if neg:
-                    if reporter:
-                        reporter.end_test(desc, True, duration)
-                    return state, True
-                counter_example = _format_counter_example(
-                    _ordering, counter_ex.args
-                )
-
-                # Build error message with exception info if present
-                if counter_ex.exception:
-                    error_msg = (
-                        f'A test case of "{desc}" raised an exception:\n'
-                        f"{type(counter_ex.exception).__name__}: {counter_ex.exception}"
-                    )
-                else:
-                    error_msg = f'A test case of "{desc}" failed with the following counter example:'
-
-                if reporter:
-                    reporter.end_test(
-                        desc,
-                        False,
-                        duration,
-                        counter_example=counter_example,
-                        error_message=error_msg,
-                    )
-                return state, False
-            case _Neg(term):
-                return _visit(state, term, not neg)
-            case _Conj(terms):
-                if neg:
-                    # De Morgan: neg(conj(...)) holds when at least one
-                    # negated term holds.
-                    for term in terms:
-                        state, success = _visit(state, term, neg=True)
-                        if success:
-                            return state, True
-                    return state, False
-                for term in terms:
-                    state, success = _visit(state, term)
-                    if success:
-                        continue
-                    return state, False
-                return state, True
-            case _:
-                raise AssertionError("Invariant")
-
-    _, success = _visit(a.seed(), spec)
-    temp_path = Path(".minigun", "temporary")
-    if temp_path.exists():
-        shutil.rmtree(temp_path)
-
+    _, success = evaluate(state, spec, _attempts_for, _on_start, _on_result)
+    if not success:
+        print(f"Reproduce with: check(spec, seed={seed_value})")
+    cleanup_temporary()
     return success

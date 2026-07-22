@@ -1,181 +1,233 @@
 """
-Test Orchestration System
+Test Orchestration
 
-This module provides clean separation between CLI, test execution, and reporting.
-Implements the Orchestrator pattern to coordinate the two-phase testing process:
-1. Calibration Phase: Measure execution time for budget allocation
-2. Execution Phase: Run tests with allocated attempts
+Coordinates the two-phase, time-budgeted test run over a set of test
+modules:
 
-Key design principles:
-- Single Responsibility: Each class has one clear purpose
-- Dependency Injection: No global state or tight coupling
-- Testability: Easy to unit test each component independently
+1. Calibration phase: every property is timed with a short adaptive run
+   and registered with the budget allocator.
+2. Execution phase: every module's specification is evaluated once, with
+   attempts allocated from the time budget.
+
+The orchestrator owns the run: it drives the evaluator in minigun.specify
+and pushes results into a reporter. Reporters never influence execution.
 """
 
+import secrets
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
-from minigun.reporter import JSONReporter, TestReporter, set_reporter
+from minigun import arbitrary as a
+from minigun import specify
+from minigun.budget import BudgetAllocator
+from minigun.cardinality import Cardinality
+from minigun.reporter import (
+    CardinalityInfo,
+    JSONReporter,
+    QuietReporter,
+    Reporter,
+    RichReporter,
+    TestResult,
+)
+from minigun.specify import Spec
+
+###############################################################################
+# Configuration
+###############################################################################
+
+#: Output modes mapped to their reporter types.
+_REPORTERS: dict[str, type[Reporter]] = {
+    "rich": RichReporter,
+    "quiet": QuietReporter,
+    "json": JSONReporter,
+}
 
 
 @dataclass
 class TestModule:
-    """Represents a test module to be executed."""
+    """A named test module specification."""
 
     name: str
-    test_function: Callable[[], bool]
+    spec: Spec
 
 
 @dataclass
 class OrchestrationConfig:
-    """Configuration for test orchestration."""
+    """Configuration for test orchestration.
+
+    :param time_budget: The time budget for the execution phase in seconds.
+    :param seed: The seed for random generation; when None a fresh seed is
+        drawn and reported so the run can be reproduced.
+    :param output: The output mode: "rich", "quiet" or "json".
+    """
 
     time_budget: float
-    verbose: bool = True
-    quiet: bool = False
-    json_output: bool = False
+    seed: int | None = None
+    output: str = "rich"
+
+    def __post_init__(self) -> None:
+        if self.output not in _REPORTERS:
+            raise ValueError(
+                f'Unknown output mode "{self.output}"; '
+                f"expected one of {', '.join(sorted(_REPORTERS))}"
+            )
 
 
-@dataclass
-class PhaseResult:
-    """Result of a testing phase."""
+###############################################################################
+# Calibration
+###############################################################################
 
-    success: bool
-    duration: float
-    modules_executed: int
+# Adaptive calibration: run until timing stabilizes.
+_MIN_CALIBRATION_ATTEMPTS = 10
+_MAX_CALIBRATION_ATTEMPTS = 100
+_STABILITY_EPSILON = 0.15
+_STABILITY_WINDOW = 5
 
 
+def _calibrate_property(
+    prop: specify._Prop,  # type: ignore[type-arg]
+    generators: dict[str, object],
+    seed: int,
+) -> tuple[float, int]:
+    """Measure a property's execution time per attempt.
+
+    Runs single attempts until the timing coefficient of variation drops
+    below the stability threshold, then returns total time and attempts.
+    Failures found during calibration are ignored; calibration measures
+    time, the execution phase judges the property.
+    """
+    from minigun import search as s
+
+    attempt_times: list[float] = []
+    state = a.seed(seed)
+    start_time = time.time()
+    total_attempts = 0
+
+    for total_attempts in range(1, _MAX_CALIBRATION_ATTEMPTS + 1):
+        attempt_start = time.time()
+        state, _ = s.find_counter_example(
+            state,
+            1,
+            prop.law,
+            generators,  # type: ignore[arg-type]
+        )
+        attempt_times.append(time.time() - attempt_start)
+
+        if total_attempts < _MIN_CALIBRATION_ATTEMPTS:
+            continue
+
+        recent_times = attempt_times[-_STABILITY_WINDOW:]
+        if len(recent_times) < _STABILITY_WINDOW:
+            continue
+
+        mean_time = sum(recent_times) / len(recent_times)
+        if mean_time <= 0:
+            continue
+
+        variance = sum((t - mean_time) ** 2 for t in recent_times) / len(
+            recent_times
+        )
+        coefficient_of_variation = (variance**0.5) / mean_time
+        if coefficient_of_variation < _STABILITY_EPSILON:
+            break
+
+    return time.time() - start_time, total_attempts
+
+
+###############################################################################
+# Orchestrator
+###############################################################################
 class TestOrchestrator:
-    """
-    Orchestrates the two-phase property-based testing process.
-
-    This class separates the complex orchestration logic from the CLI,
-    making the system more testable and maintainable.
-    """
+    """Runs test modules through the two-phase, time-budgeted process."""
 
     def __init__(self, config: OrchestrationConfig):
         self.config = config
-        self._calibration_result: PhaseResult | None = None
 
     def execute_tests(self, modules: list[TestModule]) -> bool:
-        """Execute all test modules using two-phase approach."""
-        if self.config.quiet:
-            return self._execute_quiet_mode(modules)
+        """Execute all test modules and report results.
 
-        if self.config.json_output:
-            return self._execute_json_mode(modules)
+        :param modules: The test modules to run.
 
-        return self._execute_verbose_mode(modules)
+        :return: Whether all properties held.
+        """
+        seed = (
+            self.config.seed
+            if self.config.seed is not None
+            else secrets.randbits(64)
+        )
+        reporter = _REPORTERS[self.config.output](self.config.time_budget, seed)
+        allocator = BudgetAllocator(self.config.time_budget)
 
-    def _execute_quiet_mode(self, modules: list[TestModule]) -> bool:
-        """Execute tests in quiet mode with minimal output."""
-        overall_success = True
+        reporter.start_run([module.name for module in modules])
 
+        # Calibration phase: time every resolvable property. Properties
+        # with missing generators are left unregistered; the execution
+        # phase reports them as failures.
         for module in modules:
-            try:
-                success = module.test_function()
-                overall_success &= success
-            except Exception as e:
-                print(f"Error: {e}")
-                overall_success = False
+            for prop in specify.collect_properties(module.spec):
+                resolution = specify.resolved_generators(prop)
+                if isinstance(resolution, str):
+                    continue
+                generators, total_cardinality = resolution
+                allocator.add_property(prop.desc, total_cardinality)
+                total_time, attempts = _calibrate_property(
+                    prop,
+                    generators,  # type: ignore[arg-type]
+                    seed,
+                )
+                allocator.record_calibration(prop.desc, total_time, attempts)
 
-        status = "PASS" if overall_success else "FAIL"
-        print(f"Tests: {status}")
-        return overall_success
+        allocator.finalize_allocation()
+        reporter.show_plan(allocator)
 
-    def _execute_verbose_mode(self, modules: list[TestModule]) -> bool:
-        """Execute tests in verbose mode with rich output and two-phase process."""
-        reporter = TestReporter(self.config.time_budget, verbose=True)
-        set_reporter(reporter)
-        reporter.start_testing(len(modules))
+        # Execution phase: evaluate every module's spec once.
+        def _attempts_for(
+            prop: specify._Prop,  # type: ignore[type-arg]
+            total_cardinality: Cardinality,
+        ) -> int:
+            return allocator.get_allocated_attempts(prop.desc)
 
-        self._calibration_result = self._execute_calibration_phase(
-            modules, reporter
-        )
-        if not self._calibration_result.success:
-            return False
-
-        reporter.finalize_global_calibration_and_allocate()
-        self._execute_execution_phase(modules, reporter)
-        reporter.print_summary()
-        return reporter.get_overall_success()
-
-    def _execute_json_mode(self, modules: list[TestModule]) -> bool:
-        """Execute tests in JSON mode with structured output."""
-        module_names = [module.name for module in modules]
-        reporter = JSONReporter(self.config.time_budget, modules=module_names)
-        set_reporter(reporter)
-        reporter.start_testing(len(modules))
-
-        self._calibration_result = self._execute_calibration_phase(
-            modules, reporter
-        )
-        if not self._calibration_result.success:
-            return False
-
-        reporter.finalize_global_calibration_and_allocate()
-        self._execute_execution_phase(modules, reporter)
-        reporter.print_summary()
-        return reporter.get_overall_success()
-
-    def _execute_calibration_phase(
-        self, modules: list[TestModule], reporter: Any
-    ) -> PhaseResult:
-        """Execute calibration phase for all modules."""
-        if not self.config.json_output:
-            print("Global Calibration Phase")
-            print(
-                "Measuring execution time per property (adaptive calibration)..."
+        def _on_result(
+            desc: str,
+            success: bool,
+            duration: float,
+            counter_example: str | None,
+            error_message: str | None,
+        ) -> None:
+            budget = allocator.get_property_budget(desc)
+            info = (
+                CardinalityInfo(
+                    domain_size=budget.cardinality,
+                    attempt_limit=budget.attempt_limit,
+                    allocated_attempts=budget.final_attempts,
+                    estimated_time=budget.estimated_time,
+                )
+                if budget
+                else None
+            )
+            reporter.end_test(
+                TestResult(
+                    name=desc,
+                    success=success,
+                    duration=duration,
+                    counter_example=counter_example,
+                    error_message=error_message,
+                    cardinality_info=info,
+                )
             )
 
-        start_time = time.time()
-        overall_success = True
-        modules_executed = 0
-
+        state = a.seed(seed)
         for module in modules:
-            reporter.start_module(module.name, calibration_only=True)
-
-            try:
-                module.test_function()
-                modules_executed += 1
-            except Exception as e:
-                if not self.config.json_output:
-                    print(f"Error in calibration for module {module.name}: {e}")
-                overall_success = False
-
-            reporter.end_module(calibration_only=True)
-
-        return PhaseResult(
-            overall_success, time.time() - start_time, modules_executed
-        )
-
-    def _execute_execution_phase(
-        self, modules: list[TestModule], reporter: Any
-    ) -> PhaseResult:
-        """Execute execution phase for all modules."""
-        if not self.config.json_output:
-            print("\nGlobal Execution Phase")
-
-        start_time = time.time()
-        overall_success = True
-        modules_executed = 0
-
-        for module in modules:
-            reporter.start_module(module.name, execution_only=True)
-
-            try:
-                success = module.test_function()
-                overall_success &= success
-                modules_executed += 1
-            except Exception as e:
-                if not self.config.json_output:
-                    print(f"Error in execution for module {module.name}: {e}")
-                overall_success = False
-
+            reporter.start_module(module.name)
+            state, _ = specify.evaluate(
+                state,
+                module.spec,
+                _attempts_for,
+                reporter.start_test,
+                _on_result,
+            )
             reporter.end_module()
 
-        return PhaseResult(
-            overall_success, time.time() - start_time, modules_executed
-        )
+        specify.cleanup_temporary()
+        reporter.finish()
+        return reporter.overall_success

@@ -526,11 +526,12 @@ def test_budget_allocation_scale_down(seed_val: int) -> bool:
 @context(g.small_nat())
 @prop("TestModule creates valid module objects")
 def test_test_module_creation(seed_val: int) -> bool:
-    def dummy_test() -> bool:
+    @prop("inner always true")
+    def _inner(x: int) -> bool:
         return True
 
-    module = o.TestModule("test_module", dummy_test)
-    return module.name == "test_module" and callable(module.test_function)
+    module = o.TestModule("test_module", _inner)
+    return module.name == "test_module" and isinstance(module.spec, Spec)
 
 
 @context(g.small_nat())
@@ -541,9 +542,8 @@ def test_orchestration_config_defaults(seed_val: int) -> bool:
 
     return (
         config.time_budget == time_budget
-        and config.verbose is True
-        and config.quiet is False
-        and config.json_output is False
+        and config.seed is None
+        and config.output == "rich"
     )
 
 
@@ -551,46 +551,34 @@ def test_orchestration_config_defaults(seed_val: int) -> bool:
 @prop("OrchestrationConfig accepts custom settings")
 def test_orchestration_config_custom(seed_val: int) -> bool:
     time_budget = max(5.0, float(seed_val % 50))
-    verbose = (seed_val % 2) == 0
-    quiet = (seed_val % 3) == 0
-    json_output = (seed_val % 5) == 0
+    output = ["rich", "quiet", "json"][seed_val % 3]
 
     config = o.OrchestrationConfig(
-        time_budget=time_budget,
-        verbose=verbose,
-        quiet=quiet,
-        json_output=json_output,
+        time_budget=time_budget, seed=seed_val, output=output
     )
 
     return (
         config.time_budget == time_budget
-        and config.verbose == verbose
-        and config.quiet == quiet
-        and config.json_output == json_output
+        and config.seed == seed_val
+        and config.output == output
     )
 
 
 @context(g.small_nat())
-@prop("PhaseResult captures test execution results")
-def test_phase_result_structure(seed_val: int) -> bool:
-    success = (seed_val % 2) == 0
-    duration = max(0.1, float(seed_val % 100) / 10.0)
-    modules = max(1, seed_val % 10)
-
-    result = o.PhaseResult(success, duration, modules)
-
-    return (
-        result.success == success
-        and result.duration == duration
-        and result.modules_executed == modules
-    )
+@prop("OrchestrationConfig rejects unknown output modes")
+def test_orchestration_config_rejects_unknown_output(seed_val: int) -> bool:
+    try:
+        o.OrchestrationConfig(time_budget=5.0, output="verbose")
+    except ValueError:
+        return True
+    return False
 
 
 @context(g.small_nat())
 @prop("TestOrchestrator initializes with valid config")
 def test_orchestrator_initialization(seed_val: int) -> bool:
     time_budget = max(10.0, float(seed_val % 100))
-    config = o.OrchestrationConfig(time_budget=time_budget, quiet=True)
+    config = o.OrchestrationConfig(time_budget=time_budget, output="quiet")
     orchestrator = o.TestOrchestrator(config)
 
     return orchestrator.config == config
@@ -599,18 +587,22 @@ def test_orchestrator_initialization(seed_val: int) -> bool:
 @context(g.small_nat())
 @prop("TestOrchestrator executes simple test modules")
 def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
-    config = o.OrchestrationConfig(time_budget=5.0, quiet=True)
+    config = o.OrchestrationConfig(
+        time_budget=2.0, seed=seed_val, output="quiet"
+    )
     orchestrator = o.TestOrchestrator(config)
 
-    def always_pass() -> bool:
-        return True
+    @prop("inner passing law")
+    def _passes(x: int) -> bool:
+        return x == x
 
-    def sometimes_pass() -> bool:
-        return (seed_val % 3) != 0  # Fails 1/3 of the time
+    @prop("inner failing law")
+    def _fails(x: int) -> bool:
+        return False
 
     modules = [
-        o.TestModule("always_pass", always_pass),
-        o.TestModule("sometimes_pass", sometimes_pass),
+        o.TestModule("passing", conj(_passes)),
+        o.TestModule("failing", conj(neg(_fails))),
     ]
 
     # Suppress the orchestrator's own quiet-mode output so it doesn't
@@ -618,8 +610,7 @@ def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
     with contextlib.redirect_stdout(io.StringIO()):
         result = orchestrator.execute_tests(modules)
 
-    # Result should be boolean
-    return isinstance(result, bool)
+    return result is True
 
 
 ###############################################################################
@@ -631,20 +622,20 @@ def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
 @prop("CardinalityInfo creates valid objects")
 def test_cardinality_info_creation(seed_val: int) -> bool:
     cardinality = c.finite(max(1, seed_val % 1000))
-    optimal_limit = max(1, seed_val % 100)
+    attempt_limit = max(1, seed_val % 100)
     allocated_attempts = max(1, seed_val % 50)
     estimated_time = max(0.001, float(seed_val % 100) / 1000.0)
 
     info = r.CardinalityInfo(
         domain_size=cardinality,
-        optimal_limit=optimal_limit,
+        attempt_limit=attempt_limit,
         allocated_attempts=allocated_attempts,
         estimated_time=estimated_time,
     )
 
     return (
         info.domain_size == cardinality
-        and info.optimal_limit == optimal_limit
+        and info.attempt_limit == attempt_limit
         and info.allocated_attempts == allocated_attempts
         and info.estimated_time == estimated_time
     )
@@ -654,12 +645,12 @@ def test_cardinality_info_creation(seed_val: int) -> bool:
 @prop("CardinalityInfo.to_dict creates valid dictionary")
 def test_cardinality_info_to_dict(seed_val: int) -> bool:
     cardinality = c.finite(max(1, seed_val % 1000))
-    optimal_limit = max(1, seed_val % 100)
+    attempt_limit = max(1, seed_val % 100)
     allocated_attempts = max(1, seed_val % 50)
 
     info = r.CardinalityInfo(
         domain_size=cardinality,
-        optimal_limit=optimal_limit,
+        attempt_limit=attempt_limit,
         allocated_attempts=allocated_attempts,
     )
 
@@ -668,7 +659,7 @@ def test_cardinality_info_to_dict(seed_val: int) -> bool:
     return (
         isinstance(result_dict, dict)
         and "domain_size" in result_dict
-        and "optimal_limit" in result_dict
+        and "attempt_limit" in result_dict
         and "allocated_attempts" in result_dict
         and "estimated_time" in result_dict
     )
@@ -723,7 +714,7 @@ def test_test_result_with_cardinality_to_dict(seed_val: int) -> bool:
     cardinality = c.finite(max(1, seed_val % 1000))
 
     cardinality_info = r.CardinalityInfo(
-        domain_size=cardinality, optimal_limit=10, allocated_attempts=5
+        domain_size=cardinality, attempt_limit=10, allocated_attempts=5
     )
 
     result = r.TestResult(
@@ -739,81 +730,61 @@ def test_test_result_with_cardinality_to_dict(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
-@prop("format_counter_example returns clean strings")
-def test_format_counter_example(seed_val: int) -> bool:
-    input_str = f"  test_counter_example_{seed_val % 100}  \n"
-    result = r.format_counter_example(input_str)
-
-    # Should strip whitespace and be non-empty
-    return (
-        isinstance(result, str)
-        and len(result.strip()) > 0
-        and result == result.strip()
-    )
-
-
 ###############################################################################
 # Running all additional tests
 ###############################################################################
-def test() -> bool:
-    """Run all additional blackbox tests."""
-    return check(
-        conj(
-            # Generate module additional tests
-            test_constant_generator,
-            test_bind_with_constant,
-            test_weighted_choice_generator,
-            test_one_of_generator,
-            test_str_generator_validity,
-            test_word_generator_validity,
-            test_lazy_generator_defers_and_memoizes,
-            # Shrink module additional tests
-            test_shrinking_preserves_type,
-            test_singleton_dissection,
-            # Stream module additional tests
-            test_stream_constant,
-            test_stream_concat,
-            test_stream_braid,
-            # Specify module additional tests
-            test_negated_properties,
-            test_conjunction_properties,
-            # Edge case tests
-            test_zero_length_bounded_collections,
-            test_single_element_bounded_collections,
-            test_optional_generator_coverage,
-            # Budget module tests
-            test_attempt_limit_policy,
-            test_baseline_attempts_policy,
-            test_property_budget_create,
-            test_property_budget_with_calibration,
-            test_property_budget_with_final_attempts,
-            test_property_budget_infinite_cardinality_detection,
-            test_budget_allocator_add_property,
-            test_budget_allocator_record_calibration,
-            test_budget_allocator_calibration_attempts,
-            test_budget_allocator_finalize_allocation,
-            test_budget_allocation_scale_down,
-            # Orchestrator module tests
-            test_test_module_creation,
-            test_orchestration_config_defaults,
-            test_orchestration_config_custom,
-            test_phase_result_structure,
-            test_orchestrator_initialization,
-            test_orchestrator_execute_simple_modules,
-            # Reporter module tests
-            test_cardinality_info_creation,
-            test_cardinality_info_to_dict,
-            test_test_result_creation,
-            test_test_result_to_dict,
-            test_test_result_with_cardinality_to_dict,
-            test_format_counter_example,
-        )
-    )
+spec = conj(
+    # Generate module additional tests
+    test_constant_generator,
+    test_bind_with_constant,
+    test_weighted_choice_generator,
+    test_one_of_generator,
+    test_str_generator_validity,
+    test_word_generator_validity,
+    test_lazy_generator_defers_and_memoizes,
+    # Shrink module additional tests
+    test_shrinking_preserves_type,
+    test_singleton_dissection,
+    # Stream module additional tests
+    test_stream_constant,
+    test_stream_concat,
+    test_stream_braid,
+    # Specify module additional tests
+    test_negated_properties,
+    test_conjunction_properties,
+    # Edge case tests
+    test_zero_length_bounded_collections,
+    test_single_element_bounded_collections,
+    test_optional_generator_coverage,
+    # Budget module tests
+    test_attempt_limit_policy,
+    test_baseline_attempts_policy,
+    test_property_budget_create,
+    test_property_budget_with_calibration,
+    test_property_budget_with_final_attempts,
+    test_property_budget_infinite_cardinality_detection,
+    test_budget_allocator_add_property,
+    test_budget_allocator_record_calibration,
+    test_budget_allocator_calibration_attempts,
+    test_budget_allocator_finalize_allocation,
+    test_budget_allocation_scale_down,
+    # Orchestrator module tests
+    test_test_module_creation,
+    test_orchestration_config_defaults,
+    test_orchestration_config_custom,
+    test_orchestration_config_rejects_unknown_output,
+    test_orchestrator_initialization,
+    test_orchestrator_execute_simple_modules,
+    # Reporter module tests
+    test_cardinality_info_creation,
+    test_cardinality_info_to_dict,
+    test_test_result_creation,
+    test_test_result_to_dict,
+    test_test_result_with_cardinality_to_dict,
+)
 
 
 if __name__ == "__main__":
     import sys
 
-    success = test()
-    sys.exit(0 if success else -1)
+    sys.exit(0 if check(spec) else -1)

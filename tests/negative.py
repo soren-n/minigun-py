@@ -21,20 +21,16 @@ def _fail_list_reverse_conc_dist(xs: list[int], ys: list[int]):
 
 
 ###############################################################################
-# Running test suite
+# Test suite specification
 ###############################################################################
-def test():
-    return check(
-        conj(
-            neg(_fail_bool_neg_eq),
-            neg(_fail_int_add_mul_assoc),
-            neg(_fail_list_reverse_conc_dist),
-        )
-    )
+spec = conj(
+    neg(_fail_bool_neg_eq),
+    neg(_fail_int_add_mul_assoc),
+    neg(_fail_list_reverse_conc_dist),
+)
 
 
 if __name__ == "__main__":
     import sys
 
-    success = test()
-    sys.exit(0 if success else -1)
+    sys.exit(0 if check(spec) else -1)

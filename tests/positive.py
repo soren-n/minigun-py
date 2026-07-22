@@ -335,41 +335,37 @@ def _pos_white_domain_infer_optional(mi: int | None) -> bool:
 ###############################################################################
 # Running test suite
 ###############################################################################
-def test():
-    return check(
-        conj(
-            _int_ring,
-            _pos_black_float_add_zero,
-            _pos_black_float_mul_one,
-            _pos_black_float_add_commute,
-            _pos_black_float_add_assoc,
-            _pos_black_float_add_inverse,
-            _pos_black_float_mul_commute,
-            _string_concat_moniod,
-            _pos_black_str_append_length_identity,
-            _pos_black_str_concat_length_dist,
-            _list_concat_moniod,
-            _pos_black_list_append_identity,
-            _pos_black_list_append_length_identity,
-            _pos_black_list_remove_identity,
-            _pos_black_list_remove_length_identity,
-            _pos_black_list_concat_length_add_dist,
-            _pos_black_list_sorted,
-            _pos_black_dict_insert_identity,
-            _pos_black_dict_remove_identity,
-            _pos_white_domain_infer_int,
-            _pos_white_domain_infer_float,
-            _pos_white_domain_infer_str,
-            _pos_white_domain_infer_tuple,
-            _pos_white_domain_infer_list,
-            _pos_white_domain_infer_dict,
-            _pos_white_domain_infer_optional,
-        )
-    )
+spec = conj(
+    _int_ring,
+    _pos_black_float_add_zero,
+    _pos_black_float_mul_one,
+    _pos_black_float_add_commute,
+    _pos_black_float_add_assoc,
+    _pos_black_float_add_inverse,
+    _pos_black_float_mul_commute,
+    _string_concat_moniod,
+    _pos_black_str_append_length_identity,
+    _pos_black_str_concat_length_dist,
+    _list_concat_moniod,
+    _pos_black_list_append_identity,
+    _pos_black_list_append_length_identity,
+    _pos_black_list_remove_identity,
+    _pos_black_list_remove_length_identity,
+    _pos_black_list_concat_length_add_dist,
+    _pos_black_list_sorted,
+    _pos_black_dict_insert_identity,
+    _pos_black_dict_remove_identity,
+    _pos_white_domain_infer_int,
+    _pos_white_domain_infer_float,
+    _pos_white_domain_infer_str,
+    _pos_white_domain_infer_tuple,
+    _pos_white_domain_infer_list,
+    _pos_white_domain_infer_dict,
+    _pos_white_domain_infer_optional,
+)
 
 
 if __name__ == "__main__":
     import sys
 
-    success = test()
-    sys.exit(0 if success else -1)
+    sys.exit(0 if check(spec) else -1)
