@@ -48,6 +48,7 @@ from minigun import cardinality as c
 from minigun import generate as g
 from minigun import search as s
 from minigun.budget import baseline_attempts
+from minigun.util import relax_stdout_errors
 
 
 ###############################################################################
@@ -393,6 +394,7 @@ def check(spec: Spec, seed: int | None = None) -> bool:
     :return: Whether the specification holds.
     :rtype: `bool`
     """
+    relax_stdout_errors()
     seed_value = seed if seed is not None else secrets.randbits(64)
     state = a.seed(seed_value)
 

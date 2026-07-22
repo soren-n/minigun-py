@@ -50,8 +50,10 @@ class Cardinality:
             return INFINITE
 
     def __str__(self) -> str:
+        # Rendered as ASCII: the glyph U+221E crashes Windows runs whose
+        # stdout is redirected and therefore ANSI-codepage encoded.
         if not self.is_finite:
-            return "∞"
+            return "inf"
         if self.size >= 1e6:
             return f"{self.size:.1e}"
         if self.size >= 1000:

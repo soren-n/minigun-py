@@ -23,6 +23,7 @@ from rich.table import Table
 
 from minigun.budget import BudgetAllocator
 from minigun.cardinality import Cardinality
+from minigun.util import relax_stdout_errors
 
 
 ###############################################################################
@@ -116,6 +117,7 @@ class Reporter:
     """Accumulates results; subclasses override the display hooks."""
 
     def __init__(self, time_budget: float, seed: int):
+        relax_stdout_errors()
         self.time_budget = time_budget
         self.seed = seed
         self.module_results: list[ModuleResult] = []

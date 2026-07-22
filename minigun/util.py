@@ -1,7 +1,27 @@
 # External imports
+import io
+import sys
 import types
 import typing
 from typing import Any, get_args, get_origin
+
+
+###############################################################################
+# Output encoding helpers
+###############################################################################
+def relax_stdout_errors() -> None:
+    """Make stdout escape unencodable characters instead of raising.
+
+    On Windows, redirected output (pipes, CI logs, files) is encoded
+    with the legacy ANSI code page, which cannot represent every
+    character a generated value - and therefore a counterexample - may
+    contain. Reporting a failure must not crash the run that found it,
+    so strict streams are switched to backslash-escaping, which keeps
+    the exact codepoints visible.
+    """
+    stream = sys.stdout
+    if isinstance(stream, io.TextIOWrapper) and stream.errors == "strict":
+        stream.reconfigure(errors="backslashreplace")
 
 
 ###############################################################################

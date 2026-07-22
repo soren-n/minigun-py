@@ -349,6 +349,19 @@ def test_optional_generator_coverage(seed_val: int) -> bool:
 
 
 ###############################################################################
+# Cardinality module tests
+###############################################################################
+
+
+@context(g.small_nats())
+@prop("cardinality renders as ASCII")
+def test_cardinality_ascii_rendering(size: int) -> bool:
+    # Windows encodes redirected stdout with the legacy ANSI code page;
+    # displayed domain sizes must never contain unencodable glyphs.
+    return str(c.finite(size)).isascii() and str(c.INFINITE).isascii()
+
+
+###############################################################################
 # Budget module tests - targeting low coverage areas
 ###############################################################################
 
@@ -756,6 +769,8 @@ spec = conj(
     test_zero_length_bounded_collections,
     test_single_element_bounded_collections,
     test_optional_generator_coverage,
+    # Cardinality module tests
+    test_cardinality_ascii_rendering,
     # Budget module tests
     test_attempt_limit_policy,
     test_baseline_attempts_policy,
