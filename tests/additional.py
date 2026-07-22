@@ -21,7 +21,7 @@ from minigun.specify import Spec, check, conj, context, neg, prop
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("constant generator always produces the same value")
 def test_constant_generator(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -38,7 +38,7 @@ def test_constant_generator(seed_val: int) -> bool:
     return True
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("bind with constant creates mapped values")
 def test_bind_with_constant(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -57,7 +57,7 @@ def test_bind_with_constant(seed_val: int) -> bool:
     return isinstance(value, int) and value % 2 == 0 and 2 <= value <= 20
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("weighted_choice generator respects weights")
 def test_weighted_choice_generator(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -84,7 +84,7 @@ def test_weighted_choice_generator(seed_val: int) -> bool:
     return heavy_count > total_samples * 0.8
 
 
-@context(g.small_nat(), g.int_range(1, 10))
+@context(g.small_nats(), g.int_range(1, 10))
 @prop("one_of generator selects from provided list")
 def test_one_of_generator(seed_val: int, list_size: int) -> bool:
     state = a.seed(seed_val)
@@ -98,12 +98,12 @@ def test_one_of_generator(seed_val: int, list_size: int) -> bool:
     return dissection.head in test_list
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("str generator produces valid strings")
 def test_str_generator_validity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    str_gen = g.str()
+    str_gen = g.strings()
 
     state, dissection = str_gen.sample(state)
     if dissection is None:
@@ -115,12 +115,12 @@ def test_str_generator_validity(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("word generator produces alphabetic strings")
 def test_word_generator_validity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    word_gen = g.word()
+    word_gen = g.words()
 
     state, dissection = word_gen.sample(state)
     if dissection is None:
@@ -130,7 +130,7 @@ def test_word_generator_validity(seed_val: int) -> bool:
     return isinstance(value, str) and (len(value) == 0 or value.isalpha())
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("lazy defers inner construction and reuses the built generator")
 def test_lazy_generator_defers_and_memoizes(seed_val: int) -> bool:
     build_count = [0]
@@ -163,14 +163,14 @@ def test_lazy_generator_defers_and_memoizes(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("shrinking preserves type")
 def test_shrinking_preserves_type(seed_val: int) -> bool:
     import minigun.shrink as sh
 
     state = a.seed(seed_val)
 
-    str_gen = g.str()
+    str_gen = g.strings()
     state, dissection = str_gen.sample(state)
 
     if dissection is None:
@@ -186,7 +186,7 @@ def test_shrinking_preserves_type(seed_val: int) -> bool:
     return True
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("singleton creates valid dissection")
 def test_singleton_dissection(seed_val: int) -> bool:
     import minigun.shrink as sh
@@ -207,7 +207,7 @@ def test_singleton_dissection(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("stream constant produces infinite stream of same value")
 def test_stream_constant(seed_val: int) -> bool:
     n = seed_val % 5 + 1
@@ -219,7 +219,7 @@ def test_stream_constant(seed_val: int) -> bool:
     return len(taken_list) == n and all(x == 42 for x in taken_list)
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("stream concat concatenates correctly")
 def test_stream_concat(seed_val: int) -> bool:
     n = seed_val % 5 + 1
@@ -237,7 +237,7 @@ def test_stream_concat(seed_val: int) -> bool:
     return result_list == expected
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("stream braid interleaves correctly")
 def test_stream_braid(seed_val: int) -> bool:
     # Create two streams with different patterns
@@ -256,7 +256,7 @@ def test_stream_braid(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("negated properties work correctly")
 def test_negated_properties(seed_val: int) -> bool:
     # Create a property that always fails
@@ -271,7 +271,7 @@ def test_negated_properties(seed_val: int) -> bool:
     return isinstance(negated_prop, Spec)
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("conjunction of properties works correctly")
 def test_conjunction_properties(seed_val: int) -> bool:
     # Create two properties that always pass
@@ -293,13 +293,13 @@ def test_conjunction_properties(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("zero-length bounded collections work")
 def test_zero_length_bounded_collections(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     # Test zero-length bounded list
-    empty_list_gen = g.bounded_list(0, 0, g.int_range(0, 100))
+    empty_list_gen = g.bounded_lists(0, 0, g.int_range(0, 100))
     state, dissection = empty_list_gen.sample(state)
 
     if dissection is None:
@@ -308,13 +308,13 @@ def test_zero_length_bounded_collections(seed_val: int) -> bool:
     return isinstance(value, list) and len(value) == 0
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("single-element bounded collections work")
 def test_single_element_bounded_collections(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     # Test single-element bounded set
-    single_set_gen = g.bounded_set(1, 1, g.int_range(0, 100))
+    single_set_gen = g.bounded_sets(1, 1, g.int_range(0, 100))
     state, dissection = single_set_gen.sample(state)
 
     if dissection is None:
@@ -324,7 +324,7 @@ def test_single_element_bounded_collections(seed_val: int) -> bool:
     return isinstance(value, set) and len(value) <= 1
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("optional generator produces both None and values")
 def test_optional_generator_coverage(seed_val: int) -> bool:
     state = a.seed(seed_val)
@@ -353,7 +353,7 @@ def test_optional_generator_coverage(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("attempt_limit returns reasonable values")
 def test_attempt_limit_policy(size: int) -> bool:
     cardinality = c.finite(max(1, size % 10000))
@@ -361,7 +361,7 @@ def test_attempt_limit_policy(size: int) -> bool:
     return 1 <= limit <= 10000
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("baseline_attempts handles finite cardinalities")
 def test_baseline_attempts_policy(size: int) -> bool:
     cardinality = c.finite(max(10, size % 1000))
@@ -369,7 +369,7 @@ def test_baseline_attempts_policy(size: int) -> bool:
     return attempts >= 10
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("PropertyBudget.create produces valid budgets")
 def test_property_budget_create(seed_val: int) -> bool:
     size = max(10, seed_val % 1000)
@@ -385,7 +385,7 @@ def test_property_budget_create(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("PropertyBudget.with_calibration updates timing correctly")
 def test_property_budget_with_calibration(seed_val: int) -> bool:
     cardinality = c.finite(100)
@@ -402,7 +402,7 @@ def test_property_budget_with_calibration(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("PropertyBudget.with_final_attempts updates attempts correctly")
 def test_property_budget_with_final_attempts(seed_val: int) -> bool:
     cardinality = c.finite(100)
@@ -418,7 +418,7 @@ def test_property_budget_with_final_attempts(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("PropertyBudget tracks finiteness of its cardinality")
 def test_property_budget_infinite_cardinality_detection(seed_val: int) -> bool:
     # Test with finite cardinality
@@ -435,7 +435,7 @@ def test_property_budget_infinite_cardinality_detection(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("BudgetAllocator.add_property increases property count")
 def test_budget_allocator_add_property(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(30.0)
@@ -447,7 +447,7 @@ def test_budget_allocator_add_property(seed_val: int) -> bool:
     return len(allocator.properties) == initial_count + 1
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("BudgetAllocator.record_calibration updates timing")
 def test_budget_allocator_record_calibration(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(60.0)
@@ -469,7 +469,7 @@ def test_budget_allocator_record_calibration(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop(
     "BudgetAllocator.get_allocated_attempts returns calibration value during calibration"
 )
@@ -483,7 +483,7 @@ def test_budget_allocator_calibration_attempts(seed_val: int) -> bool:
     return attempts == 10
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("BudgetAllocator.finalize_allocation completes calibration")
 def test_budget_allocator_finalize_allocation(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(60.0)
@@ -498,7 +498,7 @@ def test_budget_allocator_finalize_allocation(seed_val: int) -> bool:
     return not initial_calibration and final_calibration
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("over-budget allocation scales attempts down to fit")
 def test_budget_allocation_scale_down(seed_val: int) -> bool:
     # Use a small budget that forces scaling
@@ -523,7 +523,7 @@ def test_budget_allocation_scale_down(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestModule creates valid module objects")
 def test_test_module_creation(seed_val: int) -> bool:
     @prop("inner always true")
@@ -534,7 +534,7 @@ def test_test_module_creation(seed_val: int) -> bool:
     return module.name == "test_module" and isinstance(module.spec, Spec)
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("OrchestrationConfig has reasonable defaults")
 def test_orchestration_config_defaults(seed_val: int) -> bool:
     time_budget = max(10.0, float(seed_val % 100))
@@ -547,7 +547,7 @@ def test_orchestration_config_defaults(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("OrchestrationConfig accepts custom settings")
 def test_orchestration_config_custom(seed_val: int) -> bool:
     time_budget = max(5.0, float(seed_val % 50))
@@ -564,7 +564,7 @@ def test_orchestration_config_custom(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("OrchestrationConfig rejects unknown output modes")
 def test_orchestration_config_rejects_unknown_output(seed_val: int) -> bool:
     try:
@@ -574,7 +574,7 @@ def test_orchestration_config_rejects_unknown_output(seed_val: int) -> bool:
     return False
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestOrchestrator initializes with valid config")
 def test_orchestrator_initialization(seed_val: int) -> bool:
     time_budget = max(10.0, float(seed_val % 100))
@@ -584,7 +584,7 @@ def test_orchestrator_initialization(seed_val: int) -> bool:
     return orchestrator.config == config
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestOrchestrator executes simple test modules")
 def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
     config = o.OrchestrationConfig(
@@ -618,7 +618,7 @@ def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
 ###############################################################################
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("CardinalityInfo creates valid objects")
 def test_cardinality_info_creation(seed_val: int) -> bool:
     cardinality = c.finite(max(1, seed_val % 1000))
@@ -641,7 +641,7 @@ def test_cardinality_info_creation(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("CardinalityInfo.to_dict creates valid dictionary")
 def test_cardinality_info_to_dict(seed_val: int) -> bool:
     cardinality = c.finite(max(1, seed_val % 1000))
@@ -665,7 +665,7 @@ def test_cardinality_info_to_dict(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestResult creates valid test result objects")
 def test_test_result_creation(seed_val: int) -> bool:
     name = f"test_property_{seed_val % 100}"
@@ -688,7 +688,7 @@ def test_test_result_creation(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestResult.to_dict creates valid dictionary")
 def test_test_result_to_dict(seed_val: int) -> bool:
     name = f"test_property_{seed_val % 100}"
@@ -707,7 +707,7 @@ def test_test_result_to_dict(seed_val: int) -> bool:
     )
 
 
-@context(g.small_nat())
+@context(g.small_nats())
 @prop("TestResult with CardinalityInfo serializes correctly")
 def test_test_result_with_cardinality_to_dict(seed_val: int) -> bool:
     name = f"test_property_{seed_val % 100}"

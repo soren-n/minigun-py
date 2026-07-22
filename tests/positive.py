@@ -144,7 +144,7 @@ _int_ring = _operators_ring(
     "integer multiplication",
     0,
     1,
-    g.int(),
+    g.ints(),
     lambda a, b: a + b,
     lambda a, b: a * b,
     lambda a: -a,
@@ -158,37 +158,37 @@ def float_equal(a: float, b: float, epsilon: float = 1e-8) -> bool:
     return abs(a - b) <= epsilon
 
 
-@context(g.float())
+@context(g.floats())
 @prop("Zero is neutral element of float addition")
 def _pos_black_float_add_zero(a: float) -> bool:
     return float_equal(a + 0, a)
 
 
-@context(g.float())
+@context(g.floats())
 @prop("One is neutral element of float multiplication")
 def _pos_black_float_mul_one(a: float) -> bool:
     return float_equal(a * 1, a)
 
 
-@context(g.float(), g.float())
+@context(g.floats(), g.floats())
 @prop("Float addition is commutative")
 def _pos_black_float_add_commute(a: float, b: float) -> bool:
     return float_equal(a + b, b + a)
 
 
-@context(g.float(), g.float(), g.float())
+@context(g.floats(), g.floats(), g.floats())
 @prop("Float addition is associative")
 def _pos_black_float_add_assoc(a: float, b: float, c: float) -> bool:
     return float_equal(a + (b + c), (a + b) + c)
 
 
-@context(g.float())
+@context(g.floats())
 @prop("Float addition has inverse")
 def _pos_black_float_add_inverse(a: float) -> bool:
     return float_equal(a + (-a), 0.0)
 
 
-@context(g.float(), g.float())
+@context(g.floats(), g.floats())
 @prop("Float multiplication is commutative")
 def _pos_black_float_mul_commute(a: float, b: float) -> bool:
     return float_equal(a * b, b * a)
@@ -198,18 +198,18 @@ def _pos_black_float_mul_commute(a: float, b: float) -> bool:
 # Positive black-box testing of str
 ###############################################################################
 _string_concat_moniod = _operator_moniod(
-    "string concatenation", "", g.str(), lambda a, b: a + b
+    "string concatenation", "", g.strings(), lambda a, b: a + b
 )
 
 
-@context(g.str())
+@context(g.strings())
 @prop("String append length identity")
 def _pos_black_str_append_length_identity(s: str) -> bool:
     s1 = s + "a"
     return len(s1) == len(s) + 1
 
 
-@context(g.str(), g.str())
+@context(g.strings(), g.strings())
 @prop("String concat length distribute")
 def _pos_black_str_concat_length_dist(xs: str, ys: str) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
@@ -219,18 +219,18 @@ def _pos_black_str_concat_length_dist(xs: str, ys: str) -> bool:
 # Positive black-box testing of lists
 ###############################################################################
 _list_concat_moniod = _operator_moniod(
-    "list concatenation", [], g.list(g.int()), lambda a, b: a + b
+    "list concatenation", [], g.lists(g.ints()), lambda a, b: a + b
 )
 
 
-@context(g.list(g.int()), g.int())
+@context(g.lists(g.ints()), g.ints())
 @prop("list append identity")
 def _pos_black_list_append_identity(xs: list[int], x: int) -> bool:
     xs.append(x)
     return xs[-1] == x
 
 
-@context(g.list(g.int()), g.int())
+@context(g.lists(g.ints()), g.ints())
 @prop("list append length identity")
 def _pos_black_list_append_length_identity(xs: list[int], x: int) -> bool:
     xs1 = xs.copy()
@@ -238,7 +238,7 @@ def _pos_black_list_append_length_identity(xs: list[int], x: int) -> bool:
     return len(xs1) == len(xs) + 1
 
 
-@context(g.list(g.int()), g.int())
+@context(g.lists(g.ints()), g.ints())
 @prop("list remove identity")
 def _pos_black_list_remove_identity(xs: list[int], x: int) -> bool:
     xs1 = xs.copy()
@@ -247,7 +247,7 @@ def _pos_black_list_remove_identity(xs: list[int], x: int) -> bool:
     return xs == xs1
 
 
-@context(g.list(g.int()), g.int())
+@context(g.lists(g.ints()), g.ints())
 @prop("list remove length identity")
 def _pos_black_list_remove_length_identity(xs: list[int], x: int) -> bool:
     xs.append(x)
@@ -256,7 +256,7 @@ def _pos_black_list_remove_length_identity(xs: list[int], x: int) -> bool:
     return len(xs1) == len(xs) - 1
 
 
-@context(g.list(g.int()), g.list(g.int()))
+@context(g.lists(g.ints()), g.lists(g.ints()))
 @prop("list length concat distributes with add")
 def _pos_black_list_concat_length_add_dist(
     xs: list[int], ys: list[int]
@@ -264,7 +264,7 @@ def _pos_black_list_concat_length_add_dist(
     return len(xs + ys) == len(xs) + len(ys)
 
 
-@context(g.list(g.int(), ordered=True))
+@context(g.lists(g.ints(), ordered=True))
 @prop("Ordered list items are sorted")
 def _pos_black_list_sorted(xs: list[int]) -> bool:
     if len(xs) == 0:
@@ -275,7 +275,7 @@ def _pos_black_list_sorted(xs: list[int]) -> bool:
 ###############################################################################
 # Positive black-box testing of dictionaries
 ###############################################################################
-@context(g.dict(g.int(), g.int()), g.int(), g.int())
+@context(g.dicts(g.ints(), g.ints()), g.ints(), g.ints())
 @prop("Dictionary insert identity")
 def _pos_black_dict_insert_identity(
     kvs: dict[int, int], k: int, v: int
@@ -284,7 +284,7 @@ def _pos_black_dict_insert_identity(
     return kvs[k] == v
 
 
-@context(g.dict(g.int(), g.int()), g.int(), g.int())
+@context(g.dicts(g.ints(), g.ints()), g.ints(), g.ints())
 @prop("Dictionary remove identity")
 def _pos_black_dict_remove_identity(
     kvs: dict[int, int], k: int, v: int

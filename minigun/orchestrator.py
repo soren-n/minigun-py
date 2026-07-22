@@ -16,8 +16,10 @@ and pushes results into a reporter. Reporters never influence execution.
 import secrets
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from minigun import arbitrary as a
+from minigun import generate as g
 from minigun import specify
 from minigun.budget import BudgetAllocator
 from minigun.cardinality import Cardinality
@@ -85,8 +87,8 @@ _STABILITY_WINDOW = 5
 
 
 def _calibrate_property(
-    prop: specify._Prop,  # type: ignore[type-arg]
-    generators: dict[str, object],
+    prop: "specify._Prop[Any]",
+    generators: dict[str, g.Generator[Any]],
     seed: int,
 ) -> tuple[float, int]:
     """Measure a property's execution time per attempt.
@@ -105,12 +107,7 @@ def _calibrate_property(
 
     for total_attempts in range(1, _MAX_CALIBRATION_ATTEMPTS + 1):
         attempt_start = time.time()
-        state, _ = s.find_counter_example(
-            state,
-            1,
-            prop.law,
-            generators,  # type: ignore[arg-type]
-        )
+        state, _ = s.find_counter_example(state, 1, prop.law, generators)
         attempt_times.append(time.time() - attempt_start)
 
         if total_attempts < _MIN_CALIBRATION_ATTEMPTS:
@@ -171,9 +168,7 @@ class TestOrchestrator:
                 generators, total_cardinality = resolution
                 allocator.add_property(prop.desc, total_cardinality)
                 total_time, attempts = _calibrate_property(
-                    prop,
-                    generators,  # type: ignore[arg-type]
-                    seed,
+                    prop, generators, seed
                 )
                 allocator.record_calibration(prop.desc, total_time, attempts)
 
@@ -182,8 +177,7 @@ class TestOrchestrator:
 
         # Execution phase: evaluate every module's spec once.
         def _attempts_for(
-            prop: specify._Prop,  # type: ignore[type-arg]
-            total_cardinality: Cardinality,
+            prop: "specify._Prop[Any]", total_cardinality: Cardinality
         ) -> int:
             return allocator.get_allocated_attempts(prop.desc)
 

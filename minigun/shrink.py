@@ -20,14 +20,6 @@ minimal counterexamples without additional user configuration.
 
 # External module dependencies
 import math
-
-###############################################################################
-# Localizing builtins
-###############################################################################
-from builtins import bool as _bool
-from builtins import float as _float
-from builtins import int as _int
-from builtins import str as _str
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -80,7 +72,7 @@ def map[*Ts, R](
         past = len(input_dissections)
         tails = [dissection.shrinks for dissection in input_dissections]
 
-        def _shift_horizontal(index: _int) -> fs.Stream[Dissection[R]]:
+        def _shift_horizontal(index: int) -> fs.Stream[Dissection[R]]:
             if past <= index:
                 return fs.empty()
 
@@ -102,7 +94,7 @@ def map[*Ts, R](
 
 
 def filter[T](
-    predicate: Callable[[T], _bool], dissection: Dissection[T]
+    predicate: Callable[[T], bool], dissection: Dissection[T]
 ) -> Dissection[T] | None:
     """Filter a dissection of type `T`, both its head and shrunk values.
 
@@ -125,7 +117,7 @@ def filter[T](
                 dissection.head, _filter_shrinks(dissection.shrinks)
             )
 
-        def _predicate(dissection: Dissection[T]) -> _bool:
+        def _predicate(dissection: Dissection[T]) -> bool:
             return predicate(dissection.head)
 
         return fs.map(_rebuild, fs.filter(_predicate, shrinks))
@@ -222,14 +214,14 @@ def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
 ###############################################################################
 # Booleans
 ###############################################################################
-def bool() -> Shrinker[_bool]:
+def boolean() -> Shrinker[bool]:
     """A shrinker for booleans which shrinks towards False.
 
     :return: A shrinker of bool.
     :rtype: `Shrinker[bool]`
     """
 
-    def _impl(value: _bool) -> Dissection[_bool]:
+    def _impl(value: bool) -> Dissection[bool]:
         if value:
             return Dissection(True, fs.singleton(singleton(False)))
         return singleton(False)
@@ -240,7 +232,7 @@ def bool() -> Shrinker[_bool]:
 ###############################################################################
 # Numbers
 ###############################################################################
-def int(target: _int) -> Shrinker[_int]:
+def integer(target: int) -> Shrinker[int]:
     """A shrinker for integers which shrinks towards a given target.
 
     :param target: A target value to shrink towards.
@@ -250,25 +242,25 @@ def int(target: _int) -> Shrinker[_int]:
     :rtype: `Shrinker[T]`
     """
 
-    def _trim(initial: _int) -> fs.Stream[_int]:
+    def _trim(initial: int) -> fs.Stream[int]:
         def _towards(
-            state: tuple[_int, _int],
-        ) -> tuple[_int, tuple[_int, _int]] | None:
+            state: tuple[int, int],
+        ) -> tuple[int, tuple[int, int]] | None:
             value, current = state
             if current == value:
                 return None
-            _value = current + _int((value - current) / 2)
+            _value = current + int((value - current) / 2)
             return _value, (_value, current)
 
         return fs.unfold(_towards, (initial, target))
 
-    def _impl(value: _int) -> Dissection[_int]:
+    def _impl(value: int) -> Dissection[int]:
         return unfold(value, _trim)
 
     return _impl
 
 
-def float(target: _float) -> Shrinker[_float]:
+def floating(target: float) -> Shrinker[float]:
     """A shrinker for floats which takes a target to shrink towards.
 
     :param target: A target value to shrink towards.
@@ -278,23 +270,23 @@ def float(target: _float) -> Shrinker[_float]:
     :rtype: `Shrinker[float]`
     """
 
-    def _trim_integer_part(initial: _float) -> fs.Stream[_float]:
+    def _trim_integer_part(initial: float) -> fs.Stream[float]:
         def _towards(
-            state: tuple[_float, _int],
-        ) -> tuple[_float, tuple[_float, _int]] | None:
+            state: tuple[float, int],
+        ) -> tuple[float, tuple[float, int]] | None:
             value, current = state
             value_f, value_i = math.modf(value)
-            if current == _int(value_i):
+            if current == int(value_i):
                 return None
-            _value = current + value_f + _int((value_i - current) / 2)
+            _value = current + value_f + int((value_i - current) / 2)
             return _value, (_value, current)
 
-        return fs.unfold(_towards, (initial, _int(target)))
+        return fs.unfold(_towards, (initial, int(target)))
 
-    def _trim_fractional_part(initial: _float) -> fs.Stream[_float]:
+    def _trim_fractional_part(initial: float) -> fs.Stream[float]:
         def _towards(
-            state: tuple[_int, _float, _float],
-        ) -> tuple[_float, tuple[_int, _float, _float]] | None:
+            state: tuple[int, float, float],
+        ) -> tuple[float, tuple[int, float, float]] | None:
             count, value, current = state
             value_f, value_i = math.modf(value)
             if count == 0:
@@ -306,7 +298,7 @@ def float(target: _float) -> Shrinker[_float]:
 
         return fs.unfold(_towards, (10, initial, math.modf(target)[0]))
 
-    def _impl(value: _float) -> Dissection[_float]:
+    def _impl(value: float) -> Dissection[float]:
         return unfold(value, _trim_integer_part, _trim_fractional_part)
 
     return _impl
@@ -315,17 +307,17 @@ def float(target: _float) -> Shrinker[_float]:
 ###############################################################################
 # String
 ###############################################################################
-def str() -> Shrinker[_str]:
+def string() -> Shrinker[str]:
     """A shrinker for strings.
 
     :return: A shrinker of str.
     :rtype: `Shrinker[str]`
     """
 
-    def _trim(initial: _str) -> fs.Stream[_str]:
+    def _trim(initial: str) -> fs.Stream[str]:
         past = len(initial)
 
-        def _towards(index: _int) -> tuple[_str, _int] | None:
+        def _towards(index: int) -> tuple[str, int] | None:
             if index == past:
                 return None
             _value = initial[:index] + initial[index + 1 :]
@@ -333,7 +325,7 @@ def str() -> Shrinker[_str]:
 
         return fs.unfold(_towards, 0)
 
-    def _impl(value: _str) -> Dissection[_str]:
+    def _impl(value: str) -> Dissection[str]:
         return unfold(value, _trim)
 
     return _impl

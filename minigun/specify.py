@@ -20,7 +20,7 @@ Example::
         def test_list_length(xs: list[int], ys: list[int]):
             return len(xs + ys) == len(xs) + len(ys)
 
-        @context(g.bounded_list(0, 10, g.int()))
+        @context(g.bounded_lists(0, 10, g.ints()))
         @prop("bounded lists respect their bounds")
         def test_bounded_lists(xs: list[int]):
             return len(xs) <= 10

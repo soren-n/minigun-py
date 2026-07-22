@@ -24,8 +24,8 @@ class CounterExample:
 ###############################################################################
 # Find and trim counter examples
 ###############################################################################
-def _evaluate[*P](
-    law: Callable[[*P], bool], args: dict[str, Any]
+def _evaluate(
+    law: Callable[..., bool], args: dict[str, Any]
 ) -> tuple[bool, Exception | None]:
     """Evaluate a law; an exception counts as a failed evaluation."""
     try:
@@ -34,8 +34,8 @@ def _evaluate[*P](
         return False, exception
 
 
-def _trim_counter_example[*P](
-    law: Callable[[*P], bool], example: s.Dissection[dict[str, Any]]
+def _trim_counter_example(
+    law: Callable[..., bool], example: s.Dissection[dict[str, Any]]
 ) -> s.Dissection[dict[str, Any]]:
     def _is_counter_example(args: s.Dissection[dict[str, Any]]) -> bool:
         holds, _ = _evaluate(law, args.head)
@@ -49,10 +49,10 @@ def _trim_counter_example[*P](
         dissection = shrunk
 
 
-def find_counter_example[*P](
+def find_counter_example(
     state: a.State,
     attempts: int,
-    law: Callable[[*P], bool],
+    law: Callable[..., bool],
     generators: dict[str, g.Generator[Any]],
 ) -> tuple[a.State, CounterExample | None]:
     """Attempt to find a counter example to a given law.
