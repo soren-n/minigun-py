@@ -17,7 +17,6 @@ from returns.maybe import Maybe
 
 # Internal module dependencies
 from minigun import generate as g
-from minigun import order as o
 from minigun import pretty as p
 
 
@@ -197,7 +196,7 @@ def bounded_list[T](
     lower_bound: _int,
     upper_bound: _int,
     domain: Domain[T],
-    ordered: o.Order[T] | None = None,
+    ordered: _bool = False,
 ) -> Domain[_list[T]]:
     """A domain for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
 
@@ -219,9 +218,7 @@ def bounded_list[T](
     )
 
 
-def list[T](
-    domain: Domain[T], ordered: o.Order[T] | None = None
-) -> Domain[_list[T]]:
+def list[T](domain: Domain[T], ordered: _bool = False) -> Domain[_list[T]]:
     """A domain for lists over a given type `T`.
 
     :param domain: A value domain from which list items are samples.

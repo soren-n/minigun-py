@@ -17,7 +17,6 @@ tasks:
   - ../minigun/arbitrary.py
   - ../minigun/domain.py
   - ../minigun/generate.py
-  - ../minigun/order.py
   - ../minigun/pretty.py
   - ../minigun/search.py
   - ../minigun/shrink.py

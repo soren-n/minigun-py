@@ -9,7 +9,6 @@ from returns.maybe import Maybe, Some
 import minigun.arbitrary as a
 import minigun.domain as d
 import minigun.generate as g
-import minigun.order as o
 import minigun.shrink as sh
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, prop
@@ -509,27 +508,6 @@ def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
 
 
 ###############################################################################
-# Tests for order.py - Ordering functionality
-###############################################################################
-
-
-@context(d.small_nat(), d.small_nat())
-@prop("int order is consistent with built-in comparison")
-def test_int_order_consistency(a: int, b: int) -> bool:
-    minigun_comparison = o.int(a, b)
-
-    # Convert minigun's Order result to the same format as built-in comparison
-    if a < b:
-        expected = o.Total.Lt
-    elif a == b:
-        expected = o.Total.Eq
-    else:
-        expected = o.Total.Gt
-
-    return minigun_comparison == expected
-
-
-###############################################################################
 # Integration tests - Testing the testing infrastructure itself
 ###############################################################################
 
@@ -583,8 +561,6 @@ def test() -> bool:
             # Search module tests
             test_search_finds_counterexamples,
             test_search_no_counterexamples_for_true_props,
-            # Order module tests
-            test_int_order_consistency,
             # Integration tests
             test_property_specification_execution,
         )

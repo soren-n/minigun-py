@@ -60,7 +60,6 @@ from returns.maybe import Maybe, Nothing, Some
 # Internal module dependencies
 from minigun import arbitrary as a
 from minigun import cardinality as c
-from minigun import order as o
 from minigun import shrink as s
 from minigun import stream as fs
 from minigun import util as u
@@ -666,7 +665,7 @@ def bounded_list[T](
     lower_bound: _int,
     upper_bound: _int,
     generator: Generator[T],
-    ordered: o.Order[T] | None = None,
+    ordered: _bool = False,
 ) -> Generator[_list[T]]:
     """A generator for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
 
@@ -676,8 +675,8 @@ def bounded_list[T](
     :type upper_bound: `int`
     :param generator: A value generator from which list items are sampled.
     :type generator: `Generator[T]`
-    :param ordering: Flag for whether items of sampled lists should be ordered.
-    :type ordering: `bool` (default: `False`)
+    :param ordered: Whether items of sampled lists should be sorted.
+    :type ordered: `bool` (default: `False`)
 
     :return: A generator of lists over type `T`.
     :rtype: `Generator[List[T]]`
@@ -723,7 +722,7 @@ def bounded_list[T](
         heads: _list[Any] = [s.head(dissection) for dissection in dissections]
         tails: _list[Any] = [s.tail(dissection) for dissection in dissections]
         if ordered:
-            heads = o.sort(ordered, heads)
+            heads = sorted(heads)
         return heads, fs.concat(
             partial(_shrink_length, 0, dissections),
             partial(_shrink_value, 0, dissections, tails),
@@ -765,14 +764,14 @@ def bounded_list[T](
 
 
 def list[T](
-    generator: Generator[T], ordered: o.Order[T] | None = None
+    generator: Generator[T], ordered: _bool = False
 ) -> Generator[_list[T]]:
     """A generator for lists over a given type `T`.
 
     :param generator: A value generator from which list items are sampled.
     :type generator: `Generator[T]`
-    :param ordering: Flag for whether items of sampled lists should be ordered`.
-    :type ordering: `bool` (default: `False`)
+    :param ordered: Whether items of sampled lists should be sorted.
+    :type ordered: `bool` (default: `False`)
 
     :return: A generator of lists over type `T`.
     :rtype: `Generator[List[T]]`
@@ -793,14 +792,14 @@ def list[T](
 
 
 def map_list[T](
-    generators: _list[Generator[T]], ordered: o.Order[T] | None = None
+    generators: _list[Generator[T]], ordered: _bool = False
 ) -> Generator[_list[T]]:
     """Composes lists of generators over a given type `T`, resulting in a generator of lists over the given type `T`.
 
     :param generators: A list of value generators from which value lists are sampled.
     :type generators: `List[Generator[T]]`
-    :param ordering: Flag for whether items of sampled lists should be ordered`.
-    :type ordering: `bool` (default: `False`)
+    :param ordered: Whether items of sampled lists should be sorted.
+    :type ordered: `bool` (default: `False`)
 
     :return: A generator of lists over type `T`.
     :rtype: `Generator[List[T]]`
@@ -809,7 +808,7 @@ def map_list[T](
     def _compose(*values: T) -> _list[T]:
         result = _list(values)
         if ordered:
-            result = o.sort(ordered, result)
+            result = sorted(result)
         return result
 
     return map(_compose, *generators)

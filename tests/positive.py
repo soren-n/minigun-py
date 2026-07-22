@@ -4,7 +4,6 @@ from collections.abc import Callable
 from returns.maybe import Maybe
 
 import minigun.domain as d
-import minigun.order as o
 import minigun.util as u
 
 # Internal imports
@@ -268,7 +267,7 @@ def _pos_black_list_concat_length_add_dist(
     return len(xs + ys) == len(xs) + len(ys)
 
 
-@context(d.list(d.int(), ordered=o.int))
+@context(d.list(d.int(), ordered=True))
 @prop("Ordered list items are sorted")
 def _pos_black_list_sorted(xs: list[int]) -> bool:
     if len(xs) == 0:

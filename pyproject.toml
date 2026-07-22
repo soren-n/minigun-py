@@ -85,7 +85,6 @@ select = [
 ignore = [
     "E501",  # line too long, enforced by ruff formatter at 80 chars
     "C901",  # too complex
-    "E402",  # module level import not at top - localized builtins pattern
     "UP031", # use format specifiers - legacy code style preference
 ]
 
