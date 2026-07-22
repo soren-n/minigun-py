@@ -386,7 +386,7 @@ class TestReporter:
                 prop.cardinality
             )
             attempts_limit = (
-                prop.theoretical_limit
+                prop.attempt_limit
             )  # The theoretical Secretary Problem limit
             est_attempts = prop.final_attempts  # The budget-allocated attempts
             est_time = f"{prop.estimated_time:.2f}s"
@@ -631,7 +631,7 @@ class TestReporter:
                     prop.cardinality
                 )
                 attempts_limit = (
-                    prop.theoretical_limit
+                    prop.attempt_limit
                 )  # The theoretical Secretary Problem limit
                 est_attempts = (
                     prop.final_attempts
@@ -752,39 +752,8 @@ class TestReporter:
         return name
 
     def _format_cardinality_display(self, cardinality: Any) -> str:
-        """Format cardinality for display in tables, preferring symbolic representation."""
-        # Convert numeric values to a more readable format
-        cardinality_str = str(cardinality)
-
-        # Handle special cases for better readability
-        if cardinality_str == "∞":
-            return "∞"
-
-        # If it contains symbolic notation (BigO, mathematical symbols), return as-is
-        if any(
-            symbol in cardinality_str
-            for symbol in ["O(", "Θ(", "Ω(", "×", "^", "log"]
-        ):
-            # Truncate if too long for table display
-            if len(cardinality_str) > 15:
-                return cardinality_str[:12] + "..."
-            return cardinality_str
-
-        # For very large numbers, show in scientific notation
-        try:
-            # Check if it's a pure number
-            numeric_value = float(cardinality_str)
-            if numeric_value >= 1e6:
-                return f"{numeric_value:.1e}"
-            elif numeric_value >= 1000:
-                return f"{int(numeric_value):,}"
-            else:
-                return cardinality_str
-        except (ValueError, OverflowError):
-            # Fallback: return as-is but truncate if too long
-            if len(cardinality_str) > 15:
-                return cardinality_str[:12] + "..."
-            return cardinality_str
+        """Format cardinality for display in tables."""
+        return str(cardinality)
 
 
 class JSONReporter:

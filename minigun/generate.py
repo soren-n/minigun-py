@@ -171,7 +171,7 @@ def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
             cached.append(thunk())
         return cached[0].sample(state)
 
-    return Generator(_impl, c.Infinite())
+    return Generator(_impl, c.INFINITE)
 
 
 def filter[T](
@@ -246,7 +246,7 @@ def bool() -> Generator[_bool]:
         state, result = a.bool(state)
         return state, _shrink(result)
 
-    return Generator(_impl, c.Finite(2))
+    return Generator(_impl, c.finite(2))
 
 
 ###############################################################################
@@ -276,7 +276,7 @@ def _tiered_int(
             state, result = a.nat(state, 0, bound)
         return state, s.int(0)(result)
 
-    return Generator(_impl, c.Finite(cardinality))
+    return Generator(_impl, c.finite(cardinality))
 
 
 def small_nat() -> Generator[_int]:
@@ -359,8 +359,8 @@ def float() -> Generator[_float]:
         result = (1.0 if sign else -1.0) * math.exp(exponent)
         return state, _shrink(result)
 
-    # IEEE 754 double precision: 2^64 possible values
-    return Generator(_impl, c.BigO(c._Const(2) ** c._Const(64)))
+    # Floats are effectively unbounded for coverage purposes
+    return Generator(_impl, c.INFINITE)
 
 
 ###############################################################################
@@ -385,7 +385,7 @@ def int_range(lower_bound: _int, upper_bound: _int) -> Generator[_int]:
         state, result = a.int(state, lower_bound, upper_bound)
         return state, _shrink(result)
 
-    return Generator(_impl, c.Finite(upper_bound - lower_bound + 1))
+    return Generator(_impl, c.finite(upper_bound - lower_bound + 1))
 
 
 ###############################################################################
@@ -407,7 +407,7 @@ def prop(bias: _float) -> Generator[_bool]:
         state, roll = a.float(state, 0.0, 1.0)
         return state, _shrink(roll <= bias)
 
-    return Generator(_impl, c.Finite(2))
+    return Generator(_impl, c.finite(2))
 
 
 ###############################################################################
@@ -497,7 +497,7 @@ def _sized_cardinality(
     """Cardinality of a sized collection: sum of |item|^size over sizes."""
     total = c.ZERO
     for size in range(lower_bound, upper_bound + 1):
-        total = total + (item_cardinality ** c.Finite(size))
+        total = total + (item_cardinality ** c.finite(size))
     return total
 
 
@@ -509,7 +509,7 @@ def _bounded_str_cardinality(
     lower_bound: _int, upper_bound: _int, alphabet_size: _int
 ) -> c.Cardinality:
     """Cardinality for bounded strings: sum of |alphabet|^l for l in [lo, hi]."""
-    return _sized_cardinality(lower_bound, upper_bound, c.Finite(alphabet_size))
+    return _sized_cardinality(lower_bound, upper_bound, c.finite(alphabet_size))
 
 
 def bounded_str(

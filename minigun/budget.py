@@ -1,258 +1,228 @@
 """
-Refactored Budget Allocation System
+Time budget allocation for property testing.
 
-Clean, maintainable budget allocation with clear separation of concerns
-and simplified state management.
+Given a time budget and per-property calibration timings, the allocator
+decides how many attempts each property gets:
+
+1. Every property starts from a baseline that grows with the size of its
+   input domain.
+2. If the estimated total exceeds the budget, all properties are scaled
+   down proportionally.
+3. If time is left over, properties with unbounded domains are boosted up
+   to their attempt limit.
 """
 
 import math
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+
+from minigun.cardinality import Cardinality
 
 
-# Simplified attempt calculation strategies
-class AttemptStrategy:
-    """Encapsulates different attempt calculation strategies."""
+###############################################################################
+# Attempt policy
+###############################################################################
+def attempt_limit(cardinality: Cardinality) -> int:
+    """Cap on useful attempts for a domain.
 
-    @staticmethod
-    def theoretical_limit(cardinality: Any) -> int:
-        """Secretary Problem optimal limit (√cardinality)."""
-        domain_size = cardinality.evaluate()
-
-        if domain_size >= float("inf"):
-            return 10000
-        return max(1, int(math.sqrt(domain_size)))
-
-    @staticmethod
-    def practical_baseline(cardinality: Any) -> int:
-        """Practical attempts based on asymptotic complexity."""
-        asymptotic = cardinality.asymptotic_class()
-
-        if "∞" in asymptotic:
-            return 1000
-        elif "n^" in asymptotic:  # Exponential
-            return 50
-        elif "n²" in asymptotic:  # Quadratic
-            return 100
-        elif "n" in asymptotic:  # Linear
-            domain_size = cardinality.evaluate()
-            return max(10, int(math.sqrt(domain_size)))
-        elif "log" in asymptotic:  # Logarithmic
-            return 200
-        else:  # O(1) - Constant
-            domain_size = cardinality.evaluate()
-            if domain_size <= 1000:
-                return max(10, int(math.sqrt(domain_size)))
-            elif domain_size <= 1_000_000:
-                return int(
-                    math.sqrt(1000) + math.log10(domain_size / 1000) * 10
-                )
-            else:
-                return int(
-                    math.sqrt(1000)
-                    + math.log10(1000) * 10
-                    + math.log10(domain_size / 1_000_000) * 5
-                )
+    For finite domains this is the square root of the domain size; beyond
+    that, repeat draws dominate and further attempts add little coverage.
+    Unbounded domains are capped at 10000.
+    """
+    if not cardinality.is_finite:
+        return 10000
+    return max(1, int(math.sqrt(cardinality.size)))
 
 
-@dataclass
+def baseline_attempts(cardinality: Cardinality) -> int:
+    """Baseline attempts for a domain before budget scaling.
+
+    Grows with the square root of the domain size up to 1000 values, then
+    logarithmically: large domains cannot be meaningfully covered by
+    attempt count alone, so time is better spent elsewhere. Unbounded
+    domains get a flat 1000.
+    """
+    if not cardinality.is_finite:
+        return 1000
+    size = cardinality.size
+    if size <= 1000:
+        return max(10, int(math.sqrt(size)))
+    if size <= 1_000_000:
+        return int(math.sqrt(1000) + math.log10(size / 1000) * 10)
+    return int(
+        math.sqrt(1000)
+        + math.log10(1000) * 10
+        + math.log10(size / 1_000_000) * 5
+    )
+
+
+###############################################################################
+# Per-property budget
+###############################################################################
+@dataclass(frozen=True, slots=True)
 class PropertyBudget:
-    """Immutable budget calculation for a single property."""
+    """Budget calculation for a single property."""
 
     name: str
-    cardinality: Any
-    theoretical_limit: int
-    practical_baseline: int
+    cardinality: Cardinality
+    attempt_limit: int
+    baseline_attempts: int
     time_per_attempt: float
     final_attempts: int
     estimated_time: float
 
     @classmethod
     def create(
-        cls, name: str, cardinality: Any, time_per_attempt: float = 0.0
+        cls, name: str, cardinality: Cardinality, time_per_attempt: float = 0.0
     ) -> "PropertyBudget":
         """Create a property budget with calculated attempt limits."""
-        theoretical = AttemptStrategy.theoretical_limit(cardinality)
-        practical = AttemptStrategy.practical_baseline(cardinality)
-
+        baseline = baseline_attempts(cardinality)
         return cls(
             name=name,
             cardinality=cardinality,
-            theoretical_limit=theoretical,
-            practical_baseline=practical,
+            attempt_limit=attempt_limit(cardinality),
+            baseline_attempts=baseline,
             time_per_attempt=time_per_attempt,
-            final_attempts=practical,  # Start with practical as default
-            estimated_time=practical * time_per_attempt,
+            final_attempts=baseline,
+            estimated_time=baseline * time_per_attempt,
         )
 
     def with_calibration(self, time_per_attempt: float) -> "PropertyBudget":
-        """Return new PropertyBudget with calibration timing."""
-        return PropertyBudget(
-            name=self.name,
-            cardinality=self.cardinality,
-            theoretical_limit=self.theoretical_limit,
-            practical_baseline=self.practical_baseline,
+        """Return a new PropertyBudget with calibration timing."""
+        return replace(
+            self,
             time_per_attempt=time_per_attempt,
-            final_attempts=self.practical_baseline,
-            estimated_time=self.practical_baseline * time_per_attempt,
+            final_attempts=self.baseline_attempts,
+            estimated_time=self.baseline_attempts * time_per_attempt,
         )
 
     def with_final_attempts(self, attempts: int) -> "PropertyBudget":
-        """Return new PropertyBudget with final allocated attempts."""
-        return PropertyBudget(
-            name=self.name,
-            cardinality=self.cardinality,
-            theoretical_limit=self.theoretical_limit,
-            practical_baseline=self.practical_baseline,
-            time_per_attempt=self.time_per_attempt,
+        """Return a new PropertyBudget with final allocated attempts."""
+        return replace(
+            self,
             final_attempts=attempts,
             estimated_time=attempts * self.time_per_attempt,
         )
 
-    def is_infinite_cardinality(self) -> bool:
-        """Check if this property has infinite cardinality."""
-        return "∞" in self.cardinality.asymptotic_class()
-
     def can_be_boosted(self) -> bool:
-        """Check if this property can benefit from more attempts."""
+        """Whether this property benefits from more attempts."""
         return (
-            self.is_infinite_cardinality()
-            and self.final_attempts < self.theoretical_limit
+            not self.cardinality.is_finite
+            and self.final_attempts < self.attempt_limit
         )
 
 
-class BudgetAllocationStrategy:
-    """Encapsulates budget allocation logic."""
+###############################################################################
+# Allocation strategies
+###############################################################################
+def _scale_down(
+    properties: list[PropertyBudget], time_budget: float
+) -> list[PropertyBudget]:
+    """Scale down all properties proportionally to fit the budget."""
+    total_time = sum(p.estimated_time for p in properties)
+    if total_time <= 0:
+        return properties
 
-    @staticmethod
-    def scale_down(
-        properties: list[PropertyBudget], time_budget: float
-    ) -> list[PropertyBudget]:
-        """Scale down all properties proportionally to fit budget."""
-        total_time = sum(p.estimated_time for p in properties)
-        if total_time <= 0:
-            return properties
+    scaling_factor = time_budget / total_time
+    return [
+        p.with_final_attempts(max(1, int(p.baseline_attempts * scaling_factor)))
+        for p in properties
+    ]
 
-        scaling_factor = time_budget / total_time
 
-        return [
-            p.with_final_attempts(
-                max(1, int(p.practical_baseline * scaling_factor))
+def _boost_unbounded(
+    properties: list[PropertyBudget], time_budget: float
+) -> list[PropertyBudget]:
+    """Boost unbounded-domain properties with the remaining budget."""
+    current_time = sum(p.estimated_time for p in properties)
+    remaining_budget = time_budget - current_time
+    if remaining_budget <= 0:
+        return properties
+
+    result = list(properties)
+    for index, prop in enumerate(result):
+        if not prop.can_be_boosted() or remaining_budget <= 0:
+            continue
+        if prop.time_per_attempt <= 0:
+            continue
+
+        max_additional = prop.attempt_limit - prop.final_attempts
+        affordable_additional = int(remaining_budget / prop.time_per_attempt)
+        additional_attempts = min(max_additional, affordable_additional)
+
+        if additional_attempts > 0:
+            result[index] = prop.with_final_attempts(
+                prop.final_attempts + additional_attempts
             )
-            for p in properties
-        ]
+            remaining_budget -= additional_attempts * prop.time_per_attempt
 
-    @staticmethod
-    def boost_infinite_properties(
-        properties: list[PropertyBudget], time_budget: float
-    ) -> list[PropertyBudget]:
-        """Boost infinite cardinality properties with remaining budget."""
-        # Calculate remaining budget
-        current_time = sum(p.estimated_time for p in properties)
-        remaining_budget = time_budget - current_time
-
-        if remaining_budget <= 0:
-            return properties
-
-        # Find boostable properties
-        boostable = [p for p in properties if p.can_be_boosted()]
-        if not boostable:
-            return properties
-
-        # Distribute remaining budget
-        result_properties = list(properties)  # Copy
-
-        for i, prop in enumerate(result_properties):
-            if not prop.can_be_boosted() or remaining_budget <= 0:
-                continue
-
-            if prop.time_per_attempt <= 0:
-                continue
-
-            # Calculate boost
-            max_additional = prop.theoretical_limit - prop.final_attempts
-            affordable_additional = int(
-                remaining_budget / prop.time_per_attempt
-            )
-            additional_attempts = min(max_additional, affordable_additional)
-
-            if additional_attempts > 0:
-                new_attempts = prop.final_attempts + additional_attempts
-                result_properties[i] = prop.with_final_attempts(new_attempts)
-                remaining_budget -= additional_attempts * prop.time_per_attempt
-
-        return result_properties
+    return result
 
 
+###############################################################################
+# Allocator
+###############################################################################
 class BudgetAllocator:
-    """Clean budget allocator."""
+    """Distributes a time budget over calibrated properties."""
 
     def __init__(self, time_budget: float):
         self.time_budget = time_budget
-        self._property_budgets: list[PropertyBudget] = []
+        self._property_budgets: dict[str, PropertyBudget] = {}
         self._calibration_complete = False
 
-    def add_property(self, name: str, cardinality: Any) -> None:
-        """Add a property for budget allocation."""
-        prop_budget = PropertyBudget.create(name, cardinality)
-        self._property_budgets.append(prop_budget)
+    def add_property(self, name: str, cardinality: Cardinality) -> None:
+        """Register a property for budget allocation.
+
+        :raises ValueError: When a property with the same description was
+            already registered; property descriptions must be unique.
+        """
+        if name in self._property_budgets:
+            raise ValueError(
+                f'Duplicate property description "{name}"; descriptions '
+                "must be unique for budget allocation"
+            )
+        self._property_budgets[name] = PropertyBudget.create(name, cardinality)
 
     def record_calibration(
         self, property_name: str, total_time: float, attempts: int
     ) -> None:
         """Record calibration timing for a property."""
+        prop = self._property_budgets[property_name]
         time_per_attempt = total_time / max(attempts, 1)
-
-        # Update the property with calibration data
-        for i, prop in enumerate(self._property_budgets):
-            if prop.name == property_name:
-                self._property_budgets[i] = prop.with_calibration(
-                    time_per_attempt
-                )
-                break
+        self._property_budgets[property_name] = prop.with_calibration(
+            time_per_attempt
+        )
 
     def finalize_allocation(self) -> None:
         """Finalize the budget allocation."""
         self._calibration_complete = True
 
-        # Calculate total estimated time
-        total_estimated = sum(p.estimated_time for p in self._property_budgets)
+        properties = list(self._property_budgets.values())
+        total_estimated = sum(p.estimated_time for p in properties)
 
         if total_estimated <= self.time_budget:
-            # Within budget - try to boost infinite properties
-            self._property_budgets = (
-                BudgetAllocationStrategy.boost_infinite_properties(
-                    self._property_budgets, self.time_budget
-                )
-            )
+            properties = _boost_unbounded(properties, self.time_budget)
         else:
-            # Over budget - scale down proportionally
-            self._property_budgets = BudgetAllocationStrategy.scale_down(
-                self._property_budgets, self.time_budget
-            )
+            properties = _scale_down(properties, self.time_budget)
+
+        self._property_budgets = {p.name: p for p in properties}
 
     def get_allocated_attempts(self, property_name: str) -> int:
-        """Get allocated attempts for a property."""
+        """Get allocated attempts for a property.
+
+        :raises KeyError: When the property was never registered.
+        """
         if not self._calibration_complete:
             return 10  # Calibration phase
-
-        for prop in self._property_budgets:
-            if prop.name == property_name:
-                return prop.final_attempts
-
-        return 1  # Fallback
+        return self._property_budgets[property_name].final_attempts
 
     def get_property_budget(self, property_name: str) -> PropertyBudget | None:
         """Get full budget info for a property."""
-        for prop in self._property_budgets:
-            if prop.name == property_name:
-                return prop
-        return None
+        return self._property_budgets.get(property_name)
 
     @property
     def total_estimated_time(self) -> float:
         """Total estimated execution time."""
-        return sum(p.estimated_time for p in self._property_budgets)
+        return sum(p.estimated_time for p in self._property_budgets.values())
 
     @property
     def scaling_factor(self) -> float:
@@ -261,8 +231,8 @@ class BudgetAllocator:
             return 1.0
 
         baseline_time = sum(
-            p.practical_baseline * p.time_per_attempt
-            for p in self._property_budgets
+            p.baseline_attempts * p.time_per_attempt
+            for p in self._property_budgets.values()
         )
         if baseline_time <= 0:
             return 1.0
@@ -272,7 +242,7 @@ class BudgetAllocator:
     @property
     def properties(self) -> list[PropertyBudget]:
         """Get all property budgets."""
-        return list(self._property_budgets)  # Return copy
+        return list(self._property_budgets.values())
 
     def is_calibration_complete(self) -> bool:
         """Check if calibration is complete."""

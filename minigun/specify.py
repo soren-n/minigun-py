@@ -57,6 +57,7 @@ from minigun import generate as g
 from minigun import pretty as p
 from minigun import reporter as r
 from minigun import search as s
+from minigun.budget import baseline_attempts
 from minigun.reporter import CardinalityInfo
 
 
@@ -111,7 +112,7 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
             if generator is None:
                 continue
             total_cardinality = total_cardinality * generator.cardinality
-        optimal_attempts = c.calculate_optimal_attempts(total_cardinality)
+        optimal_attempts = baseline_attempts(total_cardinality)
 
         # Done
         return _Prop(desc, optimal_attempts, law, params, generators, printers)

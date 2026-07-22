@@ -143,7 +143,7 @@ def test_lazy_generator_defers_and_memoizes(seed_val: int) -> bool:
 
     lazy_gen = g.lazy(_build)
 
-    if not isinstance(lazy_gen.cardinality, c.Infinite):
+    if lazy_gen.cardinality.is_finite:
         return False
     if build_count[0] != 0:
         return False
@@ -407,18 +407,18 @@ def test_optional_generator_coverage(seed_val: int) -> bool:
 
 
 @context(d.small_nat())
-@prop("AttemptStrategy.theoretical_limit returns reasonable values")
-def test_attempt_strategy_theoretical_limit(size: int) -> bool:
-    cardinality = c.Finite(max(1, size % 10000))
-    limit = b.AttemptStrategy.theoretical_limit(cardinality)
+@prop("attempt_limit returns reasonable values")
+def test_attempt_limit_policy(size: int) -> bool:
+    cardinality = c.finite(max(1, size % 10000))
+    limit = b.attempt_limit(cardinality)
     return 1 <= limit <= 10000
 
 
 @context(d.small_nat())
-@prop("AttemptStrategy.practical_baseline handles finite cardinalities")
-def test_attempt_strategy_practical_baseline_finite(size: int) -> bool:
-    cardinality = c.Finite(max(10, size % 1000))
-    attempts = b.AttemptStrategy.practical_baseline(cardinality)
+@prop("baseline_attempts handles finite cardinalities")
+def test_baseline_attempts_policy(size: int) -> bool:
+    cardinality = c.finite(max(10, size % 1000))
+    attempts = b.baseline_attempts(cardinality)
     return attempts >= 10
 
 
@@ -426,22 +426,22 @@ def test_attempt_strategy_practical_baseline_finite(size: int) -> bool:
 @prop("PropertyBudget.create produces valid budgets")
 def test_property_budget_create(seed_val: int) -> bool:
     size = max(10, seed_val % 1000)
-    cardinality = c.Finite(size)
+    cardinality = c.finite(size)
     budget = b.PropertyBudget.create("test_prop", cardinality)
 
     return (
         budget.name == "test_prop"
         and budget.cardinality == cardinality
-        and budget.theoretical_limit > 0
-        and budget.practical_baseline > 0
-        and budget.final_attempts == budget.practical_baseline
+        and budget.attempt_limit > 0
+        and budget.baseline_attempts > 0
+        and budget.final_attempts == budget.baseline_attempts
     )
 
 
 @context(d.small_nat())
 @prop("PropertyBudget.with_calibration updates timing correctly")
 def test_property_budget_with_calibration(seed_val: int) -> bool:
-    cardinality = c.Finite(100)
+    cardinality = c.finite(100)
     budget = b.PropertyBudget.create("test", cardinality)
     time_per_attempt = max(0.001, (seed_val % 100) / 1000.0)
 
@@ -450,7 +450,7 @@ def test_property_budget_with_calibration(seed_val: int) -> bool:
     return (
         calibrated.time_per_attempt == time_per_attempt
         and calibrated.estimated_time
-        == calibrated.practical_baseline * time_per_attempt
+        == calibrated.baseline_attempts * time_per_attempt
         and calibrated.name == budget.name
     )
 
@@ -458,7 +458,7 @@ def test_property_budget_with_calibration(seed_val: int) -> bool:
 @context(d.small_nat())
 @prop("PropertyBudget.with_final_attempts updates attempts correctly")
 def test_property_budget_with_final_attempts(seed_val: int) -> bool:
-    cardinality = c.Finite(100)
+    cardinality = c.finite(100)
     budget = b.PropertyBudget.create("test", cardinality, 0.01)
     new_attempts = max(1, seed_val % 50)
 
@@ -472,19 +472,19 @@ def test_property_budget_with_final_attempts(seed_val: int) -> bool:
 
 
 @context(d.small_nat())
-@prop("PropertyBudget.is_infinite_cardinality detects infinite correctly")
+@prop("PropertyBudget tracks finiteness of its cardinality")
 def test_property_budget_infinite_cardinality_detection(seed_val: int) -> bool:
     # Test with finite cardinality
-    finite_card = c.Finite(max(1, seed_val % 1000))
+    finite_card = c.finite(max(1, seed_val % 1000))
     finite_budget = b.PropertyBudget.create("finite", finite_card)
 
     # Test with infinite cardinality
-    infinite_card = c.Infinite()
+    infinite_card = c.INFINITE
     infinite_budget = b.PropertyBudget.create("infinite", infinite_card)
 
     return (
-        not finite_budget.is_infinite_cardinality()
-        and infinite_budget.is_infinite_cardinality()
+        finite_budget.cardinality.is_finite
+        and not infinite_budget.cardinality.is_finite
     )
 
 
@@ -494,7 +494,7 @@ def test_budget_allocator_add_property(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(30.0)
     initial_count = len(allocator.properties)
 
-    cardinality = c.Finite(max(1, seed_val % 100))
+    cardinality = c.finite(max(1, seed_val % 100))
     allocator.add_property("test_prop", cardinality)
 
     return len(allocator.properties) == initial_count + 1
@@ -504,7 +504,7 @@ def test_budget_allocator_add_property(seed_val: int) -> bool:
 @prop("BudgetAllocator.record_calibration updates timing")
 def test_budget_allocator_record_calibration(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(60.0)
-    cardinality = c.Finite(100)
+    cardinality = c.finite(100)
     allocator.add_property("test_prop", cardinality)
 
     # Record calibration
@@ -528,7 +528,7 @@ def test_budget_allocator_record_calibration(seed_val: int) -> bool:
 )
 def test_budget_allocator_calibration_attempts(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(30.0)
-    cardinality = c.Finite(max(1, seed_val % 100))
+    cardinality = c.finite(max(1, seed_val % 100))
     allocator.add_property("test", cardinality)
 
     # Should return calibration default before finalization
@@ -540,7 +540,7 @@ def test_budget_allocator_calibration_attempts(seed_val: int) -> bool:
 @prop("BudgetAllocator.finalize_allocation completes calibration")
 def test_budget_allocator_finalize_allocation(seed_val: int) -> bool:
     allocator = b.BudgetAllocator(60.0)
-    cardinality = c.Finite(100)
+    cardinality = c.finite(100)
     allocator.add_property("test", cardinality)
     allocator.record_calibration("test", 0.1, 10)
 
@@ -552,24 +552,23 @@ def test_budget_allocator_finalize_allocation(seed_val: int) -> bool:
 
 
 @context(d.small_nat())
-@prop("BudgetAllocationStrategy.scale_down reduces attempts proportionally")
+@prop("over-budget allocation scales attempts down to fit")
 def test_budget_allocation_scale_down(seed_val: int) -> bool:
-    # Create properties that will exceed budget
-    cardinality = c.Finite(1000)
-    prop1 = b.PropertyBudget.create("prop1", cardinality)
-    prop2 = b.PropertyBudget.create("prop2", cardinality)
-
-    # Add calibration timing that will exceed our small budget
-    prop1 = prop1.with_calibration(0.1)
-    prop2 = prop2.with_calibration(0.1)
-    properties = [prop1, prop2]
-
     # Use a small budget that forces scaling
     time_budget = max(0.5, (seed_val % 5) + 1.0)
-    scaled = b.BudgetAllocationStrategy.scale_down(properties, time_budget)
+    allocator = b.BudgetAllocator(time_budget)
 
-    total_time = sum(p.estimated_time for p in scaled)
-    return total_time <= time_budget * 1.1 and len(scaled) == len(properties)
+    # Create properties whose estimates will exceed the budget
+    cardinality = c.finite(1000)
+    allocator.add_property("prop1", cardinality)
+    allocator.add_property("prop2", cardinality)
+    allocator.record_calibration("prop1", 1.0, 10)
+    allocator.record_calibration("prop2", 1.0, 10)
+
+    allocator.finalize_allocation()
+
+    total_time = allocator.total_estimated_time
+    return total_time <= time_budget * 1.1 and len(allocator.properties) == 2
 
 
 ###############################################################################
@@ -684,7 +683,7 @@ def test_orchestrator_execute_simple_modules(seed_val: int) -> bool:
 @context(d.small_nat())
 @prop("CardinalityInfo creates valid objects")
 def test_cardinality_info_creation(seed_val: int) -> bool:
-    cardinality = c.Finite(max(1, seed_val % 1000))
+    cardinality = c.finite(max(1, seed_val % 1000))
     optimal_limit = max(1, seed_val % 100)
     allocated_attempts = max(1, seed_val % 50)
     estimated_time = max(0.001, float(seed_val % 100) / 1000.0)
@@ -707,7 +706,7 @@ def test_cardinality_info_creation(seed_val: int) -> bool:
 @context(d.small_nat())
 @prop("CardinalityInfo.to_dict creates valid dictionary")
 def test_cardinality_info_to_dict(seed_val: int) -> bool:
-    cardinality = c.Finite(max(1, seed_val % 1000))
+    cardinality = c.finite(max(1, seed_val % 1000))
     optimal_limit = max(1, seed_val % 100)
     allocated_attempts = max(1, seed_val % 50)
 
@@ -774,7 +773,7 @@ def test_test_result_to_dict(seed_val: int) -> bool:
 @prop("TestResult with CardinalityInfo serializes correctly")
 def test_test_result_with_cardinality_to_dict(seed_val: int) -> bool:
     name = f"test_property_{seed_val % 100}"
-    cardinality = c.Finite(max(1, seed_val % 1000))
+    cardinality = c.finite(max(1, seed_val % 1000))
 
     cardinality_info = r.CardinalityInfo(
         domain_size=cardinality, optimal_limit=10, allocated_attempts=5
@@ -843,8 +842,8 @@ def test() -> bool:
             test_single_element_bounded_collections,
             test_optional_generator_coverage,
             # Budget module tests
-            test_attempt_strategy_theoretical_limit,
-            test_attempt_strategy_practical_baseline_finite,
+            test_attempt_limit_policy,
+            test_baseline_attempts_policy,
             test_property_budget_create,
             test_property_budget_with_calibration,
             test_property_budget_with_final_attempts,
