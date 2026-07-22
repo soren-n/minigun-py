@@ -13,19 +13,22 @@ from pathlib import Path
 
 def discover_test_modules(
     test_dir: Path,
-) -> dict[str, Callable[[], bool]]:
+) -> tuple[dict[str, Callable[[], bool]], dict[str, str]]:
     """
     Discover test modules in a directory.
 
     Looks for Python files containing a function: def test() -> bool
 
     :param test_dir: Directory to search for test modules
-    :return: Dictionary mapping module names to test functions
+    :return: A tuple of (module name -> test function) for importable
+        modules and (module name -> error description) for modules that
+        failed to import. A broken module is an error, never skipped.
     """
     test_modules: dict[str, Callable[[], bool]] = {}
+    broken_modules: dict[str, str] = {}
 
     if not test_dir.exists() or not test_dir.is_dir():
-        return test_modules
+        return test_modules, broken_modules
 
     # Find all Python files
     for py_file in test_dir.glob("*.py"):
@@ -39,30 +42,35 @@ def discover_test_modules(
             # Dynamically import the module
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if not spec or not spec.loader:
+                broken_modules[module_name] = "could not create import spec"
                 continue
 
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-
-            # Look for test() function
-            if not hasattr(module, "test"):
-                continue
-
-            test_func = module.test
-            if not callable(test_func):
-                continue
-
-            # Verify it has no parameters
-            sig = inspect.signature(test_func)
-            if len(sig.parameters) != 0:
-                continue
-
-            test_modules[module_name] = test_func
-        except Exception:
-            # Silently skip modules that fail to import
+        except Exception as error:
+            broken_modules[module_name] = f"{type(error).__name__}: {error}"
             continue
 
-    return test_modules
+        # Look for test() function; files without one are not test modules
+        if not hasattr(module, "test"):
+            continue
+
+        test_func = module.test
+        if not callable(test_func):
+            broken_modules[module_name] = "'test' attribute is not callable"
+            continue
+
+        # Verify it has no parameters
+        sig = inspect.signature(test_func)
+        if len(sig.parameters) != 0:
+            broken_modules[module_name] = (
+                "'test' function must take no parameters"
+            )
+            continue
+
+        test_modules[module_name] = test_func
+
+    return test_modules, broken_modules
 
 
 def run_tests(
@@ -80,7 +88,12 @@ def run_tests(
     )
 
     # Discover test modules
-    test_modules = discover_test_modules(test_dir)
+    test_modules, broken_modules = discover_test_modules(test_dir)
+
+    if broken_modules:
+        for name, error in sorted(broken_modules.items()):
+            print(f"Error: Test module '{name}' failed to load: {error}")
+        return False
 
     if not test_modules:
         print(f"No test modules found in {test_dir}")
@@ -89,20 +102,14 @@ def run_tests(
 
     # Filter modules if specified
     if modules:
-        filtered_modules: dict[str, Callable[[], bool]] = {}
-        for module in modules:
-            if module in test_modules:
-                filtered_modules[module] = test_modules[module]
-            else:
-                available = ", ".join(test_modules.keys())
-                print(
-                    f"Warning: Module '{module}' not found. Available: {available}"
-                )
-        test_modules = filtered_modules
-
-    if not test_modules:
-        print("No test modules to run after filtering.")
-        return False
+        unknown = [module for module in modules if module not in test_modules]
+        if unknown:
+            available = ", ".join(sorted(test_modules.keys()))
+            for module in unknown:
+                print(f"Error: Module '{module}' not found.")
+            print(f"Available modules: {available}")
+            return False
+        test_modules = {module: test_modules[module] for module in modules}
 
     # Create test modules for orchestrator
     test_module_objects = [
@@ -200,18 +207,22 @@ Examples:
         return
 
     if args.list_modules:
-        test_modules = discover_test_modules(args.test_dir)
+        test_modules, broken_modules = discover_test_modules(args.test_dir)
         if test_modules:
             print(f"Discovered test modules in {args.test_dir}:")
             for module in sorted(test_modules.keys()):
                 print(f"  - {module}")
-        else:
+        if broken_modules:
+            print(f"Broken test modules in {args.test_dir}:")
+            for module, error in sorted(broken_modules.items()):
+                print(f"  - {module}: {error}")
+        if not test_modules and not broken_modules:
             print(f"No test modules found in {args.test_dir}")
             print("Tip: Test modules should contain 'def test() -> bool'")
-        return
+        sys.exit(1 if broken_modules else 0)
 
     # Validate time budget when needed
-    if not args.time_budget:
+    if args.time_budget is None:
         print("Error: --time-budget is required for running tests")
         print("Use --list-modules to see available test modules")
         sys.exit(1)
