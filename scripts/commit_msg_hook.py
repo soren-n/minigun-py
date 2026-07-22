@@ -69,7 +69,9 @@ def main():
         print("  docs: update API documentation")
         print("  feat!: redesign core API (breaking change)")
         print()
-        print("See SEMANTIC_VERSIONING.md for more details.")
+        print(
+            "See https://www.conventionalcommits.org for the full specification."
+        )
         sys.exit(1)
 
     print("Commit message format is valid")

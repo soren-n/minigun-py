@@ -29,7 +29,7 @@ Example::
 
         # Sample values
         state = a.seed(42)
-        state, maybe_person = person_gen.sample(state)
+        state, person_dissection = person_gen.sample(state)
 """
 
 # External module dependencies

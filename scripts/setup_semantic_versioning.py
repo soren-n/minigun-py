@@ -66,7 +66,9 @@ def main():
     print("   - fix: for bug fixes (patch version bump)")
     print("   - feat!: for breaking changes (major version bump)")
     print("3. Push to main branch to trigger automatic releases")
-    print("\nSee SEMANTIC_VERSIONING.md for detailed usage instructions.")
+    print(
+        "\nSee https://www.conventionalcommits.org for the full specification."
+    )
 
     return 0
 

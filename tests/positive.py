@@ -6,8 +6,8 @@ import minigun.generate as g
 # Internal imports
 from minigun.specify import Spec, check, conj, context, prop
 
-# The testing strategy for minigun is to exercise the bundled domains.
-# This will cover the following four areas of testing for each domain:
+# The testing strategy for minigun is to exercise the bundled generators.
+# This will cover the following four areas of testing for each generator:
 #   - Positive black-box testing
 #       (Expected outcome of specified interaction with interface)
 #       (Historically referred to as property-based testing)
@@ -29,9 +29,9 @@ type Inverse[T] = Callable[[T], T]
 
 
 def _operator_commute[T](
-    name: str, value_domain: g.Generator[T], operator: Operator[T]
+    name: str, value_generator: g.Generator[T], operator: Operator[T]
 ) -> Spec:
-    @context(value_domain, value_domain)
+    @context(value_generator, value_generator)
     @prop(f"{name} is commutative")
     def _operator_commute_impl(a: T, b: T):
         return operator(a, b) == operator(b, a)
@@ -40,9 +40,9 @@ def _operator_commute[T](
 
 
 def _operator_assoc[T](
-    name: str, value_domain: g.Generator[T], operator: Operator[T]
+    name: str, value_generator: g.Generator[T], operator: Operator[T]
 ) -> Spec:
-    @context(value_domain, value_domain, value_domain)
+    @context(value_generator, value_generator, value_generator)
     @prop(f"{name} is associative")
     def _operator_assoc_impl(a: T, b: T, c: T):
         return operator(a, operator(b, c)) == operator(operator(a, b), c)
@@ -51,9 +51,12 @@ def _operator_assoc[T](
 
 
 def _operator_identity[T](
-    name: str, identity: T, value_domain: g.Generator[T], operator: Operator[T]
+    name: str,
+    identity: T,
+    value_generator: g.Generator[T],
+    operator: Operator[T],
 ) -> Spec:
-    @context(value_domain)
+    @context(value_generator)
     @prop(f'"{identity}" is identity under {name}')
     def _operator_neutral_impl(a: T):
         return operator(a, identity) == a
@@ -64,11 +67,11 @@ def _operator_identity[T](
 def _operator_inverse[T](
     name: str,
     identity: T,
-    value_domain: g.Generator[T],
+    value_generator: g.Generator[T],
     operator: Operator[T],
     inverse: Inverse[T],
 ) -> Spec:
-    @context(value_domain)
+    @context(value_generator)
     @prop(f"Domain has inverse under {name}")
     def _operator_inverse_impl(a: T):
         return operator(a, inverse(a)) == identity
@@ -79,11 +82,11 @@ def _operator_inverse[T](
 def _operators_dist[T](
     plus_name: str,
     times_name: str,
-    value_domain: g.Generator[T],
+    value_generator: g.Generator[T],
     plus: Operator[T],
     times: Operator[T],
 ) -> Spec:
-    @context(value_domain, value_domain, value_domain)
+    @context(value_generator, value_generator, value_generator)
     @prop(f"{plus_name} and {times_name} are distributive")
     def _operators_dist_impl(a: T, b: T, c: T):
         return (times(a, plus(b, c)) == plus(times(a, b), times(a, c))) and (
@@ -94,26 +97,29 @@ def _operators_dist[T](
 
 
 def _operator_moniod[T](
-    name: str, identity: T, value_domain: g.Generator[T], operator: Operator[T]
+    name: str,
+    identity: T,
+    value_generator: g.Generator[T],
+    operator: Operator[T],
 ) -> Spec:
     return conj(
-        _operator_identity(name, identity, value_domain, operator),
-        _operator_assoc(name, value_domain, operator),
+        _operator_identity(name, identity, value_generator, operator),
+        _operator_assoc(name, value_generator, operator),
     )
 
 
 def _operator_abelian[T](
     name: str,
     identity: T,
-    value_domain: g.Generator[T],
+    value_generator: g.Generator[T],
     operator: Operator[T],
     inverse: Inverse[T],
 ) -> Spec:
     return conj(
-        _operator_identity(name, identity, value_domain, operator),
-        _operator_inverse(name, identity, value_domain, operator, inverse),
-        _operator_assoc(name, value_domain, operator),
-        _operator_commute(name, value_domain, operator),
+        _operator_identity(name, identity, value_generator, operator),
+        _operator_inverse(name, identity, value_generator, operator, inverse),
+        _operator_assoc(name, value_generator, operator),
+        _operator_commute(name, value_generator, operator),
     )
 
 
@@ -122,17 +128,17 @@ def _operators_ring[T](
     times_name: str,
     plus_identity: T,
     times_identity: T,
-    value_domain: g.Generator[T],
+    value_generator: g.Generator[T],
     plus: Operator[T],
     times: Operator[T],
     inverse: Inverse[T],
 ) -> Spec:
     return conj(
         _operator_abelian(
-            plus_name, plus_identity, value_domain, plus, inverse
+            plus_name, plus_identity, value_generator, plus, inverse
         ),
-        _operator_moniod(times_name, times_identity, value_domain, times),
-        _operators_dist(plus_name, times_name, value_domain, plus, times),
+        _operator_moniod(times_name, times_identity, value_generator, times),
+        _operators_dist(plus_name, times_name, value_generator, plus, times),
     )
 
 
