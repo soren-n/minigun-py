@@ -2,6 +2,49 @@
 
 <!-- version list -->
 
+## v3.0.0 (2026-07-22)
+
+### Bug Fixes
+
+- **cli**: Fail loudly on broken or unknown test modules
+  ([`90737eb`](https://github.com/soren-n/minigun-py/commit/90737eb9e08e26b2912b06b0a64d9838c65aa384))
+
+- **shrink,stream**: Stop swallowing exceptions and fix lazy loop capture
+  ([`0c98793`](https://github.com/soren-n/minigun-py/commit/0c98793ff52270b6599932dfeb2f64927305a2f1))
+
+- **specify**: Correct neg semantics and drop disj/impl
+  ([`8a7a554`](https://github.com/soren-n/minigun-py/commit/8a7a554d869ab817f163587b20c88871f0e7b13e))
+
+### Refactoring
+
+- Collapse the cardinality system to a saturating size value
+  ([`f71057a`](https://github.com/soren-n/minigun-py/commit/f71057a2b4e1c1bc276f6e4dd16c48c9174fade2))
+
+- Declarative test modules with a single-pass, seed-reproducible runner
+  ([`fd80ed9`](https://github.com/soren-n/minigun-py/commit/fd80ed9a30035cffbe925634283184575a30a3e3))
+
+- Drop the typeset printer system; render counter examples with repr
+  ([`4b9f169`](https://github.com/soren-n/minigun-py/commit/4b9f169ebd6b1c863a47594d8dbe6820727dafe2))
+
+- Random-instance PRNG state and builtin-shadow-free naming
+  ([`d2a143b`](https://github.com/soren-n/minigun-py/commit/d2a143bdf03f5b820cd897bc2f547e340d6bd3c5))
+
+- Rebuild the core data model without returns.Maybe
+  ([`e37bf76`](https://github.com/soren-n/minigun-py/commit/e37bf765b99c37f2670f09c758378fbc3bb4c66e))
+
+- Remove order.py in favor of builtin sorting
+  ([`c943fe2`](https://github.com/soren-n/minigun-py/commit/c943fe2847af1e384c918e54361d61209e78da96))
+
+- Remove sample.py
+  ([`c40aeac`](https://github.com/soren-n/minigun-py/commit/c40aeacf97dc16c6f1e30f23eec632b51fc3d5e3))
+
+### Breaking Changes
+
+- The renames above; arbitrary.State is a random.Random rather than a getstate() tuple.
+
+- **specify**: Minigun.specify.disj and minigun.specify.impl no longer exist.
+
+
 ## v2.5.0 (2026-04-19)
 
 ### Bug Fixes
