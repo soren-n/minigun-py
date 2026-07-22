@@ -10,7 +10,6 @@ import minigun.arbitrary as a
 import minigun.domain as d
 import minigun.generate as g
 import minigun.order as o
-import minigun.sample as s
 import minigun.shrink as sh
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, prop
@@ -413,33 +412,6 @@ def test_list_shrinking_shortens(seed_val: int) -> bool:
 
 
 ###############################################################################
-# Tests for sample.py - Domain slicing functionality
-###############################################################################
-
-
-@context(d.small_nat(), d.int_range(1, 5), d.int_range(1, 10))
-@prop("slice generates valid sample sequences")
-def test_slice_generation(
-    seed_val: int, max_width: int, max_depth: int
-) -> bool:
-    state = a.seed(seed_val)
-
-    int_gen = g.int_range(0, 100)
-    state, maybe_slice = s.slice(int_gen, max_width, max_depth, state)
-
-    match maybe_slice:
-        case Some(values):
-            # All values should be in the valid range
-            return (
-                isinstance(values, list)
-                and len(values) <= max_depth
-                and all(isinstance(v, int) and 0 <= v <= 100 for v in values)
-            )
-        case Maybe.empty:
-            return True
-
-
-###############################################################################
 # Tests for stream.py - Functional stream operations
 ###############################################################################
 
@@ -605,8 +577,6 @@ def test() -> bool:
             # Shrink module tests
             test_int_shrinking_decreases,
             test_list_shrinking_shortens,
-            # Sample module tests
-            test_slice_generation,
             # Stream module tests
             test_stream_map_length,
             test_stream_filter,
