@@ -6,17 +6,14 @@ It implements generators for all Python built-in types and combinators for
 composing complex data structures with proper shrinking support.
 
 Architecture:
-    - Generator[T]: Tuple of (sampler, cardinality) for type T
+    - Generator[T]: A sampler paired with the cardinality of its domain
     - Sample[T]: State-threaded generation with shrinking info
     - Combinators: map, bind, filter, choice for composition
 
 Built-in Generators:
-    - Primitives: bool, nat, int, float, char, str
+    - Primitives: bool, nat, int, float, str
     - Collections: list, dict, set, tuple
     - Utilities: constant, one_of, weighted_choice
-
-The generator system integrates with the cardinality analysis system to provide
-optimal test attempt allocation based on domain complexity.
 
 Example::
 
@@ -27,12 +24,12 @@ Example::
         person_gen = g.map(
             lambda name, age: {"name": name, "age": age},
             g.str(),
-            g.nat(0, 120)
+            g.small_nat()
         )
 
         # Sample values
         state = a.seed(42)
-        state, maybe_person = person_gen(state)
+        state, maybe_person = person_gen.sample(state)
 """
 
 # External module dependencies
@@ -51,11 +48,9 @@ from builtins import set as _set
 from builtins import str as _str
 from builtins import tuple as _tuple
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import cache, partial
-from inspect import Parameter, signature
 from typing import Any, cast, get_args, get_origin
-
-from returns.maybe import Maybe, Nothing, Some
 
 # Internal module dependencies
 from minigun import arbitrary as a
@@ -68,34 +63,29 @@ from minigun import util as u
 # Generator
 ###############################################################################
 
-#: A sample taken from a generator over a type `T`
-type Sample[T] = _tuple[a.State, Maybe[s.Dissection[T]]]
+#: A sample taken from a generator over a type `T`. The dissection is None
+#: when generation failed (e.g. a filter rejected the drawn value).
+type Sample[T] = _tuple[a.State, s.Dissection[T] | None]
 
 #: A sampler over a type `T`
 type Sampler[T] = Callable[[a.State], Sample[T]]
 
-#: A generator over a type `T`
-type Generator[T] = _tuple[Sampler[T], c.Cardinality]
+
+@dataclass(slots=True)
+class Generator[T]:
+    """A generator over a type `T`.
+
+    :param sample: The sampler drawing dissected values of type `T`.
+    :param cardinality: The cardinality of the generator's domain.
+    """
+
+    sample: Sampler[T]
+    cardinality: c.Cardinality
 
 
 ###############################################################################
 # Generator Combinators
 ###############################################################################
-
-
-@cache
-def _arity_info(func: Callable[..., Any]) -> _tuple[_int, _bool]:
-    """Return (argument_count, is_variadic) for func, cached by identity."""
-    try:
-        parameters = signature(func).parameters
-    except (TypeError, ValueError):
-        return 0, True
-    return (
-        len(parameters),
-        any(p.kind == Parameter.VAR_POSITIONAL for p in parameters.values()),
-    )
-
-
 def map[*P, R](
     func: Callable[[*P], R], *generators: Generator[Any]
 ) -> Generator[R]:
@@ -110,90 +100,63 @@ def map[*P, R](
     :rtype: `Generator[R]`
     """
 
-    argument_count, func_is_variadic = _arity_info(func)
-    assert len(generators) == argument_count or func_is_variadic, (
-        f"Function {func} expected {argument_count} "
-        f"arguments, but got {len(generators)} generators."
-    )
-
     def _impl(state: a.State) -> Sample[R]:
         dissections: _list[s.Dissection[Any]] = []
-        for sampler, _ in generators:
-            state, maybe_dissection = sampler(state)
-            match maybe_dissection:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(dissection):
-                    dissections.append(dissection)
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(s.map(func, *dissections))
+        for generator in generators:
+            state, dissection = generator.sample(state)
+            if dissection is None:
+                return state, None
+            dissections.append(dissection)
+        return state, s.map(func, *dissections)
 
-    # Calculate combined cardinality: product of all input cardinalities
     combined_cardinality = c.ONE
-    for _, cardinality in generators:
-        combined_cardinality = combined_cardinality * cardinality
-    return _impl, combined_cardinality
+    for generator in generators:
+        combined_cardinality = combined_cardinality * generator.cardinality
+    return Generator(_impl, combined_cardinality)
 
 
 def bind[*P, R](
     func: Callable[[*P], Generator[R]],
-    card: Callable[[_tuple[c.Cardinality, ...]], c.Cardinality],
     *generators: Generator[Any],
 ) -> Generator[R]:
     """A variadic bind function of given input generators over types `A`, `B`, etc. to an output generator over type `R`.
 
     :param func: A function creating a generator of type `R`, parameterized by generated instances of type `A`, `B`, etc.
     :type func: `A x B x ... -> Generator[R]`
-    :param card: Cardinality function that computes combined cardinality from input cardinalities
-    :type card: `Tuple[Cardinality, ...] -> Cardinality`
-    :param generators: Additional generators over types `B`, `C`, etc. to instance from.
-    :type generators: `Tuple[Generator[B], Generator[C], ...]`
+    :param generators: Input generators over types `A`, `B`, etc. to instance from.
+    :type generators: `Tuple[Generator[A], Generator[B], ...]`
 
     :return: A bound output generator.
     :rtype: `Generator[R]`
     """
 
-    argument_count, func_is_variadic = _arity_info(func)
-    assert len(generators) == argument_count or func_is_variadic, (
-        f"Function {func} expected {argument_count} "
-        f"arguments, but got {len(generators)} generators."
-    )
-
     def _impl(state: a.State) -> Sample[R]:
         values: _list[Any] = []
-        for sampler, _ in generators:
-            state, maybe_dissection = sampler(state)
-            match maybe_dissection:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(dissection):
-                    values.append(s.head(dissection))
-                case _:
-                    raise AssertionError("Invariant")
+        for generator in generators:
+            state, dissection = generator.sample(state)
+            if dissection is None:
+                return state, None
+            values.append(dissection.head)
         _values: _tuple[*P] = cast(_tuple[*P], _tuple(values))
-        result_sampler, _ = func(*_values)
-        return result_sampler(state)
+        return func(*_values).sample(state)
 
-    # Use product of input cardinalities as default approximation
-    combined_cardinality = c.Finite(1)
-    for _, cardinality in generators:
-        combined_cardinality = combined_cardinality * cardinality
-    return _impl, combined_cardinality
+    combined_cardinality = c.ONE
+    for generator in generators:
+        combined_cardinality = combined_cardinality * generator.cardinality
+    return Generator(_impl, combined_cardinality)
 
 
 def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
     """Defer construction of a generator until the first sample is drawn.
 
     Useful for recursive generator definitions where eager construction
-    (including ``inspect.signature`` calls and cardinality arithmetic
-    performed by combinators such as ``map``, ``bind`` and ``choice``)
-    would otherwise blow up construction time exponentially in the
-    recursion depth. The inner generator is built once and then reused.
+    (including cardinality arithmetic performed by combinators such as
+    ``map``, ``bind`` and ``choice``) would otherwise blow up construction
+    time exponentially in the recursion depth. The inner generator is
+    built once and then reused.
 
     Cardinality is reported as ``Infinite`` since the inner generator
-    is unknown at construction time; combinators that see this value
-    fall back to their infinite-cardinality strategies.
+    is unknown at construction time.
 
     :param thunk: A zero-argument callable returning a generator of type `T`.
     :type thunk: `() -> Generator[T]`
@@ -206,16 +169,16 @@ def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
     def _impl(state: a.State) -> Sample[T]:
         if not cached:
             cached.append(thunk())
-        sampler, _ = cached[0]
-        return sampler(state)
+        return cached[0].sample(state)
 
-    return _impl, c.Infinite()
+    return Generator(_impl, c.Infinite())
 
 
 def filter[T](
     predicate: Callable[[T], _bool], generator: Generator[T]
 ) -> Generator[T]:
-    """Filter a generator of type `T`.
+    """Filter a generator of type `T`. Both drawn values and their shrunk
+    alternatives satisfy the predicate.
 
     :param predicate: A predicate on type `T`.
     :type predicate: `A -> bool`
@@ -226,28 +189,15 @@ def filter[T](
     :rtype: `Generator[T]`
     """
 
-    # Unpack the generator
-    sampler, cardinality = generator
-
     def _impl(state: a.State) -> Sample[T]:
-        state, maybe_dissection = sampler(state)
-        match maybe_dissection:
-            case Maybe.empty:
-                return state, Nothing
-            case Some(dissection):
-                match s.filter(predicate, dissection):
-                    case Maybe.empty:
-                        return state, Nothing
-                    case Some(dissection1):
-                        return state, Some(dissection1)
-                    case _:
-                        raise AssertionError("Invariant")
-            case _:
-                raise AssertionError("Invariant")
+        state, dissection = generator.sample(state)
+        if dissection is None:
+            return state, None
+        return state, s.filter(predicate, dissection)
 
-    # Filtering reduces cardinality, but we don't know by how much
-    # Use original cardinality as upper bound
-    return _impl, cardinality
+    # Filtering reduces cardinality, but we don't know by how much;
+    # use the original cardinality as an upper bound.
+    return Generator(_impl, generator.cardinality)
 
 
 ###############################################################################
@@ -256,7 +206,7 @@ def filter[T](
 def constant[T](value: T) -> Generator[T]:
     """A generator that samples a constant value.
 
-    :param value: The constant value to be samples.
+    :param value: The constant value to be sampled.
     :type value: `T`
 
     :return: A constant generator.
@@ -264,10 +214,9 @@ def constant[T](value: T) -> Generator[T]:
     """
 
     def _impl(state: a.State) -> Sample[T]:
-        return state, Some(s.singleton(value))
+        return state, s.singleton(value)
 
-    # Constants have cardinality 1
-    return _impl, c.Finite(1)
+    return Generator(_impl, c.ONE)
 
 
 ###############################################################################
@@ -291,32 +240,52 @@ def bool() -> Generator[_bool]:
     :return: A generator of bool.
     :rtype: `Generator[bool]`
     """
+    _shrink = s.bool()
 
     def _impl(state: a.State) -> Sample[_bool]:
         state, result = a.bool(state)
-        return state, Some(s.prepend(result, s.singleton(not result)))
+        return state, _shrink(result)
 
-    # Booleans have cardinality 2
-    return _impl, c.Finite(2)
+    return Generator(_impl, c.Finite(2))
 
 
 ###############################################################################
 # Numbers
 ###############################################################################
+
+#: Cumulative probability tiers: (chance threshold, magnitude bound).
+type _Tiers = _tuple[_tuple[_float, _int], ...]
+
+
+def _tiered_int(
+    tiers: _Tiers, signed: _bool, cardinality: _int
+) -> Generator[_int]:
+    """An integer generator drawing magnitudes from probability tiers,
+    biased towards small values."""
+
+    def _impl(state: a.State) -> Sample[_int]:
+        state, prob = a.probability(state)
+        bound = tiers[-1][1]
+        for threshold, tier_bound in tiers:
+            if prob < threshold:
+                bound = tier_bound
+                break
+        if signed:
+            state, result = a.int(state, -bound, bound)
+        else:
+            state, result = a.nat(state, 0, bound)
+        return state, s.int(0)(result)
+
+    return Generator(_impl, c.Finite(cardinality))
+
+
 def small_nat() -> Generator[_int]:
     """A generator for integers :code:`n` in the range :code:`0 <= n <= 100`.
 
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        state, result = a.nat(state, 0, (10 if prop < 0.75 else 100))
-        return state, Some(s.int(0)(result))
-
-    # small_nat ranges from 0 to 100, so cardinality is 101
-    return _impl, c.Finite(101)
+    return _tiered_int(((0.75, 10), (1.0, 100)), False, 101)
 
 
 def nat() -> Generator[_int]:
@@ -325,23 +294,9 @@ def nat() -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        match prop:
-            case _ if prop < 0.5:
-                bound = 10
-            case _ if prop < 0.75:
-                bound = 100
-            case _ if prop < 0.95:
-                bound = 1000
-            case _:
-                bound = 10000
-        state, result = a.nat(state, 0, bound)
-        return state, Some(s.int(0)(result))
-
-    # Nat has cardinality approximately 10000 (weighted towards smaller numbers)
-    return _impl, c.Finite(10001)  # 0 to 10000 inclusive
+    return _tiered_int(
+        ((0.5, 10), (0.75, 100), (0.95, 1000), (1.0, 10000)), False, 10001
+    )
 
 
 def big_nat() -> Generator[_int]:
@@ -350,25 +305,11 @@ def big_nat() -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        match prop:
-            case _ if prop < 0.25:
-                bound = 10
-            case _ if prop < 0.5:
-                bound = 100
-            case _ if prop < 0.75:
-                bound = 1000
-            case _ if prop < 0.95:
-                bound = 10000
-            case _:
-                bound = 1000000
-        state, result = a.nat(state, 0, bound)
-        return state, Some(s.int(0)(result))
-
-    # Big nat has cardinality approximately 1000000
-    return _impl, c.Finite(1000001)  # 0 to 1000000 inclusive
+    return _tiered_int(
+        ((0.25, 10), (0.5, 100), (0.75, 1000), (0.95, 10000), (1.0, 1000000)),
+        False,
+        1000001,
+    )
 
 
 def small_int() -> Generator[_int]:
@@ -377,15 +318,7 @@ def small_int() -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        bound = 10 if prop < 0.75 else 100
-        state, result = a.int(state, -bound, bound)
-        return state, Some(s.int(0)(result))
-
-    # Small int from -100 to 100 = 201 values
-    return _impl, c.Finite(201)
+    return _tiered_int(((0.75, 10), (1.0, 100)), True, 201)
 
 
 def int() -> Generator[_int]:
@@ -394,23 +327,9 @@ def int() -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        match prop:
-            case _ if prop < 0.5:
-                bound = 10
-            case _ if prop < 0.75:
-                bound = 100
-            case _ if prop < 0.95:
-                bound = 1000
-            case _:
-                bound = 10000
-        state, result = a.int(state, -bound, bound)
-        return state, Some(s.int(0)(result))
-
-    # Int from -10000 to 10000 = 20001 values
-    return _impl, c.Finite(20001)
+    return _tiered_int(
+        ((0.5, 10), (0.75, 100), (0.95, 1000), (1.0, 10000)), True, 20001
+    )
 
 
 def big_int() -> Generator[_int]:
@@ -419,25 +338,11 @@ def big_int() -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
-
-    def _impl(state: a.State) -> Sample[_int]:
-        state, prop = a.probability(state)
-        match prop:
-            case _ if prop < 0.25:
-                bound = 10
-            case _ if prop < 0.5:
-                bound = 100
-            case _ if prop < 0.75:
-                bound = 1000
-            case _ if prop < 0.95:
-                bound = 10000
-            case _:
-                bound = 1000000
-        state, result = a.int(state, -bound, bound)
-        return state, Some(s.int(0)(result))
-
-    # Big int from -1000000 to 1000000 = 2000001 values
-    return _impl, c.Finite(2000001)
+    return _tiered_int(
+        ((0.25, 10), (0.5, 100), (0.75, 1000), (0.95, 10000), (1.0, 1000000)),
+        True,
+        2000001,
+    )
 
 
 def float() -> Generator[_float]:
@@ -446,23 +351,23 @@ def float() -> Generator[_float]:
     :return: A generator of float.
     :rtype: `Generator[float]`
     """
+    _shrink = s.float(0.0)
 
     def _impl(state: a.State) -> Sample[_float]:
         state, exponent = a.float(state, -15.0, 15.0)
         state, sign = a.bool(state)
         result = (1.0 if sign else -1.0) * math.exp(exponent)
-        return state, Some(s.float(0.0)(result))
+        return state, _shrink(result)
 
-    # Float has IEEE 754 double precision: 2^64 possible values
-    # Use BigO notation to represent this exponential complexity
-    return _impl, c.BigO(c._Const(2) ** c._Const(64))
+    # IEEE 754 double precision: 2^64 possible values
+    return Generator(_impl, c.BigO(c._Const(2) ** c._Const(64)))
 
 
 ###############################################################################
 # Ranges
 ###############################################################################
 def int_range(lower_bound: _int, upper_bound: _int) -> Generator[_int]:
-    """A generator for indices :code:`i` in the range :code:`lower_bound <= i <= upper_bound`.
+    """A generator for integers :code:`i` in the range :code:`lower_bound <= i <= upper_bound`.
 
     :param lower_bound: A min bound for the sampled value, must be less than or equal to `upper_bound`.
     :type lower_bound: `int`
@@ -472,29 +377,128 @@ def int_range(lower_bound: _int, upper_bound: _int) -> Generator[_int]:
     :return: A generator of int.
     :rtype: `Generator[int]`
     """
+    assert lower_bound <= upper_bound
+    target = max(lower_bound, min(0, upper_bound))
+    _shrink = s.int(target)
 
     def _impl(state: a.State) -> Sample[_int]:
-        assert lower_bound <= upper_bound
         state, result = a.int(state, lower_bound, upper_bound)
-        target = max(lower_bound, min(0, upper_bound))
-        return state, Some(s.int(target)(result))
+        return state, _shrink(result)
 
-    # int_range cardinality is the number of integers in the range
-    cardinality = upper_bound - lower_bound + 1
-    return _impl, c.Finite(cardinality)
+    return Generator(_impl, c.Finite(upper_bound - lower_bound + 1))
 
 
 ###############################################################################
-# Propability
+# Probability
 ###############################################################################
 def prop(bias: _float) -> Generator[_bool]:
+    """A generator for booleans which are True with the given bias.
+
+    :param bias: The probability of sampling True, in the range 0.0 to 1.0.
+    :type bias: `float`
+
+    :return: A generator of bool.
+    :rtype: `Generator[bool]`
+    """
     assert 0.0 <= bias and bias <= 1.0, "Invariant"
+    _shrink = s.bool()
 
     def _impl(state: a.State) -> Sample[_bool]:
         state, roll = a.float(state, 0.0, 1.0)
-        return state, Some(s.bool()(roll <= bias))
+        return state, _shrink(roll <= bias)
 
-    return _impl, c.Finite(2)  # Still binary (True/False)
+    return Generator(_impl, c.Finite(2))
+
+
+###############################################################################
+# Sequence dissection
+###############################################################################
+def _sequence_dissection[R](
+    dissections: _list[s.Dissection[Any]],
+    rebuild: Callable[[_list[Any]], R],
+    min_length: _int | None = None,
+) -> s.Dissection[R]:
+    """Dissect a sequence of element dissections into a dissection of the
+    rebuilt composite value.
+
+    Shrinking proceeds by element removal (when `min_length` is given and
+    the sequence is longer than it), then by element-wise shrinking.
+
+    :param dissections: The element dissections making up the composite.
+    :param rebuild: Rebuilds the composite value from element values.
+    :param min_length: Minimum sequence length to preserve while removing
+        elements, or None when element removal is not a valid shrink.
+    """
+
+    def _shrink_length(
+        index: _int, dissections: _list[s.Dissection[Any]]
+    ) -> fs.StreamResult[s.Dissection[R]]:
+        if min_length is None or len(dissections) <= min_length:
+            raise StopIteration
+        if index == len(dissections):
+            raise StopIteration
+        _dissections = dissections.copy()
+        del _dissections[index]
+        return _dist(_dissections), partial(
+            _shrink_length, index + 1, dissections
+        )
+
+    def _shrink_value(
+        index: _int,
+        dissections: _list[s.Dissection[Any]],
+        streams: _list[fs.Stream[s.Dissection[Any]]],
+    ) -> fs.StreamResult[s.Dissection[R]]:
+        if index == len(dissections):
+            raise StopIteration
+        _index = index + 1
+        try:
+            next_dissect, next_stream = streams[index]()
+        except StopIteration:
+            return _shrink_value(_index, dissections, streams)
+        _dissections = dissections.copy()
+        _streams = streams.copy()
+        _dissections[index] = next_dissect
+        _streams[index] = next_stream
+        return _dist(_dissections), fs.concat(
+            partial(_shrink_value, index, dissections, _streams),
+            partial(_shrink_value, _index, dissections, streams),
+        )
+
+    def _dist(dissections: _list[s.Dissection[Any]]) -> s.Dissection[R]:
+        heads = [dissection.head for dissection in dissections]
+        tails = [dissection.shrinks for dissection in dissections]
+        return s.Dissection(
+            rebuild(heads),
+            fs.concat(
+                partial(_shrink_length, 0, dissections),
+                partial(_shrink_value, 0, dissections, tails),
+            ),
+        )
+
+    return _dist(dissections)
+
+
+def _sample_many[T](
+    state: a.State, sampler: Sampler[T], count: _int
+) -> _tuple[a.State, _list[s.Dissection[T]] | None]:
+    """Draw `count` dissections from a sampler, or None if any draw fails."""
+    dissections: _list[s.Dissection[T]] = []
+    for _ in range(count):
+        state, dissection = sampler(state)
+        if dissection is None:
+            return state, None
+        dissections.append(dissection)
+    return state, dissections
+
+
+def _sized_cardinality(
+    lower_bound: _int, upper_bound: _int, item_cardinality: c.Cardinality
+) -> c.Cardinality:
+    """Cardinality of a sized collection: sum of |item|^size over sizes."""
+    total = c.ZERO
+    for size in range(lower_bound, upper_bound + 1):
+        total = total + (item_cardinality ** c.Finite(size))
+    return total
 
 
 ###############################################################################
@@ -505,13 +509,7 @@ def _bounded_str_cardinality(
     lower_bound: _int, upper_bound: _int, alphabet_size: _int
 ) -> c.Cardinality:
     """Cardinality for bounded strings: sum of |alphabet|^l for l in [lo, hi]."""
-    string_cardinality: c.Cardinality = c.Finite(0)
-    alphabet_card = c.Finite(alphabet_size)
-    for length in range(lower_bound, upper_bound + 1):
-        string_cardinality = string_cardinality + (
-            alphabet_card ** c.Finite(length)
-        )
-    return string_cardinality
+    return _sized_cardinality(lower_bound, upper_bound, c.Finite(alphabet_size))
 
 
 def bounded_str(
@@ -531,6 +529,7 @@ def bounded_str(
     """
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
+    _shrink = s.str()
 
     def _impl(state: a.State) -> Sample[_str]:
         state, length = a.int(state, lower_bound, upper_bound)
@@ -538,10 +537,11 @@ def bounded_str(
         for _ in range(length):
             state, index = a.int(state, 0, len(alphabet) - 1)
             result += alphabet[index]
-        return state, Some(s.str()(result))
+        return state, _shrink(result)
 
-    return _impl, _bounded_str_cardinality(
-        lower_bound, upper_bound, len(alphabet)
+    return Generator(
+        _impl,
+        _bounded_str_cardinality(lower_bound, upper_bound, len(alphabet)),
     )
 
 
@@ -555,18 +555,7 @@ def str() -> Generator[_str]:
     def _impl(upper_bound: _int) -> Generator[_str]:
         return bounded_str(0, upper_bound, string.printable)
 
-    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
-        # String cardinality grows exponentially with length: |alphabet|^length
-        # Use BigO notation to express this exponential complexity
-        max_length_card = cards[0] if cards else c.Finite(10)
-        alphabet_size = c.Finite(
-            len(string.printable)
-        )  # ~95 printable ASCII chars
-        return c.BigO(
-            alphabet_size._to_symbolic() ** max_length_card._to_symbolic()
-        )
-
-    return bind(_impl, _card, nat())
+    return bind(_impl, small_nat())
 
 
 def word() -> Generator[_str]:
@@ -579,17 +568,7 @@ def word() -> Generator[_str]:
     def _impl(upper_bound: _int) -> Generator[_str]:
         return bounded_str(0, upper_bound, string.ascii_letters)
 
-    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
-        # Word cardinality: |alphabet|^length for alphabetic strings
-        max_length_card = cards[0] if cards else c.Finite(10)
-        alphabet_size = c.Finite(
-            len(string.ascii_letters)
-        )  # 52 letters (a-z, A-Z)
-        return c.BigO(
-            alphabet_size._to_symbolic() ** max_length_card._to_symbolic()
-        )
-
-    return bind(_impl, _card, small_nat())
+    return bind(_impl, small_nat())
 
 
 ###############################################################################
@@ -605,57 +584,19 @@ def tuple(*generators: Generator[Any]) -> Generator[_tuple[Any, ...]]:
     :rtype: `Generator[Tuple[A, B, ...]]`
     """
 
-    # Combined cardinality is the product of all cardinalities
-    samplers = []
-    combined_cardinality = c.Finite(1)  # Empty tuple has cardinality 1
-    for sampler, cardinality in generators:
-        samplers.append(sampler)
-        combined_cardinality = combined_cardinality * cardinality
-
-    def _shrink_value(
-        index: _int,
-        dissections: _list[s.Dissection[Any]],
-        streams: _list[fs.Stream[s.Dissection[Any]]],
-    ) -> fs.StreamResult[s.Dissection[_tuple[Any, ...]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index]()
-        except StopIteration:
-            return _shrink_value(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = next_dissect
-        _streams[index] = next_stream
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_value, index, dissections, _streams),
-            partial(_shrink_value, _index, dissections, streams),
-        )
-
-    def _dist(
-        dissections: _list[s.Dissection[Any]],
-    ) -> s.Dissection[_tuple[Any, ...]]:
-        heads: _list[Any] = [s.head(dissection) for dissection in dissections]
-        tails: _list[fs.Stream[s.Dissection[Any]]] = [
-            s.tail(dissection) for dissection in dissections
-        ]
-        return _tuple(heads), partial(_shrink_value, 0, dissections, tails)
-
     def _impl(state: a.State) -> Sample[_tuple[Any, ...]]:
-        values: _list[s.Dissection[Any]] = []
-        for sampler in samplers:
-            state, maybe_value = sampler(state)
-            match maybe_value:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(value):
-                    values.append(value)
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(_dist(values))
+        dissections: _list[s.Dissection[Any]] = []
+        for generator in generators:
+            state, dissection = generator.sample(state)
+            if dissection is None:
+                return state, None
+            dissections.append(dissection)
+        return state, _sequence_dissection(dissections, _tuple)
 
-    return _impl, combined_cardinality
+    combined_cardinality = c.ONE
+    for generator in generators:
+        combined_cardinality = combined_cardinality * generator.cardinality
+    return Generator(_impl, combined_cardinality)
 
 
 ###############################################################################
@@ -684,83 +625,22 @@ def bounded_list[T](
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
 
-    # Unpack the generator
-    sampler, item_cardinality = generator
-
-    def _shrink_length(
-        index: _int, dissections: _list[s.Dissection[T]]
-    ) -> fs.StreamResult[s.Dissection[_list[T]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        _dissections = dissections.copy()
-        del _dissections[index]
-        return _dist(_dissections), partial(_shrink_length, _index, dissections)
-
-    def _shrink_value(
-        index: _int,
-        dissections: _list[s.Dissection[T]],
-        streams: _list[fs.Stream[s.Dissection[T]]],
-    ) -> fs.StreamResult[s.Dissection[_list[T]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index]()
-        except StopIteration:
-            return _shrink_value(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = next_dissect
-        _streams[index] = next_stream
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_value, index, dissections, _streams),
-            partial(_shrink_value, _index, dissections, streams),
-        )
-
-    def _dist(dissections: _list[s.Dissection[T]]) -> s.Dissection[_list[T]]:
-        heads: _list[Any] = [s.head(dissection) for dissection in dissections]
-        tails: _list[Any] = [s.tail(dissection) for dissection in dissections]
-        if ordered:
-            heads = sorted(heads)
-        return heads, fs.concat(
-            partial(_shrink_length, 0, dissections),
-            partial(_shrink_value, 0, dissections, tails),
-        )
+    def _rebuild(heads: _list[T]) -> _list[T]:
+        return sorted(heads) if ordered else heads  # type: ignore[type-var]
 
     def _impl(state: a.State) -> Sample[_list[T]]:
         state, length = a.nat(state, lower_bound, upper_bound)
-        result: _list[s.Dissection[T]] = []
-        for _ in range(length):
-            state, maybe_item = sampler(state)
-            match maybe_item:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(item):
-                    result.append(item)
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(_dist(result))
+        state, dissections = _sample_many(state, generator.sample, length)
+        if dissections is None:
+            return state, None
+        return state, _sequence_dissection(
+            dissections, _rebuild, min_length=lower_bound
+        )
 
-    # Calculate cardinality for bounded list
-    # For a list of length k with items from domain of size n:
-    # - If order matters: n^k possibilities
-    # - Total across all lengths from lower_bound to upper_bound
-
-    # Sum over all possible lengths
-    cardinalities = []
-    for length in range(lower_bound, upper_bound + 1):
-        length_cardinality = c.ONE
-        for _ in range(length):
-            length_cardinality = length_cardinality * item_cardinality
-        cardinalities.append(length_cardinality)
-
-    # Sum all length possibilities
-    list_cardinality = c.ZERO
-    for card in cardinalities:
-        list_cardinality = c.Sum(list_cardinality, card)
-
-    return _impl, list_cardinality
+    return Generator(
+        _impl,
+        _sized_cardinality(lower_bound, upper_bound, generator.cardinality),
+    )
 
 
 def list[T](
@@ -780,15 +660,7 @@ def list[T](
     def _impl(upper_bound: _int) -> Generator[_list[T]]:
         return bounded_list(0, upper_bound, generator, ordered)
 
-    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
-        # List cardinality grows exponentially with length: |item_type|^length
-        max_length_card = cards[0] if cards else c.Finite(10)
-        _, item_cardinality = generator
-        return c.BigO(
-            item_cardinality._to_symbolic() ** max_length_card._to_symbolic()
-        )
-
-    return bind(_impl, _card, small_nat())
+    return bind(_impl, small_nat())
 
 
 def map_list[T](
@@ -808,7 +680,7 @@ def map_list[T](
     def _compose(*values: T) -> _list[T]:
         result = _list(values)
         if ordered:
-            result = sorted(result)
+            result = sorted(result)  # type: ignore[type-var]
         return result
 
     return map(_compose, *generators)
@@ -863,127 +735,26 @@ def bounded_dict[K, V](
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
 
-    # Extract samplers and cardinalities
-    key_sampler, key_cardinality = key_generator
-    value_sampler, value_cardinality = value_generator
-
-    def _shrink_size(
-        index: _int,
-        dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-    ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        _dissections = dissections.copy()
-        del _dissections[index]
-        return _dist(_dissections), partial(_shrink_size, _index, dissections)
-
-    def _shrink_keys(
-        index: _int,
-        dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-        streams: _list[
-            _tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]
-        ],
-    ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index][0]()
-        except StopIteration:
-            return _shrink_keys(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = (next_dissect, _dissections[index][1])
-        _streams[index] = (next_stream, _streams[index][1])
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_keys, index, dissections, _streams),
-            partial(_shrink_keys, _index, dissections, streams),
-        )
-
-    def _shrink_values(
-        index: _int,
-        dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-        streams: _list[
-            _tuple[fs.Stream[s.Dissection[K]], fs.Stream[s.Dissection[V]]]
-        ],
-    ) -> fs.StreamResult[s.Dissection[_dict[K, V]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index][1]()
-        except StopIteration:
-            return _shrink_values(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = (_dissections[index][0], next_dissect)
-        _streams[index] = (_streams[index][0], next_stream)
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_values, index, dissections, _streams),
-            partial(_shrink_values, _index, dissections, streams),
-        )
-
-    def _dist(
-        dissections: _list[_tuple[s.Dissection[K], s.Dissection[V]]],
-    ) -> s.Dissection[_dict[K, V]]:
-        heads: _list[_tuple[Any, Any]] = [
-            (s.head(dissection[0]), s.head(dissection[1]))
-            for dissection in dissections
-        ]
-        tails = [
-            (s.tail(dissection[0]), s.tail(dissection[1]))
-            for dissection in dissections
-        ]
-        return _dict(heads), fs.concat(
-            partial(_shrink_size, 0, dissections),
-            fs.concat(
-                partial(_shrink_keys, 0, dissections, tails),
-                partial(_shrink_values, 0, dissections, tails),
-            ),
-        )
+    def _pair(key: K, value: V) -> _tuple[K, V]:
+        return key, value
 
     def _impl(state: a.State) -> Sample[_dict[K, V]]:
         state, size = a.nat(state, lower_bound, upper_bound)
-        result: _list[_tuple[s.Dissection[K], s.Dissection[V]]] = []
+        pairs: _list[s.Dissection[_tuple[K, V]]] = []
         for _ in range(size):
-            state, maybe_key = key_sampler(state)
-            match maybe_key:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(key):
-                    state, maybe_value = value_sampler(state)
-                    match maybe_value:
-                        case Maybe.empty:
-                            return state, Nothing
-                        case Some(value):
-                            result.append((key, value))
-                        case _:
-                            raise AssertionError("Invariant")
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(_dist(result))
+            state, key_dissection = key_generator.sample(state)
+            if key_dissection is None:
+                return state, None
+            state, value_dissection = value_generator.sample(state)
+            if value_dissection is None:
+                return state, None
+            pairs.append(s.map(_pair, key_dissection, value_dissection))
+        return state, _sequence_dissection(pairs, _dict, min_length=lower_bound)
 
-    # Calculate cardinality for bounded dict
-    # For a dict of size k with keys from domain of size n and values from domain of size m:
-    # - Ideally: C(n,k) * m^k (choose k unique keys, each paired with any of m values)
-    # - For large n: approximately n^k * m^k = (n*m)^k (keys rarely collide)
-    # - We use the simpler approximation for computational efficiency
-
-    pair_cardinality = key_cardinality * value_cardinality
-    cardinalities = []
-    for size in range(lower_bound, upper_bound + 1):
-        size_cardinality = c.ONE
-        for _ in range(size):
-            size_cardinality = size_cardinality * pair_cardinality
-        cardinalities.append(size_cardinality)
-
-    # Sum all size possibilities
-    dict_cardinality = c.ZERO
-    for card in cardinalities:
-        dict_cardinality = dict_cardinality + card
-
-    return _impl, dict_cardinality
+    pair_cardinality = key_generator.cardinality * value_generator.cardinality
+    return Generator(
+        _impl, _sized_cardinality(lower_bound, upper_bound, pair_cardinality)
+    )
 
 
 def dict[K, V](
@@ -1003,17 +774,7 @@ def dict[K, V](
     def _impl(upper_bound: _int) -> Generator[_dict[K, V]]:
         return bounded_dict(0, upper_bound, key_generator, value_generator)
 
-    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
-        # Dict cardinality: (|key_type| × |value_type|)^size
-        max_size_card = cards[0] if cards else c.Finite(10)
-        _, key_cardinality = key_generator
-        _, value_cardinality = value_generator
-        pair_cardinality = key_cardinality * value_cardinality
-        return c.BigO(
-            pair_cardinality._to_symbolic() ** max_size_card._to_symbolic()
-        )
-
-    return bind(_impl, _card, small_nat())
+    return bind(_impl, small_nat())
 
 
 def map_dict[K, V](
@@ -1082,82 +843,19 @@ def bounded_set[T](
     assert 0 <= lower_bound
     assert lower_bound <= upper_bound
 
-    # Unpack the generator
-    sampler, item_cardinality = generator
-
-    def _shrink_size(
-        index: _int, dissections: _list[s.Dissection[T]]
-    ) -> fs.StreamResult[s.Dissection[_set[T]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        _dissections = dissections.copy()
-        del _dissections[index]
-        return _dist(_dissections), partial(_shrink_size, _index, dissections)
-
-    def _shrink_value(
-        index: _int,
-        dissections: _list[s.Dissection[T]],
-        streams: _list[fs.Stream[s.Dissection[T]]],
-    ) -> fs.StreamResult[s.Dissection[_set[T]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index]()
-        except StopIteration:
-            return _shrink_value(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = next_dissect
-        _streams[index] = next_stream
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_value, index, dissections, _streams),
-            partial(_shrink_value, _index, dissections, streams),
-        )
-
-    def _dist(dissections: _list[s.Dissection[T]]) -> s.Dissection[_set[T]]:
-        heads: _list[Any] = [s.head(dissection) for dissection in dissections]
-        tails: _list[Any] = [s.tail(dissection) for dissection in dissections]
-        return _set(heads), fs.concat(
-            partial(_shrink_size, 0, dissections),
-            partial(_shrink_value, 0, dissections, tails),
-        )
-
     def _impl(state: a.State) -> Sample[_set[T]]:
         state, size = a.nat(state, lower_bound, upper_bound)
-        result: _list[s.Dissection[T]] = []
-        for _ in range(size):
-            state, maybe_item = sampler(state)
-            match maybe_item:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(item):
-                    result.append(item)
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(_dist(result))
+        state, dissections = _sample_many(state, generator.sample, size)
+        if dissections is None:
+            return state, None
+        return state, _sequence_dissection(
+            dissections, _set, min_length=lower_bound
+        )
 
-    # Calculate cardinality for bounded set
-    # For a set of size k with items from domain of size n:
-    # - Exact: C(n,k) = n! / (k! * (n-k)!) possibilities (choose k unique items)
-    # - For large n: approximately n^k (collision probability is low)
-    # - We use the simpler n^k approximation since exact combinations are expensive to compute
-    # - The unified cardinality system handles overflow protection automatically
-
-    cardinalities = []
-    for size in range(lower_bound, upper_bound + 1):
-        size_cardinality = c.ONE
-        for _ in range(size):
-            size_cardinality = size_cardinality * item_cardinality
-        cardinalities.append(size_cardinality)
-
-    # Sum all size possibilities
-    set_cardinality = c.ZERO
-    for card in cardinalities:
-        set_cardinality = set_cardinality + card
-
-    return _impl, set_cardinality
+    return Generator(
+        _impl,
+        _sized_cardinality(lower_bound, upper_bound, generator.cardinality),
+    )
 
 
 def set[T](generator: Generator[T]) -> Generator[_set[T]]:
@@ -1173,15 +871,7 @@ def set[T](generator: Generator[T]) -> Generator[_set[T]]:
     def _impl(upper_bound: _int) -> Generator[_set[T]]:
         return bounded_set(0, upper_bound, generator)
 
-    def _card(cards: _tuple[c.Cardinality, ...]) -> c.Cardinality:
-        # Set cardinality: approximately |item_type|^size (unique elements)
-        max_size_card = cards[0] if cards else c.Finite(10)
-        _, item_cardinality = generator
-        return c.BigO(
-            item_cardinality._to_symbolic() ** max_size_card._to_symbolic()
-        )
-
-    return bind(_impl, _card, small_nat())
+    return bind(_impl, small_nat())
 
 
 def map_set[T](generators: _set[Generator[T]]) -> Generator[_set[T]]:
@@ -1223,44 +913,40 @@ def set_add[T](
 
 
 ###############################################################################
-# Maybe
+# Optional
 ###############################################################################
-def maybe[T](generator: Generator[T]) -> Generator[Maybe[T]]:
-    """A generator of maybe over a given type `T`.
+def optional[T](generator: Generator[T]) -> Generator[T | None]:
+    """A generator of optional values over a given type `T`, sampling None
+    with a small probability.
 
-    :param generator: A value generator to map maybe over.
+    :param generator: A value generator to make optional.
     :type generator: `Generator[T]`
 
-    :return: A generator of maybe over type `T`.
-    :rtype: `Generator[returns.maybe.Maybe[T]]`
+    :return: A generator of optional values over type `T`.
+    :rtype: `Generator[T | None]`
     """
-    sampler, cardinality = generator
 
-    def _something(value: T) -> Maybe[T]:
-        return Some(value)
+    def _some(value: T) -> T | None:
+        return value
 
-    def _append(dissection: s.Dissection[Maybe[T]]) -> s.Dissection[Maybe[T]]:
-        return s.append(dissection, Nothing)
+    def _append_none(
+        dissection: s.Dissection[T | None],
+    ) -> s.Dissection[T | None]:
+        return s.append(dissection, None)
 
-    def _impl(state: a.State) -> Sample[Maybe[T]]:
+    def _impl(state: a.State) -> Sample[T | None]:
         state, p = a.probability(state)
         if p < 0.05:
-            return state, Some(s.singleton(Nothing))
-        state, maybe_value = sampler(state)
-        match maybe_value:
-            case Maybe.empty:
-                return state, Nothing
-            case Some(value):
-                _value = s.map(_something, value)
-                return state, Some(
-                    (s.head(_value), fs.map(_append, s.tail(_value)))
-                )
-            case _:
-                raise AssertionError("Invariant")
+            return state, s.singleton(None)
+        state, dissection = generator.sample(state)
+        if dissection is None:
+            return state, None
+        _dissection = s.map(_some, dissection)
+        return state, s.Dissection(
+            _dissection.head, fs.map(_append_none, _dissection.shrinks)
+        )
 
-    # Maybe[T] has cardinality |T| + 1 (for the Nothing case)
-    maybe_cardinality = cardinality + c.Finite(1)
-    return _impl, maybe_cardinality
+    return Generator(_impl, generator.cardinality + c.ONE)
 
 
 ###############################################################################
@@ -1277,60 +963,24 @@ def argument_pack(
     :return: A generator for argument packs.
     :rtype: `Generator[Dict[str, Any]]`
     """
+    names = _list(generators.keys())
 
-    def _shrink_args(
-        index: _int,
-        dissections: _list[_tuple[_str, s.Dissection[Any]]],
-        streams: _list[_tuple[_str, fs.Stream[s.Dissection[Any]]]],
-    ) -> fs.StreamResult[s.Dissection[_dict[_str, Any]]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index][1]()
-        except StopIteration:
-            return _shrink_args(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = (_dissections[index][0], next_dissect)
-        _streams[index] = (_streams[index][0], next_stream)
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_args, index, dissections, _streams),
-            partial(_shrink_args, _index, dissections, streams),
-        )
-
-    def _dist(
-        dissections: _list[_tuple[_str, s.Dissection[Any]]],
-    ) -> s.Dissection[_dict[_str, Any]]:
-        heads: _list[_tuple[_str, Any]] = [
-            (dissection[0], s.head(dissection[1])) for dissection in dissections
-        ]
-        tails = [
-            (dissection[0], s.tail(dissection[1])) for dissection in dissections
-        ]
-        return _dict(heads), partial(_shrink_args, 0, dissections, tails)
+    def _rebuild(heads: _list[Any]) -> _dict[_str, Any]:
+        return _dict(zip(names, heads, strict=True))
 
     def _impl(state: a.State) -> Sample[_dict[_str, Any]]:
-        result: _list[_tuple[_str, s.Dissection[Any]]] = []
-        for param, generator in generators.items():
-            sampler, _ = generator
-            state, maybe_arg = sampler(state)
-            match maybe_arg:
-                case Maybe.empty:
-                    return state, Nothing
-                case Some(arg):
-                    result.append((param, arg))
-                case _:
-                    raise AssertionError("Invariant")
-        return state, Some(_dist(result))
+        dissections: _list[s.Dissection[Any]] = []
+        for name in names:
+            state, dissection = generators[name].sample(state)
+            if dissection is None:
+                return state, None
+            dissections.append(dissection)
+        return state, _sequence_dissection(dissections, _rebuild)
 
-    # Calculate combined cardinality
     total_cardinality = c.ONE
     for generator in generators.values():
-        _, cardinality = generator
-        total_cardinality = total_cardinality * cardinality
-
-    return _impl, total_cardinality
+        total_cardinality = total_cardinality * generator.cardinality
+    return Generator(_impl, total_cardinality)
 
 
 ###############################################################################
@@ -1347,24 +997,14 @@ def choice[T](*generators: Generator[T]) -> Generator[T]:
     """
     assert len(generators) != 0
 
-    # Extract samplers and cardinalities
-    samplers: _list[Sampler[T]] = []
-    cardinalities: _list[c.Cardinality] = []
-
-    for sampler, cardinality in generators:
-        samplers.append(sampler)
-        cardinalities.append(cardinality)
-
     def _impl(state: a.State) -> Sample[T]:
-        state, index = a.nat(state, 0, len(samplers) - 1)
-        return samplers[index](state)
+        state, index = a.nat(state, 0, len(generators) - 1)
+        return generators[index].sample(state)
 
-    # Cardinality is the sum of all generator cardinalities
     combined_cardinality = c.ZERO
-    for card in cardinalities:
-        combined_cardinality = combined_cardinality + card
-
-    return _impl, combined_cardinality
+    for generator in generators:
+        combined_cardinality = combined_cardinality + generator.cardinality
+    return Generator(_impl, combined_cardinality)
 
 
 def weighted_choice[T](
@@ -1379,25 +1019,17 @@ def weighted_choice[T](
     :rtype: `Generator[T]`
     """
     assert len(weighted_generators) != 0
-    weights: _list[_int] = []
-    samplers: _list[Sampler[T]] = []
-    cardinalities: _list[c.Cardinality] = []
-
-    for weight, (sampler, cardinality) in weighted_generators:
-        weights.append(weight)
-        samplers.append(sampler)
-        cardinalities.append(cardinality)
+    weights = [weight for weight, _ in weighted_generators]
+    samplers = [generator.sample for _, generator in weighted_generators]
 
     def _impl(state: a.State) -> Sample[T]:
         state, sampler = a.weighted_choice(state, weights, samplers)
         return sampler(state)
 
-    # For weighted choice, cardinality is the sum of all possible choices
     combined_cardinality = c.ZERO
-    for card in cardinalities:
-        combined_cardinality = combined_cardinality + card
-
-    return _impl, combined_cardinality
+    for _, generator in weighted_generators:
+        combined_cardinality = combined_cardinality + generator.cardinality
+    return Generator(_impl, combined_cardinality)
 
 
 def one_of[T](values: _list[T]) -> Generator[T]:
@@ -1439,77 +1071,62 @@ def subset_of[T](values: _set[T]) -> Generator[_set[T]]:
 ###############################################################################
 # Infer a generator
 ###############################################################################
-def infer(T: type) -> Maybe[Generator[Any]]:
-    """Infer a generator of type `T` for a given type `T` with cardinality-aware optimization.
-
-    This function leverages the unified cardinality system to choose appropriate
-    generators based on the complexity of the target type.
+def infer(T: type) -> Generator[Any] | None:
+    """Infer a generator for a given type `T`.
 
     :param T: A type to infer a generator of.
     :type T: `type`
 
-    :return: A maybe of generator of type T.
-    :rtype: `returns.maybe.Maybe[Generator[T]]`
+    :return: A generator of type T, or None when no generator is known.
+    :rtype: `Generator[Any] | None`
     """
 
-    def _case_maybe(T: type) -> Maybe[Generator[Any]]:
-        return infer(get_args(T)[0]).map(maybe)
-
-    def _case_tuple(T: type) -> Maybe[Generator[Any]]:
-        item_samplers: _list[Generator[Any]] = []
+    def _case_tuple(T: type) -> Generator[Any] | None:
+        item_generators: _list[Generator[Any]] = []
         for item_T in get_args(T):
-            match infer(item_T):
-                case Maybe.empty:
-                    return Nothing
-                case Some(item_sampler):
-                    item_samplers.append(item_sampler)
-                case _:
-                    raise AssertionError("Invariant")
-        return Some(tuple(*item_samplers))
+            item_generator = infer(item_T)
+            if item_generator is None:
+                return None
+            item_generators.append(item_generator)
+        return tuple(*item_generators)
 
-    def _case_list(T: type) -> Maybe[Generator[Any]]:
-        return infer(get_args(T)[0]).map(list)
+    def _case_list(T: type) -> Generator[Any] | None:
+        item_generator = infer(get_args(T)[0])
+        if item_generator is None:
+            return None
+        return list(item_generator)
 
-    def _case_dict(T: type) -> Maybe[Generator[Any]]:
+    def _case_dict(T: type) -> Generator[Any] | None:
         K, V = get_args(T)[:2]
-        match (infer(K), infer(V)):
-            case (Some(key_sampler), Some(value_sampler)):
-                return Some(dict(key_sampler, value_sampler))
-            case (Maybe.empty, _) | (_, Maybe.empty):
-                return Nothing
-            case _:
-                raise AssertionError("Invariant")
+        key_generator = infer(K)
+        value_generator = infer(V)
+        if key_generator is None or value_generator is None:
+            return None
+        return dict(key_generator, value_generator)
 
-    def _case_set(T: type) -> Maybe[Generator[Any]]:
-        return infer(get_args(T)[0]).map(set)
-
-    # Use cardinality inference to choose appropriate generators
-    inferred_cardinality = c.infer_cardinality_from_type(T)
-    complexity_class = inferred_cardinality.asymptotic_class()
+    def _case_set(T: type) -> Generator[Any] | None:
+        item_generator = infer(get_args(T)[0])
+        if item_generator is None:
+            return None
+        return set(item_generator)
 
     if T == _bool:
-        return Some(bool())
+        return bool()
     if T == _int:
-        # For infinite integer types, use bounded generators for practicality
-        if "∞" in complexity_class:
-            return Some(int())  # Uses bounded range internally
-        return Some(small_int())
+        return int()
     if T == _float:
-        return Some(float())
+        return float()
     if T == _str:
-        # For exponential string types, use smaller bounds
-        if "^" in complexity_class:
-            return Some(word())  # Smaller alphabet than str()
-        return Some(str())
-    if u.is_maybe(T):
-        return _case_maybe(T)
+        return str()
 
-    # Use pattern matching for origin-based type dispatch
-    origin = get_origin(T)
-    if origin is None:
-        return Nothing
+    inner = u.optional_inner(T)
+    if inner is not None:
+        inner_generator = infer(inner)
+        if inner_generator is None:
+            return None
+        return optional(inner_generator)
 
-    match origin:
+    match get_origin(T):
         case x if x is _tuple:
             return _case_tuple(T)
         case x if x is _list:
@@ -1519,4 +1136,4 @@ def infer(T: type) -> Maybe[Generator[Any]]:
         case x if x is _set:
             return _case_set(T)
         case _:
-            return Nothing
+            return None

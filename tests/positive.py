@@ -1,10 +1,7 @@
 # External imports
 from collections.abc import Callable
 
-from returns.maybe import Maybe
-
 import minigun.domain as d
-import minigun.util as u
 
 # Internal imports
 from minigun.specify import Spec, check, conj, context, prop
@@ -330,9 +327,9 @@ def _pos_white_domain_infer_dict(kvs: dict[int, int]) -> bool:
     return isinstance(kvs, dict)
 
 
-@prop("Domain infer maybe")
-def _pos_white_domain_infer_maybe(mi: Maybe[int]) -> bool:
-    return u.is_maybe(type(mi))
+@prop("Domain infer optional")
+def _pos_white_domain_infer_optional(mi: int | None) -> bool:
+    return mi is None or isinstance(mi, int)
 
 
 ###############################################################################
@@ -366,7 +363,7 @@ def test():
             _pos_white_domain_infer_tuple,
             _pos_white_domain_infer_list,
             _pos_white_domain_infer_dict,
-            _pos_white_domain_infer_maybe,
+            _pos_white_domain_infer_optional,
         )
     )
 

@@ -6,8 +6,6 @@ import contextlib
 import io
 import string
 
-from returns.maybe import Maybe, Some
-
 # Internal imports
 import minigun.arbitrary as a
 import minigun.budget as b
@@ -17,7 +15,6 @@ import minigun.generate as g
 import minigun.orchestrator as o
 import minigun.pretty as p
 import minigun.reporter as r
-import minigun.shrink as sh
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, neg, prop
 
@@ -32,16 +29,13 @@ def test_constant_generator(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     const_gen = g.constant(42)
-    const_sampler, _ = const_gen
 
     # Generate multiple times and ensure same value
     for _ in range(5):
-        state, maybe_result = const_sampler(state)
-        if isinstance(maybe_result, Some):
-            dissection = maybe_result.unwrap()
-            if sh.head(dissection) != 42:
-                return False
-        elif maybe_result == Maybe.empty:
+        state, dissection = const_gen.sample(state)
+        if dissection is None:
+            return False
+        if dissection.head != 42:
             return False
     return True
 
@@ -55,22 +49,14 @@ def test_bind_with_constant(seed_val: int) -> bool:
         return g.constant(x * 2)
 
     # Bind an int generator with a function that creates a constant generator
-    from minigun import cardinality as c
+    bound_gen = g.bind(double_constant, g.int_range(1, 10))
 
-    bound_gen = g.bind(
-        double_constant, lambda cards: c.FINITE(20), g.int_range(1, 10)
-    )
-    bound_sampler, _ = bound_gen
-
-    state, maybe_result = bound_sampler(state)
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        # Result should be even and between 2 and 20
-        return isinstance(value, int) and value % 2 == 0 and 2 <= value <= 20
-    elif maybe_result == Maybe.empty:
+    state, dissection = bound_gen.sample(state)
+    if dissection is None:
         return True
-    return False
+    value = dissection.head
+    # Result should be even and between 2 and 20
+    return isinstance(value, int) and value % 2 == 0 and 2 <= value <= 20
 
 
 @context(d.small_nat())
@@ -83,20 +69,17 @@ def test_weighted_choice_generator(seed_val: int) -> bool:
         (99, g.constant("heavy")),
         (1, g.constant("light")),  # 99% weight  # 1% weight
     )
-    weighted_sampler, _ = weighted_gen
 
     # Sample many times and check that "heavy" appears more frequently
     heavy_count = 0
     total_samples = 50
 
     for _ in range(total_samples):
-        state, maybe_result = weighted_sampler(state)
-        if isinstance(maybe_result, Some):
-            dissection = maybe_result.unwrap()
-            if sh.head(dissection) == "heavy":
-                heavy_count += 1
-        elif maybe_result == Maybe.empty:
+        state, dissection = weighted_gen.sample(state)
+        if dissection is None:
             continue
+        if dissection.head == "heavy":
+            heavy_count += 1
 
     # With 99:1 ratio, we should see "heavy" in most samples
     # Allow some variance due to randomness
@@ -110,16 +93,11 @@ def test_one_of_generator(seed_val: int, list_size: int) -> bool:
 
     test_list = list(range(list_size))
     one_of_gen = g.one_of(test_list)
-    one_of_sampler, _ = one_of_gen
 
-    state, maybe_result = one_of_sampler(state)
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        return value in test_list
-    elif maybe_result == Maybe.empty:
+    state, dissection = one_of_gen.sample(state)
+    if dissection is None:
         return len(test_list) == 0  # Empty list should produce empty
-    return False
+    return dissection.head in test_list
 
 
 @context(d.small_nat())
@@ -128,19 +106,15 @@ def test_str_generator_validity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     str_gen = g.str()
-    str_sampler, _ = str_gen
 
-    state, maybe_result = str_sampler(state)
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        # Should be a string with printable characters
-        return isinstance(value, str) and all(
-            c in string.printable for c in value
-        )
-    elif maybe_result == Maybe.empty:
+    state, dissection = str_gen.sample(state)
+    if dissection is None:
         return True
-    return False
+    value = dissection.head
+    # Should be a string with printable characters
+    return isinstance(value, str) and all(
+        ch in string.printable for ch in value
+    )
 
 
 @context(d.small_nat())
@@ -149,17 +123,13 @@ def test_word_generator_validity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     word_gen = g.word()
-    word_sampler, _ = word_gen
 
-    state, maybe_result = word_sampler(state)
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        # Should be a string with only alphabetic characters
-        return isinstance(value, str) and (len(value) == 0 or value.isalpha())
-    elif maybe_result == Maybe.empty:
+    state, dissection = word_gen.sample(state)
+    if dissection is None:
         return True
-    return False
+    value = dissection.head
+    # Should be a string with only alphabetic characters
+    return isinstance(value, str) and (len(value) == 0 or value.isalpha())
 
 
 @context(d.small_nat())
@@ -172,20 +142,20 @@ def test_lazy_generator_defers_and_memoizes(seed_val: int) -> bool:
         return g.int_range(1, 10)
 
     lazy_gen = g.lazy(_build)
-    sampler, cardinality = lazy_gen
 
-    if not isinstance(cardinality, c.Infinite):
+    if not isinstance(lazy_gen.cardinality, c.Infinite):
         return False
     if build_count[0] != 0:
         return False
 
     state = a.seed(seed_val)
     for _ in range(3):
-        state, maybe_result = sampler(state)
-        if isinstance(maybe_result, Some):
-            value = sh.head(maybe_result.unwrap())
-            if not (isinstance(value, int) and 1 <= value <= 10):
-                return False
+        state, dissection = lazy_gen.sample(state)
+        if dissection is None:
+            continue
+        value = dissection.head
+        if not (isinstance(value, int) and 1 <= value <= 10):
+            return False
 
     return build_count[0] == 1
 
@@ -249,41 +219,40 @@ def test_list_printer(lst: list[int]) -> bool:
 @context(d.small_nat())
 @prop("shrinking preserves type")
 def test_shrinking_preserves_type(seed_val: int) -> bool:
+    import minigun.shrink as sh
+
     state = a.seed(seed_val)
 
     str_gen = g.str()
-    str_sampler, _ = str_gen
-    state, maybe_result = str_sampler(state)
+    state, dissection = str_gen.sample(state)
 
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        original_value = sh.head(dissection)
-        shrink_stream = sh.tail(dissection)
+    if dissection is None:
+        return True
+    original_value = dissection.head
 
-        # Check that shrunk values are still strings
-        shrunk_dissections = fs.to_list(shrink_stream, 3)
-        for shrunk_dissection in shrunk_dissections:
-            shrunk_value = sh.head(shrunk_dissection)
-            if not isinstance(shrunk_value, type(original_value)):
-                return False
-        return True
-    elif maybe_result == Maybe.empty:
-        return True
-    return False
+    # Check that shrunk values are still strings
+    shrunk_dissections = fs.to_list(dissection.shrinks, 3)
+    for shrunk_dissection in shrunk_dissections:
+        if not isinstance(shrunk_dissection.head, type(original_value)):
+            return False
+    _ = sh  # imported for parity with other shrink tests
+    return True
 
 
 @context(d.small_nat())
 @prop("singleton creates valid dissection")
 def test_singleton_dissection(seed_val: int) -> bool:
+    import minigun.shrink as sh
+
     # Test with singleton dissection
     singleton_dissection = sh.singleton(seed_val)
-    value = sh.head(singleton_dissection)
-    shrink_stream = sh.tail(singleton_dissection)
 
     # Singleton should not shrink further
-    shrunk_dissections = fs.to_list(shrink_stream, 5)
+    shrunk_dissections = fs.to_list(singleton_dissection.shrinks, 5)
 
-    return value == seed_val and len(shrunk_dissections) == 0
+    return (
+        singleton_dissection.head == seed_val and len(shrunk_dissections) == 0
+    )
 
 
 ###############################################################################
@@ -384,16 +353,12 @@ def test_zero_length_bounded_collections(seed_val: int) -> bool:
 
     # Test zero-length bounded list
     empty_list_gen = g.bounded_list(0, 0, g.int_range(0, 100))
-    empty_list_sampler, _ = empty_list_gen
-    state, maybe_result = empty_list_sampler(state)
+    state, dissection = empty_list_gen.sample(state)
 
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        return isinstance(value, list) and len(value) == 0
-    elif maybe_result == Maybe.empty:
+    if dissection is None:
         return True
-    return False
+    value = dissection.head
+    return isinstance(value, list) and len(value) == 0
 
 
 @context(d.small_nat())
@@ -403,46 +368,37 @@ def test_single_element_bounded_collections(seed_val: int) -> bool:
 
     # Test single-element bounded set
     single_set_gen = g.bounded_set(1, 1, g.int_range(0, 100))
-    single_set_sampler, _ = single_set_gen
-    state, maybe_result = single_set_sampler(state)
+    state, dissection = single_set_gen.sample(state)
 
-    if isinstance(maybe_result, Some):
-        dissection = maybe_result.unwrap()
-        value = sh.head(dissection)
-        return (
-            isinstance(value, set) and len(value) <= 1
-        )  # Could be 0 due to duplicates
-    elif maybe_result == Maybe.empty:
+    if dissection is None:
         return True
-    return False
+    value = dissection.head
+    # Could be smaller than 1 due to duplicates collapsing
+    return isinstance(value, set) and len(value) <= 1
 
 
 @context(d.small_nat())
-@prop("maybe generator produces both None and Some values")
-def test_maybe_generator_coverage(seed_val: int) -> bool:
+@prop("optional generator produces both None and values")
+def test_optional_generator_coverage(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    maybe_gen = g.maybe(g.int_range(0, 100))
-    maybe_sampler, _ = maybe_gen
+    optional_gen = g.optional(g.int_range(0, 100))
 
-    # Sample multiple times to see both None and Some
+    # Sample multiple times to see both None and values
     none_seen = False
-    some_seen = False
+    value_seen = False
 
     for _ in range(20):
-        state, maybe_result = maybe_sampler(state)
-        if isinstance(maybe_result, Some):
-            dissection = maybe_result.unwrap()
-            value = sh.head(dissection)
-            if value == Maybe.empty:
-                none_seen = True
-            elif isinstance(value, Some):
-                some_seen = True
-        elif maybe_result == Maybe.empty:
+        state, dissection = optional_gen.sample(state)
+        if dissection is None:
             continue
+        if dissection.head is None:
+            none_seen = True
+        elif isinstance(dissection.head, int):
+            value_seen = True
 
     # We should see at least one of each type (with high probability)
-    return none_seen or some_seen  # At least one should be true
+    return none_seen or value_seen  # At least one should be true
 
 
 ###############################################################################
@@ -885,7 +841,7 @@ def test() -> bool:
             # Edge case tests
             test_zero_length_bounded_collections,
             test_single_element_bounded_collections,
-            test_maybe_generator_coverage,
+            test_optional_generator_coverage,
             # Budget module tests
             test_attempt_strategy_theoretical_limit,
             test_attempt_strategy_practical_baseline_finite,

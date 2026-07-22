@@ -7,20 +7,22 @@ Minigun for shrinking trees, generator composition, and lazy evaluation.
 
 Architecture:
     - Stream[T]: Lazy thunked computation yielding (value, next_stream)
-    - Combinators: map, filter, filter_map for stream processing
-    - Construction: unfold, singleton, constant, from_list
+    - Exhaustion is signalled by raising StopIteration from the thunk
+    - Combinators: map, filter for stream processing
+    - Construction: unfold, empty, singleton, constant, from_list
     - Composition: concat, braid for combining streams
 
 Streams enable memory-efficient processing of large or infinite data sets
 while maintaining functional purity and composability. They're particularly
-important in the shrinking system where they represent trees of shrunk values.
+important in the shrinking system where they represent trees of shrunk
+values.
 
 Example::
 
         import minigun.stream as fs
 
         # Create infinite stream of natural numbers
-        nats = fs.unfold(lambda n: Some((n, n + 1)), 0)
+        nats = fs.unfold(lambda n: (n, n + 1), 0)
 
         # Transform and take first 10 even numbers
         evens = fs.map(lambda x: x * 2, nats)
@@ -31,10 +33,7 @@ Example::
 # External module dependencies
 from collections.abc import Callable
 from functools import partial
-from inspect import Parameter, signature
-from typing import Any, cast
-
-from returns.maybe import Maybe, Nothing, Some
+from typing import Any
 
 ###############################################################################
 # Persistent streams
@@ -45,56 +44,42 @@ type Thunk[R] = Callable[[], R]
 #: StreamResult datatype defined over a type parameter `T`.
 type StreamResult[T] = tuple[T, "Stream[T]"]
 
-#: Stream datatype defined over a type parameter `T`.
+#: Stream datatype defined over a type parameter `T`. Calling the thunk
+#: yields the head and tail, or raises StopIteration when exhausted.
 type Stream[T] = Thunk[StreamResult[T]]
 
 
-def next[T](stream: Stream[T]) -> tuple[Maybe[T], Stream[T]]:
+def next[T](stream: Stream[T]) -> tuple[T | None, Stream[T]]:
     """Get the next head and tail of the stream, if a next head exists.
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
 
-    :return: A tuple of maybe the head of stream and the tail of stream.
-    :rtype: `tuple[returns.maybe.Maybe[T], Stream[T]]`
+    :return: A tuple of the head of the stream (None when exhausted) and
+        the tail of the stream.
+    :rtype: `tuple[T | None, Stream[T]]`
     """
     try:
         next_value, next_stream = stream()
-        return Some(next_value), next_stream
+        return next_value, next_stream
     except StopIteration:
-        return Nothing, stream
+        return None, stream
 
 
-def peek[T](stream: Stream[T]) -> Maybe[T]:
+def peek[T](stream: Stream[T]) -> T | None:
     """Peek the next head of the stream, if a next head exists.
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
 
-    :return: Maybe of the head of the stream.
-    :rtype: `returns.maybe.Maybe[T]`
+    :return: The head of the stream, or None when exhausted.
+    :rtype: `T | None`
     """
     try:
         next_value, _ = stream()
-        return Some(next_value)
+        return next_value
     except StopIteration:
-        return Nothing
-
-
-def is_empty[T](stream: Stream[T]) -> bool:
-    """Check if the stream is empty.
-
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-
-    :return: A boolean value.
-    :rtype: `bool`
-    """
-    try:
-        _ = stream()
-        return False
-    except StopIteration:
-        return True
+        return None
 
 
 def map[*P, R](func: Callable[[*P], R], *streams: Stream[Any]) -> Stream[R]:
@@ -108,17 +93,6 @@ def map[*P, R](func: Callable[[*P], R], *streams: Stream[Any]) -> Stream[R]:
     :return: A mapped output stream.
     :rtype: `Stream[R]`
     """
-
-    func_parameters = signature(func).parameters
-    argument_count = len(func_parameters)
-    func_is_variadic = any(
-        parameter.kind == Parameter.VAR_POSITIONAL
-        for parameter in func_parameters.values()
-    )
-    assert len(streams) == argument_count or func_is_variadic, (
-        f"Function {func} expected {argument_count} "
-        f"arguments, but got {len(streams)} streams."
-    )
 
     def _thunk() -> StreamResult[R]:
         next_values, next_streams = zip(
@@ -152,40 +126,11 @@ def filter[T](predicate: Callable[[T], bool], stream: Stream[T]) -> Stream[T]:
     return _thunk
 
 
-def filter_map[T, R](
-    func: Callable[[T], Maybe[R]], stream: Stream[T]
-) -> Stream[R]:
-    """Filter and map a stream of type `T` to a type `R`.
-
-    :param func: A function on type `T` to a maybe value of type `R`.
-    :type func: `A -> returns.maybe.Maybe[R]`
-    :param stream: A stream of type `T` to be filtered.
-    :type stream: `Stream[T]`
-
-    :return: A stream of type `R`.
-    :rtype: `Stream[R]`
-    """
-
-    def _thunk() -> StreamResult[R]:
-        next_stream = stream
-        while True:
-            next_value, next_stream = next_stream()
-            match func(next_value):
-                case Maybe.empty:
-                    continue
-                case Some(_next_value):
-                    return _next_value, filter_map(func, next_stream)
-                case _:
-                    raise AssertionError("Invariant")
-
-    return _thunk
-
-
-def unfold[T, S](func: Callable[[S], Maybe[tuple[T, S]]], init: S) -> Stream[T]:
+def unfold[T, S](func: Callable[[S], tuple[T, S] | None], init: S) -> Stream[T]:
     """Create a stream of a type `T` unfolded from a function over a state of type `S`.
 
-    :param func: A function that maybe produces a value of type `T` over given a state of type `S`.
-    :type func: `S -> returns.maybe.Maybe[tuple[T, S]]`
+    :param func: A function that produces a value of type `T` and a next state given a state of type `S`, or None to end the stream.
+    :type func: `S -> tuple[T, S] | None`
     :param init: An initial value of type `S`.
     :type init: `S`
 
@@ -195,17 +140,15 @@ def unfold[T, S](func: Callable[[S], Maybe[tuple[T, S]]], init: S) -> Stream[T]:
 
     def _thunk() -> StreamResult[T]:
         match func(init):
-            case Maybe.empty:
+            case None:
                 raise StopIteration
-            case Some((value, state)):
+            case (value, state):
                 return value, unfold(func, state)
-            case _:
-                raise AssertionError("Invariant")
 
     return _thunk
 
 
-def empty[T](_dummy: T | None = None) -> Stream[T]:
+def empty[T]() -> Stream[T]:
     """Create an empty stream of type `T`.
 
     :return: An empty stream of type `T`.
@@ -229,7 +172,7 @@ def singleton[T](value: T) -> Stream[T]:
     """
 
     def _thunk() -> StreamResult[T]:
-        return value, cast(Stream[T], empty())
+        return value, empty()
 
     return _thunk
 
@@ -283,9 +226,9 @@ def append[T](stream: Stream[T], value: T) -> Stream[T]:
     def _thunk() -> StreamResult[T]:
         try:
             next_value, next_stream = stream()
-            return next_value, append(next_stream, value)
         except StopIteration:
-            return value, cast(Stream[T], empty())
+            return value, empty()
+        return next_value, append(next_stream, value)
 
     return _thunk
 
@@ -305,9 +248,9 @@ def concat[T](left: Stream[T], right: Stream[T]) -> Stream[T]:
     def _thunk() -> StreamResult[T]:
         try:
             next_value, next_left = left()
-            return next_value, concat(next_left, right)
         except StopIteration:
             return right()
+        return next_value, concat(next_left, right)
 
     return _thunk
 
@@ -356,18 +299,17 @@ def to_list[T](stream: Stream[T], max_items: int) -> list[T]:
 
     :param stream: A stream of type `T`.
     :type stream: `Stream[T]`
+    :param max_items: The maximum number of items to take from the stream.
+    :type max_items: `int`
 
     :return: A list of type `T`.
     :rtype: `list[T]`
     """
     items: list[T] = []
     for _ in range(max_items):
-        maybe_item, stream = next(stream)
-        match maybe_item:
-            case Maybe.empty:
-                break
-            case Some(item):
-                items.append(item)
-            case _:
-                raise AssertionError("Invariant")
+        try:
+            item, stream = stream()
+        except StopIteration:
+            break
+        items.append(item)
     return items

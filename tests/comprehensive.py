@@ -1,15 +1,10 @@
 # Comprehensive blackbox tests for minigun using minigun itself
 # This demonstrates property-based testing by using minigun to test its own functionality
 
-# External imports
-
 # Internal imports
-from returns.maybe import Maybe, Some
-
 import minigun.arbitrary as a
 import minigun.domain as d
 import minigun.generate as g
-import minigun.shrink as sh
 import minigun.stream as fs
 from minigun.specify import Spec, check, conj, context, prop
 
@@ -73,21 +68,13 @@ def test_map_identity(seed_val: int) -> bool:
     int_gen = g.int_range(0, 100)
     mapped_gen = g.map(identity_func, int_gen)
 
-    # Extract samplers from generators
-    int_sampler, _ = int_gen
-    mapped_sampler, _ = mapped_gen
+    state1, dissection1 = int_gen.sample(state)
+    state2, dissection2 = mapped_gen.sample(state)
 
-    state1, maybe_result1 = int_sampler(state)
-    state2, maybe_result2 = mapped_sampler(state)
-
-    # Both should generate the same dissection structure
-    match (maybe_result1, maybe_result2):
-        case (Some(dissection1), Some(dissection2)):
-            return sh.head(dissection1) == sh.head(dissection2)
-        case (Maybe.empty, Maybe.empty):
-            return True
-        case _:
-            return False
+    # Both should generate the same dissection head
+    if dissection1 is None or dissection2 is None:
+        return dissection1 is None and dissection2 is None
+    return dissection1.head == dissection2.head
 
 
 @context(d.small_nat(), d.small_nat())
@@ -110,18 +97,12 @@ def test_map_associative(seed_val: int, offset: int) -> bool:
     composed1 = g.map(compose_f_g, int_gen)
     composed2 = g.map(f, g.map(g_func, int_gen))
 
-    sampler1, _ = composed1
-    sampler2, _ = composed2
-    state1, result1 = sampler1(state)
-    state2, result2 = sampler2(state)
+    state1, dissection1 = composed1.sample(state)
+    state2, dissection2 = composed2.sample(state)
 
-    match (result1, result2):
-        case (Some(d1), Some(d2)):
-            return sh.head(d1) == sh.head(d2)
-        case (Maybe.empty, Maybe.empty):
-            return True
-        case _:
-            return False
+    if dissection1 is None or dissection2 is None:
+        return dissection1 is None and dissection2 is None
+    return dissection1.head == dissection2.head
 
 
 @context(d.small_nat())
@@ -136,17 +117,29 @@ def test_filter_predicate(seed_val: int) -> bool:
     even_gen = g.filter(is_even, g.int_range(0, 100))
 
     # Try to generate a value multiple times
-    even_sampler, _ = even_gen
     for _ in range(10):
-        state, maybe_result = even_sampler(state)
-        match maybe_result:
-            case Some(dissection):
-                value = sh.head(dissection)
-                if value % 2 != 0:
-                    return False
-            case Maybe.empty:
-                continue
+        state, dissection = even_gen.sample(state)
+        if dissection is None:
+            continue
+        if dissection.head % 2 != 0:
+            return False
     return True
+
+
+@context(d.small_nat())
+@prop("filtered shrink candidates satisfy the predicate")
+def test_filter_shrinks_satisfy_predicate(seed_val: int) -> bool:
+    state = a.seed(seed_val)
+
+    def is_even(x):
+        return x % 2 == 0
+
+    even_gen = g.filter(is_even, g.int_range(0, 100))
+    state, dissection = even_gen.sample(state)
+    if dissection is None:
+        return True
+    shrunk = fs.to_list(dissection.shrinks, 10)
+    return all(candidate.head % 2 == 0 for candidate in shrunk)
 
 
 @context(d.small_nat())
@@ -161,19 +154,14 @@ def test_choice_selection(seed_val: int) -> bool:
 
     choice_gen = g.choice(gen1, gen2, gen3)
 
-    choice_sampler, _ = choice_gen
-    state, maybe_result = choice_sampler(state)
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            # Value should be from one of the three ranges
-            return (
-                (0 <= value <= 10)
-                or (100 <= value <= 110)
-                or (1000 <= value <= 1010)
-            )
-        case Maybe.empty:
-            return True  # Empty generation is valid
+    state, dissection = choice_gen.sample(state)
+    if dissection is None:
+        return True  # Empty generation is valid
+    value = dissection.head
+    # Value should be from one of the three ranges
+    return (
+        (0 <= value <= 10) or (100 <= value <= 110) or (1000 <= value <= 1010)
+    )
 
 
 @context(d.small_nat(), d.int_range(0, 8), d.int_range(0, 8))
@@ -182,18 +170,16 @@ def test_bounded_str_bounds(seed_val: int, lower: int, upper: int) -> bool:
     if lower > upper:
         return True  # skip invalid
     state = a.seed(seed_val)
-    sampler, _ = g.bounded_str(lower, upper, "abc")
-    state, maybe = sampler(state)
-    match maybe:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return (
-                isinstance(value, str)
-                and lower <= len(value) <= upper
-                and all(ch in "abc" for ch in value)
-            )
-        case Maybe.empty:
-            return True
+    gen = g.bounded_str(lower, upper, "abc")
+    state, dissection = gen.sample(state)
+    if dissection is None:
+        return True
+    value = dissection.head
+    return (
+        isinstance(value, str)
+        and lower <= len(value) <= upper
+        and all(ch in "abc" for ch in value)
+    )
 
 
 @prop("bounded_str covers its full length range")
@@ -201,15 +187,13 @@ def test_bounded_str_length_coverage() -> bool:
     # Regression test: bounded_str previously always emitted
     # fixed-length strings (upper-lower), never varying across the range.
     state = a.seed(0xC0FFEE)
-    sampler, _ = g.bounded_str(3, 7, "ab")
+    gen = g.bounded_str(3, 7, "ab")
     observed: set[int] = set()
     for _ in range(400):
-        state, maybe = sampler(state)
-        match maybe:
-            case Some(dissection):
-                observed.add(len(sh.head(dissection)))
-            case Maybe.empty:
-                continue
+        state, dissection = gen.sample(state)
+        if dissection is None:
+            continue
+        observed.add(len(dissection.head))
     return observed == {3, 4, 5, 6, 7}
 
 
@@ -220,14 +204,11 @@ def test_list_size(seed_val: int, max_size: int) -> bool:
 
     list_gen = g.bounded_list(0, max_size, d.int_range(0, 100).generate)
 
-    list_sampler, _ = list_gen
-    state, maybe_result = list_sampler(state)
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return isinstance(value, list) and 0 <= len(value) <= max_size
-        case Maybe.empty:
-            return True
+    state, dissection = list_gen.sample(state)
+    if dissection is None:
+        return True
+    value = dissection.head
+    return isinstance(value, list) and 0 <= len(value) <= max_size
 
 
 @context(d.small_nat(), d.int_range(1, 5))
@@ -239,14 +220,11 @@ def test_dict_size(seed_val: int, max_size: int) -> bool:
         0, max_size, d.int_range(0, 100).generate, g.str()
     )
 
-    dict_sampler, _ = dict_gen
-    state, maybe_result = dict_sampler(state)
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return isinstance(value, dict) and 0 <= len(value) <= max_size
-        case Maybe.empty:
-            return True
+    state, dissection = dict_gen.sample(state)
+    if dissection is None:
+        return True
+    value = dissection.head
+    return isinstance(value, dict) and 0 <= len(value) <= max_size
 
 
 @context(d.small_nat(), d.int_range(1, 5))
@@ -256,14 +234,11 @@ def test_set_size(seed_val: int, max_size: int) -> bool:
 
     set_gen = g.bounded_set(0, max_size, d.int_range(0, 100).generate)
 
-    set_sampler, _ = set_gen
-    state, maybe_result = set_sampler(state)
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return isinstance(value, set) and 0 <= len(value) <= max_size
-        case Maybe.empty:
-            return True
+    state, dissection = set_gen.sample(state)
+    if dissection is None:
+        return True
+    value = dissection.head
+    return isinstance(value, set) and 0 <= len(value) <= max_size
 
 
 ###############################################################################
@@ -276,17 +251,12 @@ def test_set_size(seed_val: int, max_size: int) -> bool:
 def test_int_domain_bounds(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    # Test small_int domain
-    small_int_domain = g.small_int()
-    small_int_sampler, _ = small_int_domain
-    state, maybe_result = small_int_sampler(state)
+    small_int_gen = g.small_int()
+    state, dissection = small_int_gen.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return -100 <= value <= 100
-        case Maybe.empty:
-            return True
+    if dissection is None:
+        return True
+    return -100 <= dissection.head <= 100
 
 
 @context(d.small_nat())
@@ -295,15 +265,25 @@ def test_bounded_list_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     list_domain = d.bounded_list(2, 5, d.small_int())
-    list_sampler, _ = list_domain.generate
-    state, maybe_result = list_sampler(state)
+    state, dissection = list_domain.generate.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return isinstance(value, list) and 2 <= len(value) <= 5
-        case Maybe.empty:
-            return True
+    if dissection is None:
+        return True
+    value = dissection.head
+    return isinstance(value, list) and 2 <= len(value) <= 5
+
+
+@context(d.small_nat())
+@prop("list shrinking respects the lower size bound")
+def test_bounded_list_shrink_lower_bound(seed_val: int) -> bool:
+    state = a.seed(seed_val)
+
+    list_gen = g.bounded_list(2, 5, g.small_int())
+    state, dissection = list_gen.sample(state)
+    if dissection is None:
+        return True
+    shrunk = fs.to_list(dissection.shrinks, 20)
+    return all(len(candidate.head) >= 2 for candidate in shrunk)
 
 
 @context(d.small_nat())
@@ -312,45 +292,32 @@ def test_tuple_domain_arity(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     tuple_domain = d.tuple(d.bool(), d.small_int(), d.str())
-    tuple_sampler, _ = tuple_domain.generate
-    state, maybe_result = tuple_sampler(state)
+    state, dissection = tuple_domain.generate.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            return (
-                isinstance(value, tuple)
-                and len(value) == 3
-                and isinstance(value[0], bool)
-                and isinstance(value[1], int)
-                and isinstance(value[2], str)
-            )
-        case Maybe.empty:
-            return True
+    if dissection is None:
+        return True
+    value = dissection.head
+    return (
+        isinstance(value, tuple)
+        and len(value) == 3
+        and isinstance(value[0], bool)
+        and isinstance(value[1], int)
+        and isinstance(value[2], str)
+    )
 
 
 @context(d.small_nat())
-@prop("maybe domain produces None or Some")
-def test_maybe_domain(seed_val: int) -> bool:
+@prop("optional domain produces None or values")
+def test_optional_domain(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    maybe_domain = d.maybe(d.small_int())
-    maybe_sampler, _ = maybe_domain.generate
-    state, maybe_result = maybe_sampler(state)
+    optional_domain = d.optional(d.small_int())
+    state, dissection = optional_domain.generate.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            value = sh.head(dissection)
-            # Value should be either Nothing or Some(int)
-            match value:
-                case Some(inner_value):
-                    return isinstance(inner_value, int)
-                case Maybe.empty:
-                    return True
-                case _:
-                    return False
-        case Maybe.empty:
-            return True
+    if dissection is None:
+        return True
+    value = dissection.head
+    return value is None or isinstance(value, int)
 
 
 ###############################################################################
@@ -364,23 +331,18 @@ def test_int_shrinking_decreases(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
     int_gen = g.int_range(10, 100)  # Generate larger numbers
-    int_sampler, _ = int_gen
-    state, maybe_result = int_sampler(state)
+    state, dissection = int_gen.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            original_value = sh.head(dissection)
-            shrink_stream = sh.tail(dissection)
+    if dissection is None:
+        return True
+    original_value = dissection.head
 
-            # Check first few shrunk values
-            shrunk_dissections = fs.to_list(shrink_stream, 5)
-            for shrunk_dissection in shrunk_dissections:
-                shrunk_value = sh.head(shrunk_dissection)
-                if abs(shrunk_value) >= abs(original_value):
-                    return False
-            return True
-        case Maybe.empty:
-            return True
+    # Check first few shrunk values
+    shrunk_dissections = fs.to_list(dissection.shrinks, 5)
+    for shrunk_dissection in shrunk_dissections:
+        if abs(shrunk_dissection.head) >= abs(original_value):
+            return False
+    return True
 
 
 @context(d.small_nat())
@@ -388,26 +350,22 @@ def test_int_shrinking_decreases(seed_val: int) -> bool:
 def test_list_shrinking_shortens(seed_val: int) -> bool:
     state = a.seed(seed_val)
 
-    list_gen = g.bounded_list(3, 10, g.small_int())  # Generate non-empty lists
-    list_sampler, _ = list_gen
-    state, maybe_result = list_sampler(state)
+    list_gen = g.bounded_list(0, 10, g.small_int())
+    state, dissection = list_gen.sample(state)
 
-    match maybe_result:
-        case Some(dissection):
-            original_list = sh.head(dissection)
-            if len(original_list) == 0:
-                return True  # Can't shrink empty list
+    if dissection is None:
+        return True
+    original_list = dissection.head
+    if len(original_list) == 0:
+        return True  # Can't shrink empty list
 
-            shrink_stream = sh.tail(dissection)
-            shrunk_dissections = fs.to_list(shrink_stream, 3)
-
-            for shrunk_dissection in shrunk_dissections:
-                shrunk_list = sh.head(shrunk_dissection)
-                if len(shrunk_list) >= len(original_list):
-                    return False
-            return True
-        case Maybe.empty:
-            return True
+    # The first len(original) shrink candidates remove one element each
+    # and must therefore all be shorter than the original.
+    shrunk_dissections = fs.to_list(dissection.shrinks, len(original_list))
+    for shrunk_dissection in shrunk_dissections:
+        if len(shrunk_dissection.head) >= len(original_list):
+            return False
+    return True
 
 
 ###############################################################################
@@ -471,17 +429,13 @@ def test_search_finds_counterexamples(seed_val: int) -> bool:
 
     generators = {"x": d.int_range(0, 100).generate}
 
-    state, maybe_counter = find_counter_example(
-        state, 50, false_law, generators
-    )
+    state, counter = find_counter_example(state, 50, false_law, generators)
 
     # Should find a counterexample since the law is always false
-    match maybe_counter:
-        case Some(counter):
-            return "x" in counter.args and isinstance(counter.args["x"], int)
-        case Maybe.empty:
-            # This could happen if generation fails, which is valid
-            return True
+    if counter is None:
+        # This could happen if generation fails, which is valid
+        return True
+    return "x" in counter.args and isinstance(counter.args["x"], int)
 
 
 @context(d.small_nat())
@@ -497,14 +451,10 @@ def test_search_no_counterexamples_for_true_props(seed_val: int) -> bool:
 
     generators = {"x": d.int_range(0, 100).generate}
 
-    state, maybe_counter = find_counter_example(state, 50, true_law, generators)
+    state, counter = find_counter_example(state, 50, true_law, generators)
 
     # Should NOT find a counterexample since the law is always true
-    match maybe_counter:
-        case Some(_):
-            return False
-        case Maybe.empty:
-            return True
+    return counter is None
 
 
 ###############################################################################
@@ -541,6 +491,7 @@ def test() -> bool:
             test_map_identity,
             test_map_associative,
             test_filter_predicate,
+            test_filter_shrinks_satisfy_predicate,
             test_choice_selection,
             test_bounded_str_bounds,
             test_bounded_str_length_coverage,
@@ -550,8 +501,9 @@ def test() -> bool:
             # Domain module tests
             test_int_domain_bounds,
             test_bounded_list_domain,
+            test_bounded_list_shrink_lower_bound,
             test_tuple_domain_arity,
-            test_maybe_domain,
+            test_optional_domain,
             # Shrink module tests
             test_int_shrinking_decreases,
             test_list_shrinking_shortens,

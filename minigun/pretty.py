@@ -15,7 +15,6 @@ from functools import reduce
 from typing import Any, get_args, get_origin
 
 import typeset as ts
-from returns.maybe import Maybe, Nothing, Some
 
 # Internal module dependencies
 from minigun import util as u
@@ -225,28 +224,22 @@ def set[T](printer: Printer[T]) -> Printer[_set[T]]:
 
 
 ###############################################################################
-# Maybe
+# Optional
 ###############################################################################
-def maybe[T](printer: Printer[T]) -> Printer[Maybe[T]]:
-    """Create a printer of maybe over a given type `A`.
+def optional[T](printer: Printer[T]) -> Printer[T | None]:
+    """Create a printer of optional values over a given type `T`.
 
-    :param printer: A value printer with which maybe values are printed.
+    :param printer: A value printer with which present values are printed.
     :type printer: `Printer[T]`
 
-    :return: A printer of maybe over type `A`.
-    :rtype: `Printer[returns.maybe.Maybe[T]]`
+    :return: A printer of optional values over type `T`.
+    :rtype: `Printer[T | None]`
     """
 
-    def _printer(maybe: Maybe[T]) -> ts.Layout:
-        match maybe:
-            case Maybe.empty:
-                return ts.text("Nothing")
-            case Some(value):
-                return ts.parse(
-                    'grp ("Some(" & nest {0} & ")")', printer(value)
-                )
-            case _:
-                raise AssertionError("Invariant")
+    def _printer(value: T | None) -> ts.Layout:
+        if value is None:
+            return ts.text("None")
+        return printer(value)
 
     return _printer
 
@@ -288,66 +281,64 @@ def argument_pack(
 ###############################################################################
 # Infer a printer
 ###############################################################################
-def infer(T: type) -> Maybe[Printer[Any]]:
+def infer(T: type) -> Printer[Any] | None:
     """Infer a printer of type `T` for a given type `T`.
 
     :param T: A type to infer a printer of.
     :type T: `type`
 
-    :return: A maybe of printer of type T.
-    :rtype: `returns.maybe.Maybe[Printer[T]]`
+    :return: A printer of type T, or None when no printer is known.
+    :rtype: `Printer[Any] | None`
     """
 
-    def _case_maybe(T: type) -> Maybe[Printer[Any]]:
-        return infer(get_args(T)[0]).map(maybe)
-
-    def _case_tuple(T: type) -> Maybe[Printer[Any]]:
+    def _case_tuple(T: type) -> Printer[Any] | None:
         item_printers: _list[Printer[Any]] = []
         for item_T in get_args(T):
-            match infer(item_T):
-                case Maybe.empty:
-                    return Nothing
-                case Some(item_printer):
-                    item_printers.append(item_printer)
-                case _:
-                    raise AssertionError("Invariant")
-        return Some(tuple(*item_printers))
+            item_printer = infer(item_T)
+            if item_printer is None:
+                return None
+            item_printers.append(item_printer)
+        return tuple(*item_printers)
 
-    def _case_list(T: type) -> Maybe[Printer[Any]]:
-        return infer(get_args(T)[0]).map(list)
+    def _case_list(T: type) -> Printer[Any] | None:
+        item_printer = infer(get_args(T)[0])
+        if item_printer is None:
+            return None
+        return list(item_printer)
 
-    def _case_dict(T: type) -> Maybe[Printer[Any]]:
+    def _case_dict(T: type) -> Printer[Any] | None:
         K, V = get_args(T)[:2]
-        match (infer(K), infer(V)):
-            case (Some(key_printer), Some(value_printer)):
-                return Some(dict(key_printer, value_printer))
-            case (Maybe.empty, _) | (_, Maybe.empty):
-                return Nothing
-            case _:
-                raise AssertionError("Invariant")
+        key_printer = infer(K)
+        value_printer = infer(V)
+        if key_printer is None or value_printer is None:
+            return None
+        return dict(key_printer, value_printer)
 
-    def _case_set(T: type) -> Maybe[Printer[Any]]:
-        return infer(get_args(T)[0]).map(set)
+    def _case_set(T: type) -> Printer[Any] | None:
+        item_printer = infer(get_args(T)[0])
+        if item_printer is None:
+            return None
+        return set(item_printer)
 
     # Check for basic types
-    match T:
-        case x if x is _bool:
-            return Some(bool())
-        case x if x is _int:
-            return Some(int())
-        case x if x is _float:
-            return Some(float())
-        case x if x is _str:
-            return Some(str())
-        case x if u.is_maybe(x):
-            return _case_maybe(x)
+    if T is _bool:
+        return bool()
+    if T is _int:
+        return int()
+    if T is _float:
+        return float()
+    if T is _str:
+        return str()
+
+    inner = u.optional_inner(T)
+    if inner is not None:
+        inner_printer = infer(inner)
+        if inner_printer is None:
+            return None
+        return optional(inner_printer)
 
     # Check origin-based types
-    origin = get_origin(T)
-    if origin is None:
-        return Nothing
-
-    match origin:
+    match get_origin(T):
         case x if x is _tuple:
             return _case_tuple(T)
         case x if x is _list:
@@ -357,4 +348,4 @@ def infer(T: type) -> Maybe[Printer[Any]]:
         case x if x is _set:
             return _case_set(T)
         case _:
-            return Nothing
+            return None

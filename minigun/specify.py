@@ -49,8 +49,6 @@ from inspect import signature
 from pathlib import Path
 from typing import Any, cast
 
-from returns.maybe import Maybe, Some
-
 # Internal module dependencies
 from minigun import arbitrary as a
 from minigun import cardinality as c
@@ -59,7 +57,6 @@ from minigun import generate as g
 from minigun import pretty as p
 from minigun import reporter as r
 from minigun import search as s
-from minigun.cardinality import calculate_attempts_from_generators
 from minigun.reporter import CardinalityInfo
 
 
@@ -77,8 +74,8 @@ class _Prop[**P](Spec):
     attempts: int
     law: Callable[P, bool]
     ordering: list[str]
-    generators: dict[str, Maybe[g.Generator[Any]]]
-    printers: dict[str, Maybe[p.Printer[Any]]]
+    generators: dict[str, g.Generator[Any] | None]
+    printers: dict[str, p.Printer[Any] | None]
 
 
 def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
@@ -101,19 +98,20 @@ def prop[**P](desc: str) -> Callable[[Callable[P, bool]], Spec]:
         }
 
         # Try to infer generators
-        generators: dict[str, Maybe[g.Generator[Any]]] = {}
-        printers: dict[str, Maybe[p.Printer[Any]]] = {}
+        generators: dict[str, g.Generator[Any] | None] = {}
+        printers: dict[str, p.Printer[Any] | None] = {}
         for param in params:
             param_type = param_types[param]
             generators[param] = g.infer(param_type)
             printers[param] = p.infer(param_type)
 
         # Calculate optimal attempts based on generator cardinality
-        # Filter out None generators for the calculation
-        active_generators = {
-            k: v for k, v in generators.items() if v is not None
-        }
-        optimal_attempts = calculate_attempts_from_generators(active_generators)
+        total_cardinality = c.ONE
+        for generator in generators.values():
+            if generator is None:
+                continue
+            total_cardinality = total_cardinality * generator.cardinality
+        optimal_attempts = c.calculate_optimal_attempts(total_cardinality)
 
         # Done
         return _Prop(desc, optimal_attempts, law, params, generators, printers)
@@ -175,16 +173,27 @@ def context(
     def _decorate(spec: Spec) -> Spec:
         match spec:
             case _Prop(desc, count, law, params, generators, printers):
-                _result = _Prop(desc, count, law, params, generators, printers)
-                for param, domain in zip(
-                    params[: len(params)], lparams, strict=False
-                ):
-                    _result.generators[param] = Some(domain.generate)
-                    _result.printers[param] = Some(domain.print)
+                if len(lparams) > len(params):
+                    raise TypeError(
+                        f'Property "{desc}" takes {len(params)} parameters '
+                        f"but context() received {len(lparams)} positional "
+                        "domains"
+                    )
+                unknown = [param for param in kparams if param not in params]
+                if unknown:
+                    raise TypeError(
+                        f'Property "{desc}" has no parameters named '
+                        f"{', '.join(sorted(unknown))}"
+                    )
+                _generators = dict(generators)
+                _printers = dict(printers)
+                for param, domain in zip(params, lparams, strict=False):
+                    _generators[param] = domain.generate
+                    _printers[param] = domain.print
                 for param, domain in kparams.items():
-                    _result.generators[param] = Some(domain.generate)
-                    _result.printers[param] = Some(domain.print)
-                return _result
+                    _generators[param] = domain.generate
+                    _printers[param] = domain.print
+                return _Prop(desc, count, law, params, _generators, _printers)
             case _:
                 raise AssertionError("Invariant")
 
@@ -312,25 +321,21 @@ def _run_calibration(spec: Spec) -> bool:
 
                 _generators: dict[str, g.Generator[Any]] = {}
                 total_cardinality = c.ONE
-                for param, maybe_generator in generators.items():
-                    match maybe_generator:
-                        case Maybe.empty:
-                            error_msg = (
-                                "No generator was inferred or defined "
-                                f'for parameter "{param}" of property "{desc}"'
+                for param, generator in generators.items():
+                    if generator is None:
+                        error_msg = (
+                            "No generator was inferred or defined "
+                            f'for parameter "{param}" of property "{desc}"'
+                        )
+                        if reporter:
+                            reporter.end_test(
+                                desc, False, 0.0, error_message=error_msg
                             )
-                            if reporter:
-                                reporter.end_test(
-                                    desc, False, 0.0, error_message=error_msg
-                                )
-                            return state, False
-                        case Some(generator):
-                            _generators[param] = generator
-                            total_cardinality = (
-                                total_cardinality * generator[1]
-                            )  # generator is (sampler, cardinality)
-                        case _:
-                            raise AssertionError("Invariant")
+                        return state, False
+                    _generators[param] = generator
+                    total_cardinality = (
+                        total_cardinality * generator.cardinality
+                    )
 
                 # Register property with budget allocator during calibration (after cardinality calculation)
                 if (
@@ -436,48 +441,34 @@ def _run_execution(spec: Spec) -> bool:
                     reporter.start_test(desc)
 
                 _generators: dict[str, g.Generator[Any]] = {}
-                for param, maybe_generator in generators.items():
-                    match maybe_generator:
-                        case Maybe.empty:
-                            error_msg = (
-                                "No generator was inferred or defined "
-                                f'for parameter "{param}" of property "{desc}"'
+                for param, generator in generators.items():
+                    if generator is None:
+                        error_msg = (
+                            "No generator was inferred or defined "
+                            f'for parameter "{param}" of property "{desc}"'
+                        )
+                        duration = time.time() - start_time
+                        if reporter:
+                            reporter.end_test(
+                                desc, False, duration, error_message=error_msg
                             )
-                            duration = time.time() - start_time
-                            if reporter:
-                                reporter.end_test(
-                                    desc,
-                                    False,
-                                    duration,
-                                    error_message=error_msg,
-                                )
-                            return state, False
-                        case Some(generator):
-                            _generators[param] = generator
-                        case _:
-                            raise AssertionError("Invariant")
+                        return state, False
+                    _generators[param] = generator
 
                 local_printers: dict[str, p.Printer[Any]] = {}
-                for param, maybe_printer in _printers.items():
-                    match maybe_printer:
-                        case Maybe.empty:
-                            error_msg = (
-                                "No printer was inferred or defined "
-                                f'for parameter "{param}" of property "{desc}"'
+                for param, param_printer in _printers.items():
+                    if param_printer is None:
+                        error_msg = (
+                            "No printer was inferred or defined "
+                            f'for parameter "{param}" of property "{desc}"'
+                        )
+                        duration = time.time() - start_time
+                        if reporter:
+                            reporter.end_test(
+                                desc, False, duration, error_message=error_msg
                             )
-                            duration = time.time() - start_time
-                            if reporter:
-                                reporter.end_test(
-                                    desc,
-                                    False,
-                                    duration,
-                                    error_message=error_msg,
-                                )
-                            return state, False
-                        case Some(printer):
-                            local_printers[param] = printer
-                        case _:
-                            raise AssertionError("Invariant")
+                        return state, False
+                    local_printers[param] = param_printer
 
                 printer = _call_context(_ordering, local_printers)
 
@@ -493,51 +484,48 @@ def _run_execution(spec: Spec) -> bool:
                 else:
                     allocated_attempts = _attempts  # Fallback to default
 
-                state, maybe_counter_example = s.find_counter_example(
+                state, counter_ex = s.find_counter_example(
                     state, allocated_attempts, law, _generators
                 )
 
                 duration = time.time() - start_time
 
-                match maybe_counter_example:
-                    case Maybe.empty:
-                        if not neg:
-                            if reporter:
-                                reporter.end_test(desc, True, duration)
-                            return state, True
-                        error_msg = f'Found no counter example for "{desc}" however one was expected!'
+                if counter_ex is None:
+                    if not neg:
                         if reporter:
-                            reporter.end_test(
-                                desc, False, duration, error_message=error_msg
-                            )
-                        return state, False
-                    case Some(counter_ex):
-                        if neg:
-                            if reporter:
-                                reporter.end_test(desc, True, duration)
-                            return state, True
-                        counter_example = p.render(printer(counter_ex.args))
+                            reporter.end_test(desc, True, duration)
+                        return state, True
+                    error_msg = f'Found no counter example for "{desc}" however one was expected!'
+                    if reporter:
+                        reporter.end_test(
+                            desc, False, duration, error_message=error_msg
+                        )
+                    return state, False
 
-                        # Build error message with exception info if present
-                        if counter_ex.exception:
-                            error_msg = (
-                                f'A test case of "{desc}" raised an exception:\n'
-                                f"{type(counter_ex.exception).__name__}: {counter_ex.exception}"
-                            )
-                        else:
-                            error_msg = f'A test case of "{desc}" failed with the following counter example:'
+                if neg:
+                    if reporter:
+                        reporter.end_test(desc, True, duration)
+                    return state, True
+                counter_example = p.render(printer(counter_ex.args))
 
-                        if reporter:
-                            reporter.end_test(
-                                desc,
-                                False,
-                                duration,
-                                counter_example=counter_example,
-                                error_message=error_msg,
-                            )
-                        return state, False
-                    case _:
-                        raise AssertionError("Invariant")
+                # Build error message with exception info if present
+                if counter_ex.exception:
+                    error_msg = (
+                        f'A test case of "{desc}" raised an exception:\n'
+                        f"{type(counter_ex.exception).__name__}: {counter_ex.exception}"
+                    )
+                else:
+                    error_msg = f'A test case of "{desc}" failed with the following counter example:'
+
+                if reporter:
+                    reporter.end_test(
+                        desc,
+                        False,
+                        duration,
+                        counter_example=counter_example,
+                        error_message=error_msg,
+                    )
+                return state, False
             case _Neg(term):
                 return _visit(state, term, not neg)
             case _Conj(terms):

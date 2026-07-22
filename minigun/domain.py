@@ -13,8 +13,6 @@ from builtins import tuple as _tuple
 from dataclasses import dataclass
 from typing import Any
 
-from returns.maybe import Maybe
-
 # Internal module dependencies
 from minigun import generate as g
 from minigun import pretty as p
@@ -319,18 +317,18 @@ def set[T](domain: Domain[T]) -> Domain[_set[T]]:
 
 
 ###############################################################################
-# Maybe
+# Optional
 ###############################################################################
-def maybe[T](domain: Domain[T]) -> Domain[Maybe[T]]:
-    """A domain of maybe over a given type `T`.
+def optional[T](domain: Domain[T]) -> Domain[T | None]:
+    """A domain of optional values over a given type `T`.
 
-    :param domain: A value domain to map maybe over.
+    :param domain: A value domain to make optional.
     :type domain: `Domain[T]`
 
-    :return: A domain of maybe over type `T`.
-    :rtype: `Domain[returns.maybe.Maybe[T]]`
+    :return: A domain of optional values over type `T`.
+    :rtype: `Domain[T | None]`
     """
-    return Domain(g.maybe(domain.generate), p.maybe(domain.print))
+    return Domain(g.optional(domain.generate), p.optional(domain.print))
 
 
 ###############################################################################
