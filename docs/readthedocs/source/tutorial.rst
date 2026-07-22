@@ -62,18 +62,15 @@ Implementations of QuickCheck-like libraries are now available for all major and
 
     Some implementations allow you to test interfaces in different languages than the language the QuickCheck library was implemented in; watch the presentations linked to earlier, where C interfaces were tested in Erlang.
 
-QuickCheck implements utility for working with the following three concepts:
+QuickCheck implements utility for working with the following two concepts:
 
 :Generation:
-    The library provides implementations of random instance generators for the built-in types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom domains.
+    The library provides implementations of random instance generators for the built-in types of the target language; such as integers, floats, strings and combinators for collection types such as list; as well as utility and combinators for users to define custom generators.
 
 :Shrinking:
     Since a randomly generated input instance can be quite large, and it is only a small or specific part of the input that is causing the failure, we work with the concept of shrinking. The failing input instance is iteratively shrunk or trimmed, until a smallest possible failing instance is found. Again, the library provides implementations for shrinkers of the built-in types of the target language; as well as utility and combinators for user defined shrinkers.
 
-:Printing:
-    Once a smallest failing input instance is found, we wish to be able to print it out in a user friendly way. For this the library provides pretty printers for built-in types of the target languages; as well as utility and combinators for user defined pretty printers.
-
-These three concepts put together is usually called a strategy; in Minigun it is called a :code:`Domain[A]`, and the generation and shrinking is joined under one type of :code:`Generator[A]`.
+In Minigun these two concepts are joined under one type :code:`Generator[A]`: a generator draws values together with their shrink trees. Counter examples are printed with Python's own :code:`repr`.
 
 Basic usage
 -----------
@@ -82,9 +79,9 @@ Lets start with a simple example where we define a law for an interface interact
 .. code-block:: python
 
     from minigun.specify import prop, context, check
-    import minigun.domain as d
+    import minigun.generate as g
 
-    @context(d.list(d.int()), d.list(d.int()))
+    @context(g.lists(g.ints()), g.lists(g.ints()))
     @prop('Length distributes over concatenation via addition')
     def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
         return len(xs + ys) == len(xs) + len(ys)
@@ -96,22 +93,22 @@ Lets start with a simple example where we define a law for an interface interact
 
 Declared at the top are the imports to the relevant dependencies of Minigun. When defining basic specifications, you should not need any other imports than those listed.
 
-Next a law is defined with the name :code:`_list_len_concat_add_dist`. It is decorated with a specification header of :code:`@prop` and :code:`@context`; neither of which can be omitted when defining a specification (except for simple cases, see the following tip in this section).
+Next a law is defined with the name :code:`_list_len_concat_add_dist`. It is decorated with a specification header of :code:`@prop` and :code:`@context`.
 
-The :code:`@context` decorator will quantify the domain of the law; here positionally giving the parameters :code:`xs` and :code:`ys` the type :code:`list[int]` via :code:`d.list(d.int())`.
+The :code:`@context` decorator will quantify the input domain of the law; here positionally giving the parameters :code:`xs` and :code:`ys` the type :code:`list[int]` via :code:`g.lists(g.ints())`.
 
 The :code:`@prop` decorator defines a human readable description for the specification, and in turn converts the law into a property.
 
 At last there is the executable section, where the implementation is checked against the specification.
 
 .. tip::
-    Parameter domains can also be quantified by name, e.g:
+    Parameter generators can also be quantified by name, e.g:
 
     .. code-block:: python
 
         @context(
-            xs = d.list(d.int()),
-            ys = d.list(d.int())
+            xs = g.lists(g.ints()),
+            ys = g.lists(g.ints())
         )
 
     And in the usual mixed positional and named Pythonic way, e.g:
@@ -119,13 +116,13 @@ At last there is the executable section, where the implementation is checked aga
     .. code-block:: python
 
         @context(
-            d.list(d.int()),
-            ys = d.list(d.int())
+            g.lists(g.ints()),
+            ys = g.lists(g.ints())
         )
 
 .. tip::
 
-    For simple and general domains such as lists of integers, Minigun is actually able to infer the domain from the typehints annotated for the law's parameters. As such it is not necessary to fully write out the domain if you are quantifying over basic Python types. The following specification would have been valid as well:
+    For simple and general input domains such as lists of integers, Minigun is actually able to infer the generator from the typehints annotated for the law's parameters. As such it is not necessary to fully write out the generators if you are quantifying over basic Python types. The following specification would have been valid as well:
 
     .. code-block:: python
 
@@ -141,7 +138,20 @@ Save the example above as :code:`test_list.py` and run it directly:
 
     $ python3 test_list.py
 
-Minigun also ships with a CLI test runner that discovers and runs test modules with a time budget. If you have a :code:`tests/` directory with test modules, you can run:
+Minigun also ships with a CLI test runner that discovers and runs test modules with a time budget. A test module is a Python file that exports its specification as a module-level attribute named :code:`spec`:
+
+.. code-block:: python
+
+    # tests/lists.py
+    from minigun.specify import prop, conj
+
+    @prop('Length distributes over concatenation via addition')
+    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
+        return len(xs + ys) == len(xs) + len(ys)
+
+    spec = conj(_list_len_concat_add_dist)
+
+If you have a :code:`tests/` directory with such test modules, you can run:
 
 .. code-block:: shell
 
@@ -160,6 +170,12 @@ This will discover all test modules, run a calibration phase to measure executio
     │ TOTAL    │  34   │   34   │   0    │ 12.816s  │ PASS    │
     ╰──────────┴───────┴────────┴────────┴──────────┴─────────╯
 
+Every run is seeded, and the seed is printed in the run header and again when a property fails. To reproduce a failing run exactly, pass the reported seed back:
+
+.. code-block:: shell
+
+    $ minigun --time-budget 30 --seed 5015299433215186410
+
 See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules, :code:`--quiet` for CI output, and :code:`--json` for structured output.
 
 Composing specifications
@@ -177,7 +193,6 @@ A simple example of how to use :code:`conj`, is to extend our example from earli
 .. code-block:: python
 
     from minigun.specify import prop, conj, check
-    import minigun.domain as d
 
     @prop('Length distributes over concatenation via addition')
     def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
@@ -208,39 +223,37 @@ To do this with Minigun you can use the technique of template specifications (we
 
 .. code-block:: python
 
-    from typing import TypeVar, Callable
-    from minigun.specify import prop, context, check
-    import minigun.domain as d
+    from collections.abc import Callable
+    from minigun.specify import Spec, prop, context, conj, check
+    import minigun.generate as g
 
-    S = TypeVar('S')
-    A = TypeVar('A')
-    def _stack(
-        item_domain: d.Domain[A],
-        stack_domain: d.Domain[S],
+    def _stack[S, A](
+        item_generator: g.Generator[A],
+        stack_generator: g.Generator[S],
         initial: S,
         length: Callable[[S], int],
         push: Callable[[S, A], S],
         pop: Callable[[S], tuple[A, S]]
-        ):
+        ) -> Spec:
 
-        @context(d.constant(initial))
+        @context(g.constant(initial))
         @prop('Initial stack is empty')
         def _initial_empty(s: S):
             return length(s) == 0
 
-        @context(stack_domain, item_domain)
+        @context(stack_generator, item_generator)
         @prop('Stack push increments size')
         def _push_inc(s: S, a: A):
             return length(push(s, a)) == length(s) + 1
 
-        @context(stack_domain)
+        @context(stack_generator)
         @prop('Stack pop decrements size')
         def _pop_dec(s: S):
             if length(s) == 0: return True
             _, s1 = pop(s)
             return length(s) - 1 == length(s1)
 
-        @context(stack_domain, item_domain)
+        @context(stack_generator, item_generator)
         @prop('Stack push and pop are inverse')
         def _push_pop_inv(s: S, a: A):
             b, t = pop(push(s, a))
@@ -254,19 +267,19 @@ To do this with Minigun you can use the technique of template specifications (we
         )
 
     # An implementation of an immutable stack of integers
-    def _push(xs: list[A], x: A) -> list[A]:
+    def _push[A](xs: list[A], x: A) -> list[A]:
         xs1 = xs.copy()
         xs1.append(x)
         return xs1
 
-    def _pop(xs: list[A]) -> tuple[A, list[A]]:
+    def _pop[A](xs: list[A]) -> tuple[A, list[A]]:
         xs1 = xs.copy()
         x = xs1.pop(-1)
         return x, xs1
 
     # A specification for the above implementation
     _stack_int = _stack(
-        d.int(), d.list(d.int()),
+        g.ints(), g.lists(g.ints()),
         [], len, _push, _pop
     )
 
@@ -282,39 +295,31 @@ The above example is a naive and shallow specification for immutable stacks; it 
 .. note::
     For Python implementations you generally do not need to go any deeper that the above example does (in practice). It is mostly for lower level languages where you have to deal with concepts such as under- and over flows, and generally have more administrative implementation details to get right regarding resource management. But if you want to be more complete in your specifications, and want to go deeper, please checkout the section about Modeling.
 
-Refining domains
-----------------
-Often the input domains to interfaces are not as general as their types suggests. Therefore to make useful and concise specifications we need to be able to define these more refined domains.
+Refining generators
+-------------------
+Often the input domains to interfaces are not as general as their types suggests. Therefore to make useful and concise specifications we need to be able to define these more refined generators.
 
 Map
 ^^^
-As our first example, lets consider domains for even and odd natural numbers, both of which are subsets of the Python type :code:`int`.
+As our first example, lets consider generators for even and odd natural numbers, both of which are subsets of the Python type :code:`int`.
 
 .. code-block:: python
 
-    import minigun.domain as d
     import minigun.generate as g
-    import minigun.pretty as p
 
-    def even_natural() -> d.Domain[int]:
+    def even_natural() -> g.Generator[int]:
         def _impl(i: int) -> int:
             return i * 2
-        return d.Domain(
-            g.map(_impl, g.nat()),
-            p.int()
-        )
+        return g.map(_impl, g.nats())
 
-    def odd_natural() -> d.Domain[int]:
+    def odd_natural() -> g.Generator[int]:
         def _impl(i: int) -> int:
             return ((i + 1) * 2) - 1
-        return d.Domain(
-            g.map(_impl, g.nat()),
-            p.int()
-        )
+        return g.map(_impl, g.nats())
 
 Here we :code:`map` over the natural numbers, and use them as indices into the sets of even and odd natural numbers.
 
-To use our new domains, we instantiate them the same as we would other domains defined in :code:`minigun.domain`:
+To use our new generators, we instantiate them the same as we would other generators defined in :code:`minigun.generate`:
 
 .. code-block:: python
 
@@ -330,41 +335,27 @@ To use our new domains, we instantiate them the same as we would other domains d
 
 Bind
 ^^^^
-As another example, lets consider representing directed graphs using the type :code:`Dict[int, List[int]]`. Each node in the graph is represented with an index, and the edges are represented with a map from indices to lists of indices.
+As another example, lets consider representing directed graphs using the type :code:`dict[int, list[int]]`. Each node in the graph is represented with an index, and the edges are represented with a map from indices to lists of indices.
 
-If we were to simply define the domain with the following direct translation of the type:
+If we were to simply define the input domain with the following direct translation of the type:
 
 .. code-block:: python
 
-    @context(d.dict(d.int(), d.list(d.int())))
+    @context(g.dicts(g.ints(), g.lists(g.ints())))
 
 We would end up generating and testing with instances of dictionaries that do not represent valid directed graphs.
 
-To generate valid instances we need to define a refined domain:
+To generate valid instances we need to define a refined generator:
 
 .. code-block:: python
 
-    from minigun.specify import permanent_path
     import minigun.generate as g
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    import typeset as ts
 
-    def graph_printer(data: Dict[int, List[int]]) -> ts.Layout:
-        graph = nx.Graph()
-        graph.add_nodes_from(data.keys())
-        for src, edges in data.items():
-            graph.add_edges_from([ (src, dst) for dst in edges ])
-        artifact_path = permanent_path().with_suffix('.png')
-        nx.draw(graph, with_labels = True, font_weight = 'bold')
-        plt.savefig(artifact_path)
-        return ts.text(str(artifact_path))
-
-    def sized_directed_graph(size: int) -> d.Domain[Dict[int, List[int]]]:
+    def sized_directed_graph(size: int) -> g.Generator[dict[int, list[int]]]:
         def _impl(
-            graph_data: List[List[bool]]
-            ) -> Dict[int, List[int]]:
-            result: Dict[int, List[int]] = {}
+            graph_data: list[list[bool]]
+            ) -> dict[int, list[int]]:
+            result: dict[int, list[int]] = {}
             for src_index, row_data in enumerate(graph_data):
                 result[src_index] = []
                 for dst_index, column_data in enumerate(row_data):
@@ -372,31 +363,32 @@ To generate valid instances we need to define a refined domain:
                     result[src_index].append(dst_index)
             return result
 
-        return d.Domain(
-            g.map(_impl, g.bounded_list(
+        return g.map(_impl, g.bounded_lists(
+            size, size,
+            g.bounded_lists(
                 size, size,
-                g.bounded_list(
-                    size, size,
-                    g.bool()
-                )
-            )),
-            graph_printer
-        )
+                g.bools()
+            )
+        ))
 
-    def directed_graph() -> d.Domain[Dict[int, List[int]]]:
-        return d.bind(sized_directed_graph, d.small_nat())
+    def directed_graph() -> g.Generator[dict[int, list[int]]]:
+        return g.bind(sized_directed_graph, g.small_nats())
 
-Here we define two domains over directed graphs. The first generates directed graphs of a given size, the second is defined using :code:`bind` which draws from the domain of small natural numbers (0 <= n <=100) and use it as the size argument for the sized sampler.
+Here we define two generators over directed graphs. The first generates directed graphs of a given size, the second is defined using :code:`bind` which draws from the domain of small natural numbers (0 <= n <= 100) and use it as the size argument for the sized generator.
 
-Also notice the use of :code:`permanent_path`, which is a helper function providing a path to a permanent filesystem directory within the :code:`.minigun` test directory. Here we use this path to store a rendered image of the diagram of generated graphs; and the pretty printed representation of the graph is the permanent filesystem path to the image.
+.. tip::
+
+    Minigun provides the helper functions :code:`minigun.specify.temporary_path` and :code:`minigun.specify.permanent_path`, which provide paths to temporary and permanent filesystem directories within the :code:`.minigun` test directory. These are useful for tests that need filesystem fixtures, or for storing rendered artifacts (such as images of generated graphs) that outlive the test run.
 
 Choice
 ^^^^^^
-When defining domains for inductive datastructures such as various forms of trees, e.g. ASTs, it is useful to use :code:`choice` and :code:`weighted_choice`. Where :code:`choice` takes a variadic number of generators over the same type, and uniformly selects one during sampling. :code:`weighted_choice` is the weighted version of :code:`choice`, where you additionally define the relative weight for each generator to be chosen.
+When defining generators for inductive datastructures such as various forms of trees, e.g. ASTs, it is useful to use :code:`choice` and :code:`weighted_choice`. Where :code:`choice` takes a variadic number of generators over the same type, and uniformly selects one during sampling. :code:`weighted_choice` is the weighted version of :code:`choice`, where you additionally define the relative weight for each generator to be chosen.
 
 Lets consider an AST for arithmetic expressions:
 
 .. code-block:: python
+
+    from dataclasses import dataclass
 
     @dataclass
     class Arith: pass
@@ -425,104 +417,58 @@ Lets consider an AST for arithmetic expressions:
         left: Arith
         right: Arith
 
-Now lets define a sampler for this abstract datatype :code:`Arith`:
+Now lets define a generator for this abstract datatype :code:`Arith`:
 
 .. code-block:: python
 
-    from functools import partial
     import minigun.generate as g
-    import minigun.domain as d
-    import typeset as ts
 
-    def arith_printer() -> p.Printer[Arith]:
-        def _pass(layout: ts.Layout) -> ts.Layout:
-            return layout
-        def _group(layout: ts.Layout) -> ts.Layout:
-            return ts.grp(ts.parse('"(" !& {0} !& ")"', layout))
-        def _visit(
-            wrap: Callable[[ts.Layout], ts.Layout],
-            arith: Arith
-            ) -> ts.Layout:
-            match arith:
-                case Number(value): return ts.text(str(value))
-                case Plus(left, right):
-                    return wrap(ts.parse(
-                        '{0} !+ "+" + {1}',
-                        _visit(_pass, left),
-                        _visit(_pass, right)
-                    ))
-                case Minus(left, right):
-                    return wrap(ts.parse(
-                        '{0} !+ "-" + {1}',
-                        _visit(_pass, left),
-                        _visit(_pass, right)
-                    ))
-                case Times(left, right):
-                    return wrap(ts.parse(
-                        '{0} !+ "*" + {1}',
-                        _visit(_group, left),
-                        _visit(_group, right)
-                    ))
-                case Divide(left, right):
-                    return wrap(ts.parse(
-                        '{0} !+ "/" + {1}',
-                        _visit(_group, left),
-                        _visit(_group, right)
-                    ))
-        return partial(_visit, _pass)
-
-    def sized_arith(size: int) -> d.Domain[Arith]:
+    def sized_arith(size: int) -> g.Generator[Arith]:
         assert 0 <= size
 
-        def _arith_generator(size: int) -> g.Generator[Arith]:
-            if size == 0: return g.map(Number, g.int())
-            _size = size // 2
-            _sub_arith = _arith_generator(_size)
-            return g.weighted_choice(
-                (1, g.map(Number, g.int())),
-                (_size, g.map(Plus,
-                    _sub_arith,
-                    _sub_arith
-                )),
-                (_size, g.map(Minus,
-                    _sub_arith,
-                    _sub_arith
-                )),
-                (_size, g.map(Times,
-                    _sub_arith,
-                    _sub_arith
-                )),
-                (_size, g.map(Divide,
-                    _sub_arith,
-                    _sub_arith
-                ))
-            )
-
-        return d.Domain(
-            _arith_generator(size),
-            arith_printer()
+        if size == 0: return g.map(Number, g.ints())
+        _size = size // 2
+        _sub_arith = sized_arith(_size)
+        return g.weighted_choice(
+            (1, g.map(Number, g.ints())),
+            (_size, g.map(Plus,
+                _sub_arith,
+                _sub_arith
+            )),
+            (_size, g.map(Minus,
+                _sub_arith,
+                _sub_arith
+            )),
+            (_size, g.map(Times,
+                _sub_arith,
+                _sub_arith
+            )),
+            (_size, g.map(Divide,
+                _sub_arith,
+                _sub_arith
+            ))
         )
 
-    def arith() -> d.Domain[Arith]:
-        return d.bind(sized_arith, d.small_nat())
+    def arith() -> g.Generator[Arith]:
+        return g.bind(sized_arith, g.small_nats())
 
 The parameter :code:`size` is used here to control the height of the tree; you can think of :code:`size` as fuel for growing the tree. It is used in the application of :code:`weighted_choice` to skew the probability of a branch of the tree from terminating with a leaf, if :code:`size` is relatively large.
 
 .. tip::
 
-    Minigun uses `Typeset <https://github.com/soren-n/typeset-python>`_ as the backend of the pretty printing interface. Typeset is a declarative pretty printer DSL and compiler; i.e. you compose rules for how a data serialization should be layed out, and Typeset then handles the rendering for you. This example shows you how Typeset is used to define a pretty printer for the :code:`Arith` datatype via :code:`arith_printer`.
+    For recursive generators, :code:`minigun.generate.lazy` defers construction of the inner generator until the first sample is drawn. This avoids the exponential construction cost that eager recursion would otherwise incur for deeply recursive generator definitions.
 
 Beyond
 ^^^^^^
-You will not be able to compose domains for all datatypes using the combinators that Minigun provide. If you do not see a way to compose one for your specific use case, you will need to implement your own shrinker and generator. Here is some pseudo code that frames the general workflow:
+You will not be able to compose generators for all datatypes using the combinators that Minigun provide. If you do not see a way to compose one for your specific use case, you will need to implement your own shrinker and generator. Here is some pseudo code that frames the general workflow:
 
 .. code-block:: python
 
+    import minigun.arbitrary as a
+    import minigun.cardinality as c
     import minigun.stream as fs
     import minigun.shrink as s
     import minigun.generate as g
-    import minigun.domain as d
-    import typeset as ts
 
     def your_shrinker(instance: YourType) -> s.Dissection[YourType]:
         def your_trimmer_1(instance: YourType) -> fs.Stream[YourType]:
@@ -537,22 +483,18 @@ You will not be able to compose domains for all datatypes using the combinators 
             your_trimmer_N
         )
 
-    def your_generator(state: a.State) -> g.Sample[YourType]:
+    def your_sampler(state: a.State) -> g.Sample[YourType]:
         state, instance = ...
         return state, your_shrinker(instance)
 
-    def your_printer(instance: YourType) -> ts.Layout:
-        ...
-
-    def your_domain() -> d.Domain[YourType]:
-        return d.Domain(
-            your_generator,
-            your_printer
-        )
+    def your_generator() -> g.Generator[YourType]:
+        return g.Generator(your_sampler, c.INFINITE)
 
 A :code:`Trimmer[A]` will take an instance of :code:`A`, and produce a lazy stream of shrunk instances of :code:`A` from that given instance. Exactly how you are going to implement a trimmer depends on your datatype.
 
 A :code:`Shrinker[A]` will take an instance of :code:`A`, and produce a lazy tree of shrunk instances of :code:`A`. Think of the shrinker as being the given trimmer lazy recursively applied to the shrunk values. The reason it is a tree, is because you can use multiple trimmers to build it; each step down the tree a trimmer is selected from the given trimmers in a rotating manner.
+
+A sampler returns the advanced state together with a dissection of the drawn value, or :code:`None` when generation failed (for example when a filtered generator rejected the drawn value). The cardinality describes the size of the generator's domain and is used by the test runner to allocate attempts; use :code:`minigun.cardinality.finite(n)` when the domain has :code:`n` values, and :code:`minigun.cardinality.INFINITE` when it is unbounded for practical purposes.
 
 If you need examples for further clarification, then the following section on Modeling will define a custom generator and trimmer. Also please check out the implementation of Minigun, where there are implementations for all of Python's built-in types.
 
@@ -568,7 +510,7 @@ Lets consider modeling strategies for software with different challenges:
     E.g. functions or programs without side-effects or mutable state between evaluations. Implement a simpler and correct version of the function, compare the outputs of this implementation against the outputs of the implementation under test.
 
 :Mutable state:
-    E.g. datastructures or programs with IO. Create a denotation of programs over the system under test; e.g. for the stack example we can push, pop and get the size; we then implement a generator, shrinker and pretty printer for sequences of these denoted commands. Define a correct reference implementation of the system. Define an interpreter which will evaluate terms of the defined language of programs, while also managing an instance of the state of the system under test, as well an instance of the state of the reference implementation. Compare observable values of the two systems that are important with regards to the specification, e.g. outputs. Report failure and shrink the test case when the two systems diverge under evaluation.
+    E.g. datastructures or programs with IO. Create a denotation of programs over the system under test; e.g. for the stack example we can push, pop and get the size; we then implement a generator and shrinker for sequences of these denoted commands. Define a correct reference implementation of the system. Define an interpreter which will evaluate terms of the defined language of programs, while also managing an instance of the state of the system under test, as well an instance of the state of the reference implementation. Compare observable values of the two systems that are important with regards to the specification, e.g. outputs. Report failure and shrink the test case when the two systems diverge under evaluation.
 
 :Nondeterminism:
     E.g. because of concurrency, asynchrony or IO. Generate randomly ordered sequences of modelled operations, representing the possible interleavings that could arise from concurrent access. Run these sequences sequentially against the system under test and verify that it behaves correctly regardless of ordering.
@@ -577,112 +519,73 @@ Let us consider the modeling of the stack example from earlier:
 
 .. code-block:: python
 
-    # Stack interface
-    T = TypeVar('T')
-    S = TypeVar('S')
-    StackInit = Callable[[], S]
-    StackPush = Callable[[S, T], S]
-    StackPop = Callable[[S], Tuple[S, T]]
+    from collections.abc import Callable
+    from dataclasses import dataclass
+    from functools import partial
+
+    import minigun.arbitrary as a
+    import minigun.cardinality as c
+    import minigun.generate as g
+    import minigun.shrink as s
+    import minigun.stream as fs
 
     # Stack model
-    StackModel = List[T]
-    def model_init() -> StackModel[T]:
+    def model_init[T]() -> list[T]:
         return []
 
-    def model_push(stack: StackModel[T], item: T) -> StackModel[T]:
+    def model_push[T](stack: list[T], item: T) -> list[T]:
         result = stack.copy()
         result.append(item)
         return result
 
-    def model_pop(stack: StackModel[T]) -> Tuple[StackModel[T], T]:
+    def model_pop[T](stack: list[T]) -> tuple[list[T], T]:
         result = stack.copy()
         item = result.pop(-1)
         return result, item
 
     # Programs over stack operations
     @dataclass
-    class Value(Generic[T]): ...
+    class Value[T]: ...
 
     @dataclass
-    class Constant(Value[T]):
+    class Constant[T](Value[T]):
         value: T
 
     @dataclass
-    class Variable(Value[T]):
+    class Variable[T](Value[T]):
         name: str
 
     @dataclass
-    class StackOp(Generic[T]): pass
+    class StackOp[T]: pass
 
     @dataclass
-    class InitOp(StackOp[T]):
+    class InitOp[T](StackOp[T]):
         after: str
 
     @dataclass
-    class PushOp(StackOp[T]):
+    class PushOp[T](StackOp[T]):
         before: str
         after: str
         item: Value[T]
 
     @dataclass
-    class PopOp(StackOp[T]):
+    class PopOp[T](StackOp[T]):
         before: str
         after: str
         item: str
 
-    StackProg = List[StackOp[T]]
+    type StackProg[T] = list[StackOp[T]]
 
-    def stack_prog_printer(
-        value_printer: p.Printer[T]
-        ) -> p.Printer[StackProg[T]]:
-        def _visit_value(value: Value[T]) -> ts.Layout:
-            match value:
-                case Constant(value): return value_printer(value)
-                case Variable(name): return ts.text(name)
-        def _visit_op(op: StackOp[T]) -> ts.Layout:
-            match op:
-                case InitOp(after):
-                    return ts.parse(
-                        'fix ({0} + "=" + "init()")',
-                        ts.text(after)
-                    )
-                case PushOp(before, after, item):
-                    return ts.parse(
-                        'fix ({0} + "=" + "push(" & '
-                        '{1} & "," + {2} & ")")',
-                        ts.text(after),
-                        ts.text(before),
-                        _visit_value(item)
-                    )
-                case PopOp(before, after, item):
-                    return ts.parse(
-                        'fix ({0} & "," + {1} + "=" + '
-                        '"pop(" & {2} & ")")',
-                        ts.text(after),
-                        ts.text(item),
-                        ts.text(before)
-                    )
-        def _visit_prog(prog: StackProg[T]) -> ts.Layout:
-            match prog:
-                case []: return ts.null()
-                case [op, *prog1]:
-                    return ts.parse(
-                        '{0} </> {1}',
-                        _visit_op(op),
-                        _visit_prog(prog1)
-                    )
-        return _visit_prog
-
-    def stack_prog_generator(
+    def stack_prog_generator[T](
         value_generator: g.Generator[T],
         size: int
         ) -> g.Generator[StackProg[T]]:
 
         def _trim(prog: StackProg[T]) -> fs.Stream[StackProg[T]]:
-            def _step(index: int) -> Maybe[Tuple[StackProg[T], int]]:
-                if index < 0: return Nothing
+            def _step(index: int) -> tuple[StackProg[T], int] | None:
+                if index < 0: return None
                 trimmed = prog[:index] + prog[index + 1:]
-                return Some((trimmed, index - 1))
+                return trimmed, index - 1
             return fs.unfold(_step, len(prog) - 1)
 
         def _visit(
@@ -690,13 +593,13 @@ Let us consider the modeling of the stack example from earlier:
             state: a.State,
             stack_ctr: int,
             item_ctr: int,
-            stacks: List[str],
-            nonempty: List[str]
-            ) -> Tuple[a.State, StackProg[T]]:
+            stacks: list[str],
+            nonempty: list[str]
+            ) -> tuple[a.State, StackProg[T]]:
             if fuel <= 0 or len(stacks) == 0 and fuel < 2:
                 name = f's{stack_ctr}'
                 return state, [InitOp(name)]
-            ops: List[str] = ['init']
+            ops: list[str] = ['init']
             if len(stacks) > 0: ops.append('push')
             if len(nonempty) > 0: ops.append('pop')
             state, op = a.choice(state, ops)
@@ -712,13 +615,10 @@ Let us consider the modeling of the stack example from earlier:
                 case 'push':
                     state, before = a.choice(state, stacks)
                     after = f's{stack_ctr}'
-                    sampler, _ = value_generator
-                    state, maybe_val = sampler(state)
-                    match maybe_val:
-                        case Some(dissection):
-                            val = s.head(dissection)
-                        case _:
-                            return state, []
+                    state, dissection = value_generator.sample(state)
+                    if dissection is None:
+                        return state, []
+                    val = dissection.head
                     state, rest = _visit(
                         fuel - 1, state,
                         stack_ctr + 1, item_ctr,
@@ -743,35 +643,28 @@ Let us consider the modeling of the stack example from earlier:
 
         def _impl(state: a.State) -> g.Sample[StackProg[T]]:
             state, result = _visit(size, state, 0, 0, [], [])
-            return state, Some(s.unfold(result, _trim))
+            return state, s.unfold(result, _trim)
 
-        return _impl
+        return g.Generator(_impl, c.INFINITE)
 
-    def sized_stack_prog(
-        value_domain: d.Domain[T],
-        size: int
-        ) -> d.Domain[StackProg[T]]:
-        return d.Domain(
-            stack_prog_generator(value_domain.generate, size),
-            stack_prog_printer(value_domain.print)
-        )
-
-    def stack_prog(value_domain: d.Domain[T]) -> d.Domain[StackProg[T]]:
-        return d.bind(
-            partial(sized_stack_prog, value_domain),
-            d.small_nat()
+    def stack_prog[T](
+        value_generator: g.Generator[T]
+        ) -> g.Generator[StackProg[T]]:
+        return g.bind(
+            partial(stack_prog_generator, value_generator),
+            g.small_nats()
         )
 
     # The evaluator
-    def evaluator_stack_prog(
-        init: StackInit[S],
-        push: StackPush[S, T],
-        pop: StackPop[S, T],
+    def evaluator_stack_prog[S, T](
+        init: Callable[[], S],
+        push: Callable[[S, T], S],
+        pop: Callable[[S], tuple[S, T]],
         prog: StackProg[T]
         ) -> bool:
-        model_env: Dict[str, StackModel[T]] = {}
-        impl_env: Dict[str, S] = {}
-        item_env: Dict[str, T] = {}
+        model_env: dict[str, list[T]] = {}
+        impl_env: dict[str, S] = {}
+        item_env: dict[str, T] = {}
         for op in prog:
             match op:
                 case InitOp(after):
@@ -788,10 +681,8 @@ Let us consider the modeling of the stack example from earlier:
                         impl_env[before], val
                     )
                 case PopOp(before, after, item_name):
-                    m_stack = model_pop(model_env[before])
-                    i_stack = pop(impl_env[before])
-                    m_rest, m_item = m_stack
-                    i_rest, i_item = i_stack
+                    m_rest, m_item = model_pop(model_env[before])
+                    i_rest, i_item = pop(impl_env[before])
                     if m_item != i_item:
                         return False
                     model_env[after] = m_rest
@@ -803,7 +694,7 @@ With all the pieces in place, we can now define a property that generates random
 
 .. code-block:: python
 
-    @context(stack_prog(d.int()))
+    @context(stack_prog(g.ints()))
     @prop('Stack implementation matches model')
     def _stack_model(prog: StackProg[int]):
         return evaluator_stack_prog(
@@ -819,7 +710,7 @@ Notice how the property is expressed at a high level: we simply state that runni
 
 .. tip::
 
-    If you would like to see an example of modeling in the real world, we would like to plug Typeset again (one of our other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler. Minigun is using the Rust+Python implementation of this project.
+    If you would like to see an example of modeling in the real world, we would like to plug Typeset (one of our other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler.
 
     `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
 
@@ -840,6 +731,8 @@ Lets consider a simple example with a shared counter that supports :code:`increm
 
 .. code-block:: python
 
+    from dataclasses import dataclass
+
     @dataclass
     class CounterOp: pass
 
@@ -855,10 +748,10 @@ Lets consider a simple example with a shared counter that supports :code:`increm
     class Read(CounterOp):
         client: int
 
-    CounterProg = List[CounterOp]
+    type CounterProg = list[CounterOp]
 
     # Reference model
-    def model_counter(prog: CounterProg) -> List[int]:
+    def model_counter(prog: CounterProg) -> list[int]:
         state = 0
         reads = []
         for op in prog:
@@ -872,7 +765,13 @@ We then generate random interleavings of operations from multiple clients. The k
 
 .. code-block:: python
 
-    def interleave_generator(
+    import minigun.arbitrary as a
+    import minigun.cardinality as c
+    import minigun.generate as g
+    import minigun.shrink as s
+    import minigun.stream as fs
+
+    def interleavings(
         num_clients: int,
         ops_per_client: int
         ) -> g.Generator[CounterProg]:
@@ -880,14 +779,14 @@ We then generate random interleavings of operations from multiple clients. The k
         def _trim(
             prog: CounterProg
             ) -> fs.Stream[CounterProg]:
-            def _step(i: int) -> Maybe[Tuple[CounterProg, int]]:
-                if i < 0: return Nothing
-                return Some((prog[:i] + prog[i + 1:], i - 1))
+            def _step(i: int) -> tuple[CounterProg, int] | None:
+                if i < 0: return None
+                return prog[:i] + prog[i + 1:], i - 1
             return fs.unfold(_step, len(prog) - 1)
 
         def _impl(state: a.State) -> g.Sample[CounterProg]:
             # Build per-client operation sequences
-            queues: List[List[CounterOp]] = []
+            queues: list[list[CounterOp]] = []
             for client in range(num_clients):
                 ops = []
                 for _ in range(ops_per_client):
@@ -913,36 +812,25 @@ We then generate random interleavings of operations from multiple clients. The k
                 prog.append(queues[client][indices[client]])
                 indices[client] += 1
 
-            return state, Some(s.unfold(prog, _trim))
+            return state, s.unfold(prog, _trim)
 
-        return _impl
-
-We wrap the generator in a domain, pairing it with a simple printer:
-
-.. code-block:: python
-
-    def interleave_domain(
-        num_clients: int,
-        ops_per_client: int
-        ) -> d.Domain[CounterProg]:
-        return d.Domain(
-            interleave_generator(num_clients, ops_per_client),
-            p.list(p.by(str))
-        )
+        return g.Generator(_impl, c.INFINITE)
 
 The property then checks that the system under test produces the same observable results as the model for any random interleaving:
 
 .. code-block:: python
 
+    from collections.abc import Callable
+
     def counter_spec(
-        impl_counter: Callable[[CounterProg], List[int]]
+        impl_counter: Callable[[CounterProg], list[int]]
         ):
-        @context(d.bind(
-            lambda n: d.bind(
-                lambda m: interleave_domain(n, m),
-                d.small_nat()
+        @context(g.bind(
+            lambda n: g.bind(
+                lambda m: interleavings(n, m),
+                g.small_nats()
             ),
-            d.small_nat()
+            g.small_nats()
         ))
         @prop('Counter is consistent under any interleaving')
         def _counter_consistent(prog: CounterProg):
@@ -963,7 +851,7 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to define basic specifications.
 * Learned how to compose specifications.
 * Learned how to abstract over specifications.
-* Learned how to make user defined domains.
+* Learned how to make user defined generators.
 * Learned about modeling.
 * Learned about testing nondeterministic systems by generating random operation orderings.
 

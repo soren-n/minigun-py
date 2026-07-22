@@ -4,12 +4,6 @@ minigun.specify module
 .. automodule:: minigun.specify
    :members:
 
-minigun.domain module
-=====================
-
-.. automodule:: minigun.domain
-   :members:
-
 minigun.generate module
 =======================
 
@@ -22,12 +16,6 @@ minigun.shrink module
 .. automodule:: minigun.shrink
    :members:
 
-minigun.pretty module
-=====================
-
-.. automodule:: minigun.pretty
-   :members:
-
 minigun.arbitrary module
 ========================
 
@@ -38,4 +26,28 @@ minigun.stream module
 =====================
 
 .. automodule:: minigun.stream
+   :members:
+
+minigun.cardinality module
+==========================
+
+.. automodule:: minigun.cardinality
+   :members:
+
+minigun.budget module
+=====================
+
+.. automodule:: minigun.budget
+   :members:
+
+minigun.orchestrator module
+===========================
+
+.. automodule:: minigun.orchestrator
+   :members:
+
+minigun.reporter module
+=======================
+
+.. automodule:: minigun.reporter
    :members:

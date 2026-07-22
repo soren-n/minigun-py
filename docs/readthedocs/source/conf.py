@@ -59,12 +59,11 @@ html_static_path = []
 # -- Forward declaring type aliases ------------------------------------------
 autodoc_type_aliases = {
     "State": "minigun.arbitrary.State",
-    "Trimmer": "minigun.trim.Trimmer",
+    "Trimmer": "minigun.shrink.Trimmer",
+    "Shrinker": "minigun.shrink.Shrinker",
     "Stream": "minigun.stream.Stream",
-    "Domain": "minigun.domain.Domain",
-    "Sample": "minigun.quantify.Sample",
-    "Sampler": "minigun.quantify.Sampler",
-    "Maybe": "minigun.maybe.Maybe",
+    "Sample": "minigun.generate.Sample",
+    "Sampler": "minigun.generate.Sampler",
     "A": "A",
     "B": "B",
     "C": "C",

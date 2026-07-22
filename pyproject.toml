@@ -82,8 +82,7 @@ select = [
 ]
 ignore = [
     "E501",  # line too long, enforced by ruff formatter at 80 chars
-    "C901",  # too complex
-    "UP031", # use format specifiers - legacy code style preference
+    "C901",  # too complex - pattern-matching dispatchers read better whole
 ]
 
 [tool.ruff.lint.per-file-ignores]

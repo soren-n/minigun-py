@@ -18,6 +18,9 @@ uv run minigun --time-budget 60 --quiet
 # Run tests with JSON output (tool integration)
 uv run minigun --time-budget 30 --json
 
+# Reproduce a failing run (the seed is printed on failure)
+uv run minigun --time-budget 30 --seed 42
+
 # List available test modules
 uv run minigun --list-modules
 
@@ -36,7 +39,7 @@ uv run ruff check --fix
 # Format code
 uv run ruff format
 
-# Type checking
+# Type checking (strict settings; must pass cleanly)
 uv run mypy minigun/
 
 # Run coverage analysis (uses minigun's own CLI, not pytest)
@@ -61,77 +64,93 @@ uv pip install -e .
 
 ## Architecture Overview
 
-Minigun is a property-based testing library organized in 5 architectural layers:
+Minigun is a property-based testing library organized in layers:
 
-### Layer 1: Foundation
-- `arbitrary.py` - PRNG state management and random generation
-- `util.py` - General utilities and helpers
-- `order.py` - Ordering and comparison utilities
+### Foundation
+- `arbitrary.py` - PRNG state and primitive draws. State is a dedicated
+  `random.Random` instance created by `seed()`; runs are fully determined
+  by their seed. Draw functions thread state explicitly (state in,
+  state out).
+- `util.py` - Optional-type annotation helpers.
 
-### Layer 2: Core Data Structures
-- `stream.py` - Lazy functional streams for infinite sequences
-- `sample.py` - Dissection data structure (value + shrinking info)
-- `shrink.py` - Shrinking strategies and algorithms
+### Core Data Structures
+- `stream.py` - Lazy functional streams; exhaustion is signalled by
+  StopIteration from the stream thunk.
+- `shrink.py` - `Dissection[T]` (a value plus a lazy stream of shrunk
+  alternatives) and shrinkers for primitives.
 
-### Layer 3: Generation System
-- `generate.py` - Data generators, combinators, and composition (core)
-- `domain.py` - High-level domain specifications
-- `cardinality.py` - Cardinality algebra used by generators and the testing framework to size attempts
+### Generation System
+- `generate.py` - `Generator[T]` (a sampler plus the cardinality of its
+  domain), generators for built-in types, and combinators (map, bind,
+  filter, choice). Generator names avoid shadowing builtins: `ints()`,
+  `lists()`, `strings()`, etc. Failed generation (e.g. filter rejection)
+  is signalled by a None dissection.
+- `cardinality.py` - Domain sizes as a saturating non-negative float
+  (math.inf for unbounded), with `+`, `*`, `**`.
 
-### Layer 4: Testing Framework
-- `specify.py` - Property definition DSL and test execution engine
-- `search.py` - Counterexample search and exploration
-- `pretty.py` - Value formatting and display
-- `reporter.py` - Multiple output modes: rich console, quiet, and JSON reporting with budget allocation
-- `budget.py` - Budget allocation and attempt calculation
+### Testing Framework
+- `specify.py` - Property DSL (`@prop`, `@context`, `conj()`, `neg()`),
+  the callback-driven evaluator `evaluate()`, and the standalone `check()`
+  entry point with seed control. Knows nothing about reporters.
+- `search.py` - Counterexample search and shrinking-based trimming.
+- `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
+  the `BudgetAllocator` that distributes the time budget over calibrated
+  properties. Property descriptions must be unique.
+- `reporter.py` - Passive result sinks: `RichReporter`, `QuietReporter`,
+  `JSONReporter` share a result-accumulating base and differ only in
+  rendering.
 
-### Layer 5: User Interface and Orchestration
-- `cli.py` - Command-line interface and test runner
-- `orchestrator.py` - Two-phase test execution coordination
+### Orchestration
+- `orchestrator.py` - Owns a run: collects properties from module specs,
+  calibrates each once, allocates the budget, evaluates each module spec
+  once, and pushes results into the reporter.
+- `cli.py` - Command-line interface and test discovery.
 
 ## Key Patterns
 
+### Test Module Contract
+Test modules in `tests/` export a module-level `spec: Spec` (typically
+`spec = conj(...)`). The CLI discovers these; a module that fails to
+import, or defines the retired `test()` contract, is reported as broken
+and fails the run. Modules can still be run standalone via
+`if __name__ == "__main__": check(spec)`.
+
 ### Property DSL
-Tests are defined using the `@prop` decorator (with optional `@context` for explicit domains) and composed with `conj()`, `disj()`, `impl()`, `neg()`. Run via `check()`. See `specify.py` docstring for examples.
+Properties are defined with `@prop` (generators inferred from type
+annotations) plus optional `@context` (explicit generators) and composed
+with `conj()` and `neg()`. `neg` distributes over `conj` by De Morgan.
 
-### Generator Composition
-Generators in `generate.py` follow functional composition patterns using combinators like `bind`, `map`, and `choose`.
-
-### Cardinality System
-The `cardinality.py` module calculates test attempts based on generator complexity, optimizing test coverage vs execution time.
-
-### Reporter Integration
-Use `set_reporter()` to configure test output. The system supports three output modes:
-- **Verbose mode**: `TestReporter` with rich console output, tables, and progress indicators
-- **Quiet mode**: Minimal pass/fail output for CI/CD pipelines
-- **JSON mode**: `JSONReporter` with structured output for tool integration
-
-### Budget Allocation System
-The `BudgetAllocator` class manages time-based test allocation:
-- Calibration phase measures execution time per test
-- Secretary Problem optimization for infinite cardinality domains
-- Proportional scaling when over budget
+### Seeded Reproducibility
+Every run has a concrete integer seed, printed in the run header and on
+failure. `--seed` (CLI), `OrchestrationConfig.seed`, and
+`check(spec, seed=...)` replay a run exactly. States are advancing
+`random.Random` instances: replaying a draw means re-seeding, not reusing
+an old state value.
 
 ### Two-Phase Execution
-The orchestrator runs all test modules twice: first a calibration phase (measures timing per property), then an execution phase (runs with budget-allocated attempts). This is coordinated between `orchestrator.py`, `reporter.py`, and `budget.py`.
+The orchestrator first calibrates (times each property with a short
+adaptive run), then executes each module spec exactly once with
+budget-allocated attempts. Calibration is a runner concern; `check()` and
+the evaluator never see it.
 
-## Testing Structure
-
-Test modules in `tests/`:
-- `negative.py` - Edge cases and error conditions
-- `positive.py` - Happy path scenarios
-- `comprehensive.py` - Complex integration tests with cardinality optimization
-- `additional.py` - Supplementary test cases
+### No Silent Fallbacks
+Broken test modules, unknown module names, duplicate property
+descriptions, and unknown output modes are hard errors. Missing
+generators for a property parameter fail that property loudly at
+execution.
 
 ## CI
 
-CI runs: `ruff format --check`, `ruff check` (including import sorting), coverage with 60% minimum, and distribution build/install check. Scope includes `minigun`, `tests`, and `scripts` directories.
+CI runs: `ruff format --check`, `ruff check` (including import sorting),
+coverage with 60% minimum, and distribution build/install check. Scope
+includes `minigun`, `tests` and `scripts` directories. mypy runs as a
+pre-push hook locally.
 
 ## Project Configuration
 
 - Uses uv for dependency management
-- Python >=3.12 required
+- Python >=3.12 required; single runtime dependency (rich)
 - Configured with ruff for linting/formatting (80 char line limit)
-- mypy for strict type checking (strict settings enabled)
-- Rich output formatting for enhanced UX
-- Semantic versioning via `python-semantic-release`; version tracked in both `pyproject.toml` and `minigun/__init__.py`
+- mypy strict settings; `uv run mypy minigun/` must pass with no errors
+- Semantic versioning via `python-semantic-release`; version tracked in
+  both `pyproject.toml` and `minigun/__init__.py`

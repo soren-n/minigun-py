@@ -30,7 +30,7 @@ Create a test module in `tests/` directory:
 
 ```python
 # tests/my_tests.py
-from minigun import prop, check, conj
+from minigun import prop, conj
 
 @prop("reversing a list twice gives the original")
 def test_reverse(lst: list[int]):
@@ -40,8 +40,7 @@ def test_reverse(lst: list[int]):
 def test_length(xs: list[int], ys: list[int]):
     return len(xs + ys) == len(xs) + len(ys)
 
-def test():
-    return check(conj(test_reverse, test_length))
+spec = conj(test_reverse, test_length)
 ```
 
 Run your tests with time budget:
@@ -94,9 +93,12 @@ minigun --time-budget 60 --quiet
 
 # JSON output (for automation)
 minigun --time-budget 30 --json
+
+# Reproduce a failing run
+minigun --time-budget 30 --seed 42
 ```
 
-The CLI discovers Python files in the test directory that contain a `test()` function.
+The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. When a run fails, the seed is printed so the exact run can be replayed with `--seed`.
 
 ## Advanced: Manual Orchestrator Usage
 
@@ -105,22 +107,16 @@ For programmatic control, use the orchestrator directly:
 ```python
 # my_test_runner.py
 from minigun.orchestrator import TestOrchestrator, OrchestrationConfig, TestModule
-from minigun.specify import prop, check
+from minigun.specify import prop
 
 @prop("your property")
 def my_property(x: int):
     return x + 0 == x
 
-def run_my_property():
-    return check(my_property)
-
 if __name__ == "__main__":
-    config = OrchestrationConfig(
-        time_budget=30.0,
-        verbose=True
-    )
+    config = OrchestrationConfig(time_budget=30.0)
 
-    modules = [TestModule("my_tests", run_my_property)]
+    modules = [TestModule("my_tests", my_property)]
     orchestrator = TestOrchestrator(config)
     success = orchestrator.execute_tests(modules)
 
@@ -139,12 +135,12 @@ def test_add_commute(x: int, y: int):
     return x + y == y + x
 ```
 
-### Custom Domains
+### Custom Generators
 
 ```python
-from minigun import prop, context, domain as d
+from minigun import prop, context, generate as g
 
-@context(d.int_range(1, 100), d.int_range(1, 100))
+@context(g.int_range(1, 100), g.int_range(1, 100))
 @prop("division reverses multiplication")
 def test_div(x: int, y: int):
     return (x * y) // y == x
@@ -179,7 +175,11 @@ A: Increase the time budget. The system automatically runs more test attempts wh
 
 **Q: Can I customize test generation?**
 
-A: Yes, use the `@context` decorator with domain specifications. See documentation for details.
+A: Yes, use the `@context` decorator with generators from `minigun.generate`. See documentation for details.
+
+**Q: How do I reproduce a failing run?**
+
+A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation.
 
 # Real-World Usage
 

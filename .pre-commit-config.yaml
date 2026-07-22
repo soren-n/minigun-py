@@ -42,16 +42,6 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
-  # MyPy type checking (manual-stage only: mypy hits an internal error on
-  # this codebase because generate.py's public API shadows builtins like
-  # tuple/list/dict; reproduced on both mypy 1.x and 2.x)
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.0
-    hooks:
-      - id: mypy
-        exclude: ^(tests/|scripts/)
-        stages: [manual]
-
   # Local project-specific hooks
   - repo: local
     hooks:
@@ -95,8 +85,7 @@ repos:
         types: [python]
         args: [minigun]
         pass_filenames: false
-        # Manual-stage only: see mirrors-mypy note above
-        stages: [manual]
+        stages: [pre-push]
 
       # Run tests with coverage (manual stage - CI handles this on push/PR)
       - id: test-coverage
@@ -126,5 +115,5 @@ ci:
     autoupdate_branch: ''
     autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
     autoupdate_schedule: weekly
-    skip: [mypy, type-check-local, test-coverage, coverage-report]  # Skip resource-intensive hooks in CI
+    skip: [type-check-local, test-coverage, coverage-report]  # Skip resource-intensive hooks in CI
     submodules: false
