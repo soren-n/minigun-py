@@ -32,13 +32,16 @@ Create a test module in the `tests/` directory:
 # tests/my_tests.py
 from minigun import prop, conj
 
+
 @prop("reversing a list twice gives the original")
 def test_reverse(lst: list[int]) -> bool:
     return list(reversed(list(reversed(lst)))) == lst
 
+
 @prop("list length distributes over concatenation")
 def test_length(xs: list[int], ys: list[int]) -> bool:
     return len(xs + ys) == len(xs) + len(ys)
+
 
 spec = conj(test_reverse, test_length)
 ```
@@ -54,12 +57,15 @@ minigun --time-budget 30
 ```python
 from minigun import prop, check
 
+
 @prop("reversing a list twice gives the original")
 def test_reverse(lst: list[int]) -> bool:
     return list(reversed(list(reversed(lst)))) == lst
 
+
 if __name__ == "__main__":
     import sys
+
     sys.exit(0 if check(test_reverse) else 1)
 ```
 
@@ -108,12 +114,15 @@ Every run is seeded. When a property fails, the seed is printed so the exact run
 from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
 from minigun.specify import prop
 
+
 @prop("your property")
 def my_property(x: int) -> bool:
     return x + 0 == x
 
+
 if __name__ == "__main__":
     import sys
+
     config = RunConfig(time_budget=30.0, output=OutputMode.QUIET)
     sys.exit(0 if run(config, [TestModule("my_tests", my_property)]) else 1)
 ```
@@ -127,6 +136,7 @@ For structured outcomes without a reporter, drive `minigun.specify.evaluate` dir
 ```python
 from minigun import prop
 
+
 @prop("addition is commutative")
 def test_add_commute(x: int, y: int) -> bool:
     return x + y == y + x
@@ -136,6 +146,7 @@ def test_add_commute(x: int, y: int) -> bool:
 
 ```python
 from minigun import prop, context, generate as g
+
 
 @context(g.int_range(1, 100), g.int_range(1, 100))
 @prop("division reverses multiplication")
@@ -148,13 +159,16 @@ def test_div(x: int, y: int) -> bool:
 ```python
 from minigun import prop, check, conj, neg
 
+
 @prop("property 1")
 def test_1(x: int) -> bool:
     return x + 0 == x
 
+
 @prop("this law is false and a counterexample must be found")
 def test_2(x: int) -> bool:
     return x * 2 == x
+
 
 # Check both together; neg holds when its term is refuted
 success = check(conj(test_1, neg(test_2)))
@@ -167,6 +181,7 @@ Annotate a parameter with `random.Random` to receive a source that is reproducib
 ```python
 import random
 from minigun import prop
+
 
 @prop("shuffling preserves the elements")
 def test_shuffle(xs: list[int], rng: random.Random) -> bool:
