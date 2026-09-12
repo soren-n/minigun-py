@@ -282,26 +282,25 @@ def _format_counter_example(ordering: list[str], args: dict[str, Any]) -> str:
 
 
 def evaluate(
-    state: a.State,
+    rng: a.Rng,
     spec: Spec,
     attempts_for: AttemptsFor,
     on_start: OnStart,
     on_result: OnResult,
-) -> tuple[a.State, bool]:
+) -> bool:
     """Evaluate a specification, reporting each property's outcome.
 
-    :param state: The RNG state to evaluate with.
+    :param rng: The random source to evaluate with; one child is forked
+        per property.
     :param spec: The specification to evaluate.
     :param attempts_for: Decides the number of attempts per property.
     :param on_start: Invoked with the description when a property starts.
     :param on_result: Invoked with each property's outcome.
 
-    :return: The resulting RNG state and whether the specification holds.
+    :return: Whether the specification holds.
     """
 
-    def _visit_prop(
-        state: a.State, prop: "_Prop[Any]", negated: bool
-    ) -> tuple[a.State, bool]:
+    def _visit_prop(prop: "_Prop[Any]", negated: bool) -> bool:
         on_start(prop.desc)
         start_time = time.time()
 
@@ -309,29 +308,30 @@ def evaluate(
         if isinstance(resolution, str):
             duration = time.time() - start_time
             on_result(prop.desc, False, duration, None, resolution)
-            return state, False
+            return False
         generators, total_cardinality = resolution
 
         attempts = attempts_for(prop, total_cardinality)
-        state, counter_ex = s.find_counter_example(
-            state, attempts, prop.law, generators
+        search = s.find_counter_example(
+            a.fork(rng), prop.law, generators, attempts
         )
+        counter_ex = search.counter_example
         duration = time.time() - start_time
 
         if counter_ex is None:
             if not negated:
                 on_result(prop.desc, True, duration, None, None)
-                return state, True
+                return True
             error_msg = (
                 f'Found no counter example for "{prop.desc}" however one '
                 "was expected!"
             )
             on_result(prop.desc, False, duration, None, error_msg)
-            return state, False
+            return False
 
         if negated:
             on_result(prop.desc, True, duration, None, None)
-            return state, True
+            return True
 
         counter_example = _format_counter_example(
             prop.ordering, counter_ex.args
@@ -348,34 +348,30 @@ def evaluate(
                 "counter example:"
             )
         on_result(prop.desc, False, duration, counter_example, error_msg)
-        return state, False
+        return False
 
-    def _visit(
-        state: a.State, spec: Spec, negated: bool
-    ) -> tuple[a.State, bool]:
+    def _visit(spec: Spec, negated: bool) -> bool:
         match spec:
             case _Prop():
-                return _visit_prop(state, spec, negated)
+                return _visit_prop(spec, negated)
             case _Neg(term):
-                return _visit(state, term, not negated)
+                return _visit(term, not negated)
             case _Conj(terms):
                 if negated:
                     # De Morgan: neg(conj(...)) holds when at least one
                     # negated term holds.
                     for term in terms:
-                        state, success = _visit(state, term, True)
-                        if success:
-                            return state, True
-                    return state, False
+                        if _visit(term, True):
+                            return True
+                    return False
                 for term in terms:
-                    state, success = _visit(state, term, False)
-                    if not success:
-                        return state, False
-                return state, True
+                    if not _visit(term, False):
+                        return False
+                return True
             case _:
                 raise AssertionError("Invariant")
 
-    return _visit(state, spec, False)
+    return _visit(spec, False)
 
 
 def check(spec: Spec, seed: int | None = None) -> bool:
@@ -396,7 +392,7 @@ def check(spec: Spec, seed: int | None = None) -> bool:
     """
     relax_stdout_errors()
     seed_value = seed if seed is not None else secrets.randbits(64)
-    state = a.seed(seed_value)
+    rng = a.seed(seed_value)
 
     def _attempts_for(
         prop: "_Prop[Any]", total_cardinality: c.Cardinality
@@ -421,7 +417,7 @@ def check(spec: Spec, seed: int | None = None) -> bool:
         if counter_example:
             print(counter_example)
 
-    _, success = evaluate(state, spec, _attempts_for, _on_start, _on_result)
+    success = evaluate(rng, spec, _attempts_for, _on_start, _on_result)
     if not success:
         print(f"Reproduce with: check(spec, seed={seed_value})")
     cleanup_temporary()

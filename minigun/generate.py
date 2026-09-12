@@ -1,163 +1,158 @@
 """
-Data Generators and Combinators
+Generators
 
-This module provides the core data generation system for property-based testing.
-It implements generators for all Python built-in types and combinators for
-composing complex data structures with proper shrinking support.
-
-Architecture:
-    - Generator[T]: A sampler paired with the cardinality of its domain
-    - Sample[T]: State-threaded generation with shrinking info
-    - Combinators: map, bind, filter, choice for composition
-
-Built-in Generators:
-    - Primitives: bools, nats, ints, floats, strings, words
-    - Collections: lists, dicts, sets, tuples
-    - Utilities: constant, one_of, weighted_choice
+A ``Generator[T]`` pairs a sampler with the cardinality of its domain. A
+sampler draws from a random source and returns a dissection of the drawn
+value, or None when the draw was discarded (a filtered generator rejected
+it). Generators for the built-in types are provided, together with
+combinators for composing generators of user types.
 
 Example::
 
-        import minigun.generate as g
         import minigun.arbitrary as a
+        import minigun.generate as g
 
-        # Create generators for custom data
-        person_gen = g.map(
+        person = g.map(
             lambda name, age: {"name": name, "age": age},
             g.strings(),
-            g.small_nats()
+            g.small_nats(),
         )
-
-        # Sample values
-        state = a.seed(42)
-        state, person_dissection = person_gen.sample(state)
+        dissection = person.sample(a.seed(42))
 """
 
-# External module dependencies
 import math
+import random
 import string
-from collections.abc import Callable
+import types
+import typing
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from functools import cache, partial
 from typing import Any, cast, get_args, get_origin
 
-# Internal module dependencies
 from minigun import arbitrary as a
 from minigun import cardinality as c
 from minigun import shrink as s
-from minigun import stream as fs
-from minigun import util as u
 
 ###############################################################################
 # Generator
 ###############################################################################
 
-#: A sample taken from a generator over a type `T`. The dissection is None
-#: when generation failed (e.g. a filter rejected the drawn value).
-type Sample[T] = tuple[a.State, s.Dissection[T] | None]
-
-#: A sampler over a type `T`
-type Sampler[T] = Callable[[a.State], Sample[T]]
+#: A sampler over a type ``T``: draws a dissection, or None on a discard.
+type Sampler[T] = Callable[[a.Rng], s.Dissection[T] | None]
 
 
 @dataclass(slots=True)
 class Generator[T]:
-    """A generator over a type `T`.
+    """A generator over a type ``T``.
 
-    :param sample: The sampler drawing dissected values of type `T`.
-    :param cardinality: The cardinality of the generator's domain.
+    :param sample: The sampler drawing dissected values of type ``T``.
+    :param cardinality: The cardinality of the generator's domain; an upper
+        bound when the exact size is unknown.
     """
 
     sample: Sampler[T]
     cardinality: c.Cardinality
 
 
+def _product(generators: tuple[Generator[Any], ...]) -> c.Cardinality:
+    total = c.ONE
+    for generator in generators:
+        total = total * generator.cardinality
+    return total
+
+
+def _sum(generators: tuple[Generator[Any], ...]) -> c.Cardinality:
+    total = c.ZERO
+    for generator in generators:
+        total = total + generator.cardinality
+    return total
+
+
+def _sample_all(
+    rng: a.Rng, generators: tuple[Generator[Any], ...]
+) -> list[s.Dissection[Any]] | None:
+    """Draw one dissection from each generator, or None on any discard."""
+    dissections: list[s.Dissection[Any]] = []
+    for generator in generators:
+        dissection = generator.sample(rng)
+        if dissection is None:
+            return None
+        dissections.append(dissection)
+    return dissections
+
+
+def _sample_many[T](
+    rng: a.Rng, generator: Generator[T], count: int
+) -> list[s.Dissection[T]] | None:
+    """Draw ``count`` dissections from a generator, or None on any discard."""
+    dissections: list[s.Dissection[T]] = []
+    for _ in range(count):
+        dissection = generator.sample(rng)
+        if dissection is None:
+            return None
+        dissections.append(dissection)
+    return dissections
+
+
 ###############################################################################
-# Generator Combinators
+# Combinators
 ###############################################################################
-def map[*P, R](
-    func: Callable[[*P], R], *generators: Generator[Any]
+def map[*Ts, R](
+    func: Callable[[*Ts], R], *generators: Generator[Any]
 ) -> Generator[R]:
-    """A variadic map function of given input generators over types `A`, `B`, etc. to an output generator over type `R`.
+    """Combine generators with a function.
 
-    :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
-    :type func: `A x B x ... -> R`
-    :param generators: Input generators over types `A`, `B`, etc. to map from.
-    :type generators: `Tuple[Generator[A], Generator[B], ...]`
-
-    :return: A mapped output generator.
-    :rtype: `Generator[R]`
+    :param func: Maps one value from each generator to a result.
+    :param generators: The input generators.
     """
 
-    def _impl(state: a.State) -> Sample[R]:
-        dissections: list[s.Dissection[Any]] = []
-        for generator in generators:
-            state, dissection = generator.sample(state)
-            if dissection is None:
-                return state, None
-            dissections.append(dissection)
-        return state, s.map(func, *dissections)
+    def _impl(rng: a.Rng) -> s.Dissection[R] | None:
+        dissections = _sample_all(rng, generators)
+        if dissections is None:
+            return None
+        return s.map(func, *dissections)
 
-    combined_cardinality = c.ONE
-    for generator in generators:
-        combined_cardinality = combined_cardinality * generator.cardinality
-    return Generator(_impl, combined_cardinality)
+    return Generator(_impl, _product(generators))
 
 
-def bind[*P, R](
-    func: Callable[[*P], Generator[R]],
-    *generators: Generator[Any],
+def bind[*Ts, R](
+    func: Callable[[*Ts], Generator[R]], *generators: Generator[Any]
 ) -> Generator[R]:
-    """A variadic bind function of given input generators over types `A`, `B`, etc. to an output generator over type `R`.
+    """Choose a generator from drawn values, then draw from it.
 
-    :param func: A function creating a generator of type `R`, parameterized by generated instances of type `A`, `B`, etc.
-    :type func: `A x B x ... -> Generator[R]`
-    :param generators: Input generators over types `A`, `B`, etc. to instance from.
-    :type generators: `Tuple[Generator[A], Generator[B], ...]`
+    The resulting domain depends on the chosen generators and is not known
+    up front, so the cardinality is reported as unbounded.
 
-    :return: A bound output generator.
-    :rtype: `Generator[R]`
+    :param func: Maps one value from each generator to a generator.
+    :param generators: The input generators.
     """
 
-    def _impl(state: a.State) -> Sample[R]:
-        values: list[Any] = []
-        for generator in generators:
-            state, dissection = generator.sample(state)
-            if dissection is None:
-                return state, None
-            values.append(dissection.head)
-        _values: tuple[*P] = cast(tuple[*P], tuple(values))
-        return func(*_values).sample(state)
+    def _impl(rng: a.Rng) -> s.Dissection[R] | None:
+        dissections = _sample_all(rng, generators)
+        if dissections is None:
+            return None
+        values = cast(
+            tuple[*Ts], tuple(dissection.head for dissection in dissections)
+        )
+        return func(*values).sample(rng)
 
-    combined_cardinality = c.ONE
-    for generator in generators:
-        combined_cardinality = combined_cardinality * generator.cardinality
-    return Generator(_impl, combined_cardinality)
+    return Generator(_impl, c.INFINITE)
 
 
 def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
-    """Defer construction of a generator until the first sample is drawn.
+    """Defer construction of a generator until the first draw.
 
-    Useful for recursive generator definitions where eager construction
-    (including cardinality arithmetic performed by combinators such as
-    ``map``, ``bind`` and ``choice``) would otherwise blow up construction
-    time exponentially in the recursion depth. The inner generator is
-    built once and then reused.
-
-    Cardinality is reported as ``Infinite`` since the inner generator
-    is unknown at construction time.
-
-    :param thunk: A zero-argument callable returning a generator of type `T`.
-    :type thunk: `() -> Generator[T]`
-
-    :return: A generator of type `T` that builds its inner generator on demand.
-    :rtype: `Generator[T]`
+    Needed for recursive generator definitions, where eager construction
+    would recurse without end. The inner generator is built once and then
+    reused. The cardinality is reported as unbounded since the inner
+    generator is unknown at construction time.
     """
-    cached: list[Generator[T]] = []
+    cache: list[Generator[T]] = []
 
-    def _impl(state: a.State) -> Sample[T]:
-        if not cached:
-            cached.append(thunk())
-        return cached[0].sample(state)
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        if not cache:
+            cache.append(thunk())
+        return cache[0].sample(rng)
 
     return Generator(_impl, c.INFINITE)
 
@@ -165,430 +160,333 @@ def lazy[T](thunk: Callable[[], Generator[T]]) -> Generator[T]:
 def filter[T](
     predicate: Callable[[T], bool], generator: Generator[T]
 ) -> Generator[T]:
-    """Filter a generator of type `T`. Both drawn values and their shrunk
-    alternatives satisfy the predicate.
+    """Restrict a generator to values satisfying a predicate.
 
-    :param predicate: A predicate on type `T`.
-    :type predicate: `A -> bool`
-    :param generator: A generator of type `T` to be filtered.
-    :type generator: `Generator[T]`
-
-    :return: A generator of type `T`.
-    :rtype: `Generator[T]`
+    Draws failing the predicate are discarded; shrunk alternatives failing
+    it are pruned. The cardinality is the inner generator's, an upper bound.
     """
 
-    def _impl(state: a.State) -> Sample[T]:
-        state, dissection = generator.sample(state)
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        dissection = generator.sample(rng)
         if dissection is None:
-            return state, None
-        return state, s.filter(predicate, dissection)
+            return None
+        return s.filter(predicate, dissection)
 
-    # Filtering reduces cardinality, but we don't know by how much;
-    # use the original cardinality as an upper bound.
     return Generator(_impl, generator.cardinality)
 
 
+def with_cardinality[T](
+    generator: Generator[T], cardinality: c.Cardinality
+) -> Generator[T]:
+    """The same generator with a known cardinality.
+
+    For use when a generator built with ``bind`` or ``lazy`` has a domain
+    the author can size exactly.
+    """
+    return Generator(generator.sample, cardinality)
+
+
 ###############################################################################
-# Constant
+# Constants
 ###############################################################################
 def constant[T](value: T) -> Generator[T]:
-    """A generator that samples a constant value.
+    """A generator of one value."""
 
-    :param value: The constant value to be sampled.
-    :type value: `T`
-
-    :return: A constant generator.
-    :rtype: `Generator[T]`
-    """
-
-    def _impl(state: a.State) -> Sample[T]:
-        return state, s.singleton(value)
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        return s.singleton(value)
 
     return Generator(_impl, c.ONE)
 
 
-###############################################################################
-# None
-###############################################################################
 def none() -> Generator[None]:
-    """A constant generator for None.
-
-    :return: A constant generator of None.
-    :rtype: `Generator[None]`
-    """
+    """A generator of None."""
     return constant(None)
 
 
 ###############################################################################
-# Boolean
+# Random sources
+###############################################################################
+def rngs() -> Generator[random.Random]:
+    """A generator of independent random sources.
+
+    Each draw forks a child of the sampling source, so a law that needs
+    randomness of its own gets a source that is reproducible from the run
+    seed. Sources do not shrink.
+    """
+
+    def _impl(rng: a.Rng) -> s.Dissection[random.Random] | None:
+        return s.singleton(a.fork(rng))
+
+    return Generator(_impl, c.INFINITE)
+
+
+###############################################################################
+# Booleans
 ###############################################################################
 def bools() -> Generator[bool]:
-    """A generator for booleans.
+    """A generator of booleans."""
+    shrink = s.boolean()
 
-    :return: A generator of bool.
-    :rtype: `Generator[bool]`
+    def _impl(rng: a.Rng) -> s.Dissection[bool] | None:
+        return shrink(a.draw_bool(rng))
+
+    return Generator(_impl, c.finite(2))
+
+
+def biased_bool(bias: float) -> Generator[bool]:
+    """A generator of booleans that are True with probability ``bias``.
+
+    :raises ValueError: When ``bias`` is outside ``[0.0, 1.0]``.
     """
-    _shrink = s.boolean()
+    if not 0.0 <= bias <= 1.0:
+        raise ValueError(f"biased_bool requires 0.0 <= bias <= 1.0, got {bias}")
+    shrink = s.boolean()
 
-    def _impl(state: a.State) -> Sample[bool]:
-        state, result = a.draw_bool(state)
-        return state, _shrink(result)
+    def _impl(rng: a.Rng) -> s.Dissection[bool] | None:
+        return shrink(a.probability(rng) < bias)
 
     return Generator(_impl, c.finite(2))
 
 
 ###############################################################################
-# Numbers
+# Integers
 ###############################################################################
 
 #: Cumulative probability tiers: (chance threshold, magnitude bound).
 type _Tiers = tuple[tuple[float, int], ...]
 
+_SMALL_TIERS: _Tiers = ((0.75, 10), (1.0, 100))
+_MEDIUM_TIERS: _Tiers = ((0.5, 10), (0.75, 100), (0.95, 1000), (1.0, 10000))
+_BIG_TIERS: _Tiers = (
+    (0.25, 10),
+    (0.5, 100),
+    (0.75, 1000),
+    (0.95, 10000),
+    (1.0, 1000000),
+)
 
-def _tiered_int(
-    tiers: _Tiers, signed: bool, cardinality: int
-) -> Generator[int]:
-    """An integer generator drawing magnitudes from probability tiers,
-    biased towards small values."""
 
-    def _impl(state: a.State) -> Sample[int]:
-        state, prob = a.probability(state)
-        bound = tiers[-1][1]
+def _tiered_int(tiers: _Tiers, signed: bool) -> Generator[int]:
+    """Integers with magnitudes drawn from probability tiers, biased small."""
+    shrink = s.integer(0)
+    bound = tiers[-1][1]
+    size = 2 * bound + 1 if signed else bound + 1
+
+    def _impl(rng: a.Rng) -> s.Dissection[int] | None:
+        roll = a.probability(rng)
+        magnitude = bound
         for threshold, tier_bound in tiers:
-            if prob < threshold:
-                bound = tier_bound
+            if roll < threshold:
+                magnitude = tier_bound
                 break
-        if signed:
-            state, result = a.draw_int(state, -bound, bound)
-        else:
-            state, result = a.draw_nat(state, 0, bound)
-        return state, s.integer(0)(result)
+        lower = -magnitude if signed else 0
+        return shrink(a.draw_int(rng, lower, magnitude))
 
-    return Generator(_impl, c.finite(cardinality))
+    return Generator(_impl, c.finite(size))
 
 
 def small_nats() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`0 <= n <= 100`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(((0.75, 10), (1.0, 100)), False, 101)
+    """A generator of integers ``n`` with ``0 <= n <= 100``."""
+    return _tiered_int(_SMALL_TIERS, signed=False)
 
 
 def nats() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`0 <= n <= 10000`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(
-        ((0.5, 10), (0.75, 100), (0.95, 1000), (1.0, 10000)), False, 10001
-    )
+    """A generator of integers ``n`` with ``0 <= n <= 10000``."""
+    return _tiered_int(_MEDIUM_TIERS, signed=False)
 
 
 def big_nats() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`0 <= n <= 1000000`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(
-        ((0.25, 10), (0.5, 100), (0.75, 1000), (0.95, 10000), (1.0, 1000000)),
-        False,
-        1000001,
-    )
+    """A generator of integers ``n`` with ``0 <= n <= 1000000``."""
+    return _tiered_int(_BIG_TIERS, signed=False)
 
 
 def small_ints() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`-100 <= n <= 100`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(((0.75, 10), (1.0, 100)), True, 201)
+    """A generator of integers ``n`` with ``-100 <= n <= 100``."""
+    return _tiered_int(_SMALL_TIERS, signed=True)
 
 
 def ints() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`-10000 <= n <= 10000`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(
-        ((0.5, 10), (0.75, 100), (0.95, 1000), (1.0, 10000)), True, 20001
-    )
+    """A generator of integers ``n`` with ``-10000 <= n <= 10000``."""
+    return _tiered_int(_MEDIUM_TIERS, signed=True)
 
 
 def big_ints() -> Generator[int]:
-    """A generator for integers :code:`n` in the range :code:`-1000000 <= n <= 1000000`.
-
-    :return: A generator of int.
-    :rtype: `Generator[int]`
-    """
-    return _tiered_int(
-        ((0.25, 10), (0.5, 100), (0.75, 1000), (0.95, 10000), (1.0, 1000000)),
-        True,
-        2000001,
-    )
+    """A generator of integers ``n`` with ``-1000000 <= n <= 1000000``."""
+    return _tiered_int(_BIG_TIERS, signed=True)
 
 
-def floats() -> Generator[float]:
-    """A generator for floats :code:`n` in the range :code:`-e^15 <= n <= e^15`.
-
-    :return: A generator of float.
-    :rtype: `Generator[float]`
-    """
-    _shrink = s.floating(0.0)
-
-    def _impl(state: a.State) -> Sample[float]:
-        state, exponent = a.draw_float(state, -15.0, 15.0)
-        state, sign = a.draw_bool(state)
-        result = (1.0 if sign else -1.0) * math.exp(exponent)
-        return state, _shrink(result)
-
-    # Floats are effectively unbounded for coverage purposes
-    return Generator(_impl, c.INFINITE)
-
-
-###############################################################################
-# Ranges
-###############################################################################
 def int_range(lower_bound: int, upper_bound: int) -> Generator[int]:
-    """A generator for integers :code:`i` in the range :code:`lower_bound <= i <= upper_bound`.
+    """A generator of integers ``n`` with ``lower_bound <= n <= upper_bound``.
 
-    :param lower_bound: A min bound for the sampled value, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the sampled value, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
+    Values shrink toward zero, or toward the bound nearest zero when zero
+    is outside the range.
 
-    :return: A generator of int.
-    :rtype: `Generator[int]`
+    :raises ValueError: When ``lower_bound > upper_bound``.
     """
-    assert lower_bound <= upper_bound
-    target = max(lower_bound, min(0, upper_bound))
-    _shrink = s.integer(target)
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"int_range requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+    shrink = s.integer(max(lower_bound, min(0, upper_bound)))
 
-    def _impl(state: a.State) -> Sample[int]:
-        state, result = a.draw_int(state, lower_bound, upper_bound)
-        return state, _shrink(result)
+    def _impl(rng: a.Rng) -> s.Dissection[int] | None:
+        return shrink(a.draw_int(rng, lower_bound, upper_bound))
 
     return Generator(_impl, c.finite(upper_bound - lower_bound + 1))
 
 
 ###############################################################################
-# Probability
+# Floats
 ###############################################################################
-def biased_bool(bias: float) -> Generator[bool]:
-    """A generator for booleans which are True with the given bias.
+def floats() -> Generator[float]:
+    """A generator of finite floats.
 
-    :param bias: The probability of sampling True, in the range 0.0 to 1.0.
-    :type bias: `float`
-
-    :return: A generator of bool.
-    :rtype: `Generator[bool]`
+    Draws mix zero and negative zero, small integral values, and values
+    spread log-uniformly in magnitude between ``e^-15`` and ``e^15`` of
+    either sign. Infinities and NaN are never drawn.
     """
-    assert 0.0 <= bias and bias <= 1.0, "Invariant"
-    _shrink = s.boolean()
+    shrink = s.floating(0.0)
 
-    def _impl(state: a.State) -> Sample[bool]:
-        state, roll = a.draw_float(state, 0.0, 1.0)
-        return state, _shrink(roll <= bias)
+    def _impl(rng: a.Rng) -> s.Dissection[float] | None:
+        roll = a.probability(rng)
+        if roll < 0.05:
+            return shrink(0.0 if a.draw_bool(rng) else -0.0)
+        if roll < 0.20:
+            return shrink(float(a.draw_int(rng, -100, 100)))
+        magnitude = math.exp(a.draw_float(rng, -15.0, 15.0))
+        return shrink(magnitude if a.draw_bool(rng) else -magnitude)
 
-    return Generator(_impl, c.finite(2))
+    return Generator(_impl, c.INFINITE)
 
 
 ###############################################################################
-# Sequence dissection
+# Sequences
 ###############################################################################
 def _sequence_dissection[R](
     dissections: list[s.Dissection[Any]],
     rebuild: Callable[[list[Any]], R],
     min_length: int | None = None,
 ) -> s.Dissection[R]:
-    """Dissect a sequence of element dissections into a dissection of the
-    rebuilt composite value.
+    """A dissection of a composite built from element dissections.
 
-    Shrinking proceeds by element removal (when `min_length` is given and
-    the sequence is longer than it), then by element-wise shrinking.
-
-    :param dissections: The element dissections making up the composite.
-    :param rebuild: Rebuilds the composite value from element values.
-    :param min_length: Minimum sequence length to preserve while removing
-        elements, or None when element removal is not a valid shrink.
+    Shrinks by removing chunks of elements, largest first, while the
+    length stays at or above ``min_length`` (None disables removal), then
+    by shrinking elements one at a time.
     """
 
-    def _shrink_length(
-        index: int, dissections: list[s.Dissection[Any]]
-    ) -> fs.StreamResult[s.Dissection[R]]:
-        if min_length is None or len(dissections) <= min_length:
-            raise StopIteration
-        if index == len(dissections):
-            raise StopIteration
-        _dissections = dissections.copy()
-        del _dissections[index]
-        return _dist(_dissections), partial(
-            _shrink_length, index + 1, dissections
-        )
+    def _node(elements: list[s.Dissection[Any]]) -> s.Dissection[R]:
+        def _iterate() -> Iterator[s.Dissection[R]]:
+            if min_length is not None and len(elements) > min_length:
+                removable = len(elements) - min_length
+                for start, end in s.chunk_removals(len(elements), removable):
+                    yield _node(elements[:start] + elements[end:])
+            for index, element in enumerate(elements):
+                for child in element.shrinks():
+                    replaced = list(elements)
+                    replaced[index] = child
+                    yield _node(replaced)
 
-    def _shrink_value(
-        index: int,
-        dissections: list[s.Dissection[Any]],
-        streams: list[fs.Stream[s.Dissection[Any]]],
-    ) -> fs.StreamResult[s.Dissection[R]]:
-        if index == len(dissections):
-            raise StopIteration
-        _index = index + 1
-        try:
-            next_dissect, next_stream = streams[index]()
-        except StopIteration:
-            return _shrink_value(_index, dissections, streams)
-        _dissections = dissections.copy()
-        _streams = streams.copy()
-        _dissections[index] = next_dissect
-        _streams[index] = next_stream
-        return _dist(_dissections), fs.concat(
-            partial(_shrink_value, index, dissections, _streams),
-            partial(_shrink_value, _index, dissections, streams),
-        )
+        heads = [element.head for element in elements]
+        return s.Dissection(rebuild(heads), _iterate)
 
-    def _dist(dissections: list[s.Dissection[Any]]) -> s.Dissection[R]:
-        heads = [dissection.head for dissection in dissections]
-        tails = [dissection.shrinks for dissection in dissections]
-        return s.Dissection(
-            rebuild(heads),
-            fs.concat(
-                partial(_shrink_length, 0, dissections),
-                partial(_shrink_value, 0, dissections, tails),
-            ),
-        )
-
-    return _dist(dissections)
-
-
-def _sample_many[T](
-    state: a.State, sampler: Sampler[T], count: int
-) -> tuple[a.State, list[s.Dissection[T]] | None]:
-    """Draw `count` dissections from a sampler, or None if any draw fails."""
-    dissections: list[s.Dissection[T]] = []
-    for _ in range(count):
-        state, dissection = sampler(state)
-        if dissection is None:
-            return state, None
-        dissections.append(dissection)
-    return state, dissections
+    return _node(dissections)
 
 
 def _sized_cardinality(
     lower_bound: int, upper_bound: int, item_cardinality: c.Cardinality
 ) -> c.Cardinality:
-    """Cardinality of a sized collection: sum of |item|^size over sizes."""
+    """Cardinality of a sized collection: the sum of ``|item|^size``."""
     total = c.ZERO
     for size in range(lower_bound, upper_bound + 1):
         total = total + (item_cardinality ** c.finite(size))
     return total
 
 
+def _check_bounds(name: str, lower_bound: int, upper_bound: int) -> None:
+    if lower_bound < 0:
+        raise ValueError(f"{name} requires lower_bound >= 0, got {lower_bound}")
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"{name} requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+
+
+#: Upper length bound of the unsized collection generators.
+_COLLECTION_BOUND = 100
+
+
+def _unsized[T](
+    sized: Callable[[int], Generator[T]], item_cardinality: c.Cardinality
+) -> Generator[T]:
+    """A collection generator whose upper size bound is drawn small-biased,
+    with the exact cardinality of the full size range."""
+    return with_cardinality(
+        bind(sized, small_nats()),
+        _sized_cardinality(0, _COLLECTION_BOUND, item_cardinality),
+    )
+
+
 ###############################################################################
 # Strings
 ###############################################################################
-@cache
-def _bounded_str_cardinality(
-    lower_bound: int, upper_bound: int, alphabet_size: int
-) -> c.Cardinality:
-    """Cardinality for bounded strings: sum of |alphabet|^l for l in [lo, hi]."""
-    return _sized_cardinality(lower_bound, upper_bound, c.finite(alphabet_size))
-
-
 def bounded_strings(
     lower_bound: int, upper_bound: int, alphabet: str
 ) -> Generator[str]:
-    """A generator for strings over a given alphabet with bounded length :code:`l` in the range :code:`lower_bound <= l <= upper_bound`.
+    """A generator of strings over ``alphabet`` with length ``l`` where
+    ``lower_bound <= l <= upper_bound``.
 
-    :param lower_bound: A min bound for the length of the sampled value, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the length of the sampled value, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
-    :param alphabet: A string representing the alphabet to be sampled from.
-    :type alphabet: `str`
-
-    :return: A generator of str.
-    :rtype: `Generator[str]`
+    :raises ValueError: When the bounds are invalid or the alphabet is empty.
     """
-    assert 0 <= lower_bound
-    assert lower_bound <= upper_bound
-    _shrink = s.string()
+    _check_bounds("bounded_strings", lower_bound, upper_bound)
+    if len(alphabet) == 0:
+        raise ValueError("bounded_strings requires a non-empty alphabet")
+    shrink = s.string()
 
-    def _impl(state: a.State) -> Sample[str]:
-        state, length = a.draw_int(state, lower_bound, upper_bound)
-        result = ""
-        for _ in range(length):
-            state, index = a.draw_int(state, 0, len(alphabet) - 1)
-            result += alphabet[index]
-        return state, _shrink(result)
+    def _impl(rng: a.Rng) -> s.Dissection[str] | None:
+        length = a.draw_int(rng, lower_bound, upper_bound)
+        return shrink("".join(a.choice(rng, alphabet) for _ in range(length)))
 
     return Generator(
         _impl,
-        _bounded_str_cardinality(lower_bound, upper_bound, len(alphabet)),
+        _sized_cardinality(lower_bound, upper_bound, c.finite(len(alphabet))),
     )
 
 
 def strings() -> Generator[str]:
-    """A generator for strings over all printable ascii characters.
-
-    :return: A generator of str.
-    :rtype: `Generator[str]`
-    """
-
-    def _impl(upper_bound: int) -> Generator[str]:
-        return bounded_strings(0, upper_bound, string.printable)
-
-    return bind(_impl, small_nats())
+    """A generator of strings over the printable ASCII characters."""
+    return _unsized(
+        lambda bound: bounded_strings(0, bound, string.printable),
+        c.finite(len(string.printable)),
+    )
 
 
 def words() -> Generator[str]:
-    """A generator for strings over ascii alphabet characters.
-
-    :return: A generator of str.
-    :rtype: `Generator[str]`
-    """
-
-    def _impl(upper_bound: int) -> Generator[str]:
-        return bounded_strings(0, upper_bound, string.ascii_letters)
-
-    return bind(_impl, small_nats())
+    """A generator of strings over the ASCII letters."""
+    return _unsized(
+        lambda bound: bounded_strings(0, bound, string.ascii_letters),
+        c.finite(len(string.ascii_letters)),
+    )
 
 
 ###############################################################################
 # Tuples
 ###############################################################################
 def tuples(*generators: Generator[Any]) -> Generator[tuple[Any, ...]]:
-    """A generator of tuples over given value generators of type `A`, `B`, etc.
+    """A generator of tuples with one element from each generator."""
 
-    :param generators: Value generators over types `A`, `B`, etc. to generate tuple values from.
-    :type generators: `Tuple[Generator[A], Generator[B], ...]`
+    def _impl(rng: a.Rng) -> s.Dissection[tuple[Any, ...]] | None:
+        dissections = _sample_all(rng, generators)
+        if dissections is None:
+            return None
+        return _sequence_dissection(dissections, tuple)
 
-    :return: A generator of tuples over types `A`, `B`, etc.
-    :rtype: `Generator[Tuple[A, B, ...]]`
-    """
-
-    def _impl(state: a.State) -> Sample[tuple[Any, ...]]:
-        dissections: list[s.Dissection[Any]] = []
-        for generator in generators:
-            state, dissection = generator.sample(state)
-            if dissection is None:
-                return state, None
-            dissections.append(dissection)
-        return state, _sequence_dissection(dissections, tuple)
-
-    combined_cardinality = c.ONE
-    for generator in generators:
-        combined_cardinality = combined_cardinality * generator.cardinality
-    return Generator(_impl, combined_cardinality)
+    return Generator(_impl, _product(generators))
 
 
 ###############################################################################
-# List
+# Lists
 ###############################################################################
 def bounded_lists[T](
     lower_bound: int,
@@ -596,34 +494,24 @@ def bounded_lists[T](
     generator: Generator[T],
     ordered: bool = False,
 ) -> Generator[list[T]]:
-    """A generator for lists over a given type `T` with bounded length :code:`l` in the range :code:`0 <= lower_bound <= l <= upper_bound`.
+    """A generator of lists with length ``l`` where
+    ``lower_bound <= l <= upper_bound``.
 
-    :param lower_bound: A min bound for the length of the sampled list, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the length of the sampled list, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
-    :param generator: A value generator from which list items are sampled.
-    :type generator: `Generator[T]`
-    :param ordered: Whether items of sampled lists should be sorted.
-    :type ordered: `bool` (default: `False`)
+    :param ordered: Whether drawn lists are sorted.
 
-    :return: A generator of lists over type `T`.
-    :rtype: `Generator[List[T]]`
+    :raises ValueError: When the bounds are invalid.
     """
-    assert 0 <= lower_bound
-    assert lower_bound <= upper_bound
+    _check_bounds("bounded_lists", lower_bound, upper_bound)
 
     def _rebuild(heads: list[T]) -> list[T]:
         return sorted(heads) if ordered else heads  # type: ignore[type-var]
 
-    def _impl(state: a.State) -> Sample[list[T]]:
-        state, length = a.draw_nat(state, lower_bound, upper_bound)
-        state, dissections = _sample_many(state, generator.sample, length)
+    def _impl(rng: a.Rng) -> s.Dissection[list[T]] | None:
+        length = a.draw_int(rng, lower_bound, upper_bound)
+        dissections = _sample_many(rng, generator, length)
         if dissections is None:
-            return state, None
-        return state, _sequence_dissection(
-            dissections, _rebuild, min_length=lower_bound
-        )
+            return None
+        return _sequence_dissection(dissections, _rebuild, lower_bound)
 
     return Generator(
         _impl,
@@ -634,180 +522,110 @@ def bounded_lists[T](
 def lists[T](
     generator: Generator[T], ordered: bool = False
 ) -> Generator[list[T]]:
-    """A generator for lists over a given type `T`.
+    """A generator of lists of up to 100 elements, biased short.
 
-    :param generator: A value generator from which list items are sampled.
-    :type generator: `Generator[T]`
-    :param ordered: Whether items of sampled lists should be sorted.
-    :type ordered: `bool` (default: `False`)
-
-    :return: A generator of lists over type `T`.
-    :rtype: `Generator[List[T]]`
+    :param ordered: Whether drawn lists are sorted.
     """
-
-    def _impl(upper_bound: int) -> Generator[list[T]]:
-        return bounded_lists(0, upper_bound, generator, ordered)
-
-    return bind(_impl, small_nats())
+    return _unsized(
+        lambda bound: bounded_lists(0, bound, generator, ordered),
+        generator.cardinality,
+    )
 
 
 def map_list[T](
     generators: list[Generator[T]], ordered: bool = False
 ) -> Generator[list[T]]:
-    """Composes lists of generators over a given type `T`, resulting in a generator of lists over the given type `T`.
+    """A generator of lists with one element from each generator in order.
 
-    :param generators: A list of value generators from which value lists are sampled.
-    :type generators: `List[Generator[T]]`
-    :param ordered: Whether items of sampled lists should be sorted.
-    :type ordered: `bool` (default: `False`)
-
-    :return: A generator of lists over type `T`.
-    :rtype: `Generator[List[T]]`
+    :param ordered: Whether drawn lists are sorted.
     """
 
     def _compose(*values: T) -> list[T]:
         result = list(values)
-        if ordered:
-            result = sorted(result)  # type: ignore[type-var]
-        return result
+        return sorted(result) if ordered else result  # type: ignore[type-var]
 
     return map(_compose, *generators)
 
 
 def list_append[T](
-    items_gen: Generator[list[T]], item_gen: Generator[T]
+    items: Generator[list[T]], item: Generator[T]
 ) -> Generator[list[T]]:
-    """Compose a lists generator over type `T` with a value generator of
-    type `T`, resulting in a list generator over the given type `T`, where a value has been sampled from the later generator and guaranteed to have been appended to output sampled lists.
+    """A generator of lists from ``items`` with a value from ``item``
+    appended."""
 
-    :param items_gen: A generator from which lists are sampled.
-    :type items_gen: `Generator[List[T]]`
-    :param item_gen: A generator from which values are sampled.
-    :type item_gen: `Generator[T]`
+    def _append(values: list[T], value: T) -> list[T]:
+        return [*values, value]
 
-    :return: A generator of lists over type `T`.
-    :rtype: `Generator[List[T]]`
-    """
-
-    def _append(items: list[T], item: T) -> list[T]:
-        result = items.copy()
-        result.append(item)
-        return result
-
-    return map(_append, items_gen, item_gen)
+    return map(_append, items, item)
 
 
 ###############################################################################
-# Dictionary
+# Dictionaries
 ###############################################################################
 def bounded_dicts[K, V](
     lower_bound: int,
     upper_bound: int,
-    key_generator: Generator[K],
-    value_generator: Generator[V],
+    keys: Generator[K],
+    values: Generator[V],
 ) -> Generator[dict[K, V]]:
-    """A generator for dicts over a given key type `K` and value type `V` with bounded size :code:`s` in the range :code:`0 <= lower_bound <= s <= upper_bound`.
+    """A generator of dicts with up to ``upper_bound`` entries drawn, at
+    least ``lower_bound`` of them, before duplicate keys collapse.
 
-    :param lower_bound: A min bound for the size of the sampled dict, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the size of the sampled dict, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
-    :param key_generator: A key generator from which dict keys are sampled.
-    :type key_generator: `Generator[K]`
-    :param value_generator: A value generator from which dict values are sampled.
-    :type value_generator: `Generator[V]`
-
-    :return: A generator of dicts over key type `K` and value type `V`.
-    :rtype: `Generator[Dict[K, V]]`
+    :raises ValueError: When the bounds are invalid.
     """
-    assert 0 <= lower_bound
-    assert lower_bound <= upper_bound
+    _check_bounds("bounded_dicts", lower_bound, upper_bound)
 
     def _pair(key: K, value: V) -> tuple[K, V]:
         return key, value
 
-    def _impl(state: a.State) -> Sample[dict[K, V]]:
-        state, size = a.draw_nat(state, lower_bound, upper_bound)
+    def _impl(rng: a.Rng) -> s.Dissection[dict[K, V]] | None:
+        size = a.draw_int(rng, lower_bound, upper_bound)
         pairs: list[s.Dissection[tuple[K, V]]] = []
         for _ in range(size):
-            state, key_dissection = key_generator.sample(state)
-            if key_dissection is None:
-                return state, None
-            state, value_dissection = value_generator.sample(state)
-            if value_dissection is None:
-                return state, None
-            pairs.append(s.map(_pair, key_dissection, value_dissection))
-        return state, _sequence_dissection(pairs, dict, min_length=lower_bound)
+            dissections = _sample_all(rng, (keys, values))
+            if dissections is None:
+                return None
+            pairs.append(s.map(_pair, *dissections))
+        return _sequence_dissection(pairs, dict, lower_bound)
 
-    pair_cardinality = key_generator.cardinality * value_generator.cardinality
     return Generator(
-        _impl, _sized_cardinality(lower_bound, upper_bound, pair_cardinality)
+        _impl,
+        _sized_cardinality(
+            lower_bound, upper_bound, keys.cardinality * values.cardinality
+        ),
     )
 
 
 def dicts[K, V](
-    key_generator: Generator[K], value_generator: Generator[V]
+    keys: Generator[K], values: Generator[V]
 ) -> Generator[dict[K, V]]:
-    """A generator for dicts over a given key type `K` and value type `V`.
-
-    :param key_generator: A key generator from which dict keys are sampled.
-    :type key_generator: `Generator[K]`
-    :param value_generator: A value generator from which dict values are sampled.
-    :type value_generator: `Generator[V]`
-
-    :return: A generator of dicts over key type `K` and value type `V`.
-    :rtype: `Generator[Dict[K, V]]`
-    """
-
-    def _impl(upper_bound: int) -> Generator[dict[K, V]]:
-        return bounded_dicts(0, upper_bound, key_generator, value_generator)
-
-    return bind(_impl, small_nats())
+    """A generator of dicts of up to 100 entries, biased small."""
+    return _unsized(
+        lambda bound: bounded_dicts(0, bound, keys, values),
+        keys.cardinality * values.cardinality,
+    )
 
 
-def map_dict[K, V](
-    generators: dict[K, Generator[V]],
-) -> Generator[dict[K, V]]:
-    """Composes dicts of generators over given types `K` and `V`, resulting in a generator of dicts over the given types `K` and `V`.
-
-    :param generators: A dict of value generators from which value dicts are sampled.
-    :type generators: `Dict[K, Generator[V]]`
-
-    :return: A generator of dicts over types `K` and `V`.
-    :rtype: `Generator[Dict[K, V]]`
-    """
-    keys = list(generators.keys())
+def map_dict[K, V](generators: dict[K, Generator[V]]) -> Generator[dict[K, V]]:
+    """A generator of dicts with fixed keys and one value per generator."""
+    keys = list(generators)
 
     def _compose(*values: V) -> dict[K, V]:
-        return {keys[index]: value for index, value in enumerate(values)}
+        return dict(zip(keys, values, strict=True))
 
     return map(_compose, *[generators[key] for key in keys])
 
 
 def dict_insert[K, V](
-    kvs_gen: Generator[dict[K, V]],
-    key_gen: Generator[K],
-    value_gen: Generator[V],
+    entries: Generator[dict[K, V]], key: Generator[K], value: Generator[V]
 ) -> Generator[dict[K, V]]:
-    """Compose a dict generator over types `K` and `V` with a key generator of the given type `K` and a value generator of the given type `V`, resulting in a generator of dicts over the types `K` and `V`, where a key and value has been sampled from the later generators and guaranteed to have been inserted into the output sampled dicts.
+    """A generator of dicts from ``entries`` with an entry from ``key`` and
+    ``value`` inserted."""
 
-    :param kvs_gen: A generator from which dicts are sampled.
-    :type kvs_gen: `Generator[Dict[K, V]]`
-    :param key_gen: A generator from which keys are sampled.
-    :type key_gen: `Generator[K]`
-    :param value_gen: A generator from which values are sampled.
-    :type value_gen: `Generator[V]`
+    def _insert(kvs: dict[K, V], k: K, v: V) -> dict[K, V]:
+        return {**kvs, k: v}
 
-    :return: A generator of dicts over types `K` and `V`.
-    :rtype: `Generator[Dict[K, V]]`
-    """
-
-    def _insert(kvs: dict[K, V], key: K, value: V) -> dict[K, V]:
-        result = kvs.copy()
-        result[key] = value
-        return result
-
-    return map(_insert, kvs_gen, key_gen, value_gen)
+    return map(_insert, entries, key, value)
 
 
 ###############################################################################
@@ -816,29 +634,19 @@ def dict_insert[K, V](
 def bounded_sets[T](
     lower_bound: int, upper_bound: int, generator: Generator[T]
 ) -> Generator[set[T]]:
-    """A generator for sets over a given type `T` with bounded size :code:`s` in the range :code:`0 <= lower_bound <= s <= upper_bound`.
+    """A generator of sets with up to ``upper_bound`` elements drawn, at
+    least ``lower_bound`` of them, before duplicates collapse.
 
-    :param lower_bound: A min bound for the size of the sampled set, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the size of the sampled set, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
-    :param generator: A value generator from which set items are sampled.
-    :type generator: `Generator[T]`
-
-    :return: A generator of sets over type `T`.
-    :rtype: `Generator[Set[T]]`
+    :raises ValueError: When the bounds are invalid.
     """
-    assert 0 <= lower_bound
-    assert lower_bound <= upper_bound
+    _check_bounds("bounded_sets", lower_bound, upper_bound)
 
-    def _impl(state: a.State) -> Sample[set[T]]:
-        state, size = a.draw_nat(state, lower_bound, upper_bound)
-        state, dissections = _sample_many(state, generator.sample, size)
+    def _impl(rng: a.Rng) -> s.Dissection[set[T]] | None:
+        size = a.draw_int(rng, lower_bound, upper_bound)
+        dissections = _sample_many(rng, generator, size)
         if dissections is None:
-            return state, None
-        return state, _sequence_dissection(
-            dissections, set, min_length=lower_bound
-        )
+            return None
+        return _sequence_dissection(dissections, set, lower_bound)
 
     return Generator(
         _impl,
@@ -847,256 +655,196 @@ def bounded_sets[T](
 
 
 def sets[T](generator: Generator[T]) -> Generator[set[T]]:
-    """A generator for sets over a given type `T`.
-
-    :param generator: A value generator from which set items are sampled.
-    :type generator: `Generator[T]`
-
-    :return: A generator of sets over type `T`.
-    :rtype: `Generator[Set[T]]`
-    """
-
-    def _impl(upper_bound: int) -> Generator[set[T]]:
-        return bounded_sets(0, upper_bound, generator)
-
-    return bind(_impl, small_nats())
+    """A generator of sets of up to 100 elements, biased small."""
+    return _unsized(
+        lambda bound: bounded_sets(0, bound, generator), generator.cardinality
+    )
 
 
 def map_set[T](generators: set[Generator[T]]) -> Generator[set[T]]:
-    """Composes sets of generators over a given type `T`, resulting in a generator of sets over the given type `T`.
+    """A generator of sets with one element from each generator."""
 
-    :param generators: A set of value generators from which value sets are sampled.
-    :type generators: `Set[Generator[T]]`
-
-    :return: A generator of sets over type `T`.
-    :rtype: `Generator[Set[T]]`
-    """
-
-    def _mapping(*values: T) -> set[T]:
+    def _compose(*values: T) -> set[T]:
         return set(values)
 
-    return map(_mapping, *generators)
+    return map(_compose, *generators)
 
 
 def set_add[T](
-    items_gen: Generator[set[T]], item_gen: Generator[T]
+    items: Generator[set[T]], item: Generator[T]
 ) -> Generator[set[T]]:
-    """Compose a set generator over a type `T` with a value generator of type `T`, resulting in a generator of sets over the given type `T`, where a value has been sampled from the later generator and guaranteed to have been added to the output sampled sets.
+    """A generator of sets from ``items`` with a value from ``item`` added."""
 
-    :param items_gen: A generator from which sets are sampled.
-    :type items_gen: `Generator[Set[T]]`
-    :param item_gen: A generator from which values are sampled.
-    :type item_gen: `Generator[T]`
+    def _add(values: set[T], value: T) -> set[T]:
+        return {*values, value}
 
-    :return: A generator of output sets over type `T`.
-    :rtype: `Generator[Set[T]]`
-    """
-
-    def _add(items: set[T], item: T) -> set[T]:
-        result = items.copy()
-        result.add(item)
-        return result
-
-    return map(_add, items_gen, item_gen)
+    return map(_add, items, item)
 
 
 ###############################################################################
 # Optional
 ###############################################################################
 def optional[T](generator: Generator[T]) -> Generator[T | None]:
-    """A generator of optional values over a given type `T`, sampling None
-    with a small probability.
-
-    :param generator: A value generator to make optional.
-    :type generator: `Generator[T]`
-
-    :return: A generator of optional values over type `T`.
-    :rtype: `Generator[T | None]`
-    """
+    """A generator of values from ``generator`` or None, with None drawn
+    with a small probability and offered as the last shrink of any value."""
 
     def _some(value: T) -> T | None:
         return value
 
-    def _append_none(
+    def _with_none(
         dissection: s.Dissection[T | None],
     ) -> s.Dissection[T | None]:
-        return s.append(dissection, None)
+        def _iterate() -> Iterator[s.Dissection[T | None]]:
+            for child in dissection.shrinks():
+                yield _with_none(child)
+            yield s.singleton(None)
 
-    def _impl(state: a.State) -> Sample[T | None]:
-        state, p = a.probability(state)
-        if p < 0.05:
-            return state, s.singleton(None)
-        state, dissection = generator.sample(state)
+        return s.Dissection(dissection.head, _iterate)
+
+    def _impl(rng: a.Rng) -> s.Dissection[T | None] | None:
+        if a.probability(rng) < 0.05:
+            return s.singleton(None)
+        dissection = generator.sample(rng)
         if dissection is None:
-            return state, None
-        _dissection = s.map(_some, dissection)
-        return state, s.Dissection(
-            _dissection.head, fs.map(_append_none, _dissection.shrinks)
-        )
+            return None
+        return _with_none(s.map(_some, dissection))
 
     return Generator(_impl, generator.cardinality + c.ONE)
 
 
 ###############################################################################
-# Argument pack
+# Argument packs
 ###############################################################################
 def argument_pack(
     generators: dict[str, Generator[Any]],
 ) -> Generator[dict[str, Any]]:
-    """A generator for argument packs.
-
-    :param generators: Generator from which the arguments are sampled.
-    :type generators: `Dict[str, Generator[Any]]`
-
-    :return: A generator for argument packs.
-    :rtype: `Generator[Dict[str, Any]]`
-    """
-    names = list(generators.keys())
+    """A generator of keyword argument dicts, one value per named
+    generator, shrinking the arguments one at a time."""
+    names = list(generators)
 
     def _rebuild(heads: list[Any]) -> dict[str, Any]:
         return dict(zip(names, heads, strict=True))
 
-    def _impl(state: a.State) -> Sample[dict[str, Any]]:
-        dissections: list[s.Dissection[Any]] = []
-        for name in names:
-            state, dissection = generators[name].sample(state)
-            if dissection is None:
-                return state, None
-            dissections.append(dissection)
-        return state, _sequence_dissection(dissections, _rebuild)
+    def _impl(rng: a.Rng) -> s.Dissection[dict[str, Any]] | None:
+        dissections = _sample_all(
+            rng, tuple(generators[name] for name in names)
+        )
+        if dissections is None:
+            return None
+        return _sequence_dissection(dissections, _rebuild)
 
-    total_cardinality = c.ONE
-    for generator in generators.values():
-        total_cardinality = total_cardinality * generator.cardinality
-    return Generator(_impl, total_cardinality)
+    return Generator(_impl, _product(tuple(generators.values())))
 
 
 ###############################################################################
-# Choice combinators
+# Choice
 ###############################################################################
 def choice[T](*generators: Generator[T]) -> Generator[T]:
-    """A generator of a type `T` composed of other generators of type `T`.
+    """A generator drawing from one of the given generators, each equally
+    likely.
 
-    :param generators: generators of type `T`.
-    :type generators: `Tuple[Generator[T], ...]`
-
-    :return: A generator of type `T`.
-    :rtype: `Generator[T]`
+    :raises ValueError: When no generators are given.
     """
-    assert len(generators) != 0
+    if len(generators) == 0:
+        raise ValueError("choice requires at least one generator")
 
-    def _impl(state: a.State) -> Sample[T]:
-        state, index = a.draw_nat(state, 0, len(generators) - 1)
-        return generators[index].sample(state)
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        return a.choice(rng, generators).sample(rng)
 
-    combined_cardinality = c.ZERO
-    for generator in generators:
-        combined_cardinality = combined_cardinality + generator.cardinality
-    return Generator(_impl, combined_cardinality)
+    return Generator(_impl, _sum(generators))
 
 
 def weighted_choice[T](
-    *weighted_generators: tuple[int, Generator[T]],
+    *weighted: tuple[int, Generator[T]],
 ) -> Generator[T]:
-    """A generator of a type `T` composed of other weighted generators of type `T`.
+    """A generator drawing from one of the given generators with
+    probability proportional to its weight.
 
-    :param weighted_generators: Number of chances to sample from, with their corresponding generators of type `T`.
-    :type weighted_generators: `Tuple[Tuple[int, Generator[T]], ...]`
-
-    :return: A generator of type `T`.
-    :rtype: `Generator[T]`
+    :raises ValueError: When no generators are given or the weights are
+        invalid.
     """
-    assert len(weighted_generators) != 0
-    weights = [weight for weight, _ in weighted_generators]
-    samplers = [generator.sample for _, generator in weighted_generators]
+    if len(weighted) == 0:
+        raise ValueError("weighted_choice requires at least one generator")
+    weights = [weight for weight, _ in weighted]
+    generators = tuple(generator for _, generator in weighted)
+    if any(weight < 0 for weight in weights):
+        raise ValueError("weighted_choice weights must be non-negative")
+    if sum(weights) == 0:
+        raise ValueError("weighted_choice requires a positive total weight")
 
-    def _impl(state: a.State) -> Sample[T]:
-        state, sampler = a.weighted_choice(state, weights, samplers)
-        return sampler(state)
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        return a.weighted_choice(rng, weights, generators).sample(rng)
 
-    combined_cardinality = c.ZERO
-    for _, generator in weighted_generators:
-        combined_cardinality = combined_cardinality + generator.cardinality
-    return Generator(_impl, combined_cardinality)
+    return Generator(_impl, _sum(generators))
 
 
 def one_of[T](values: list[T]) -> Generator[T]:
-    """A generator of a type `T` defined over a list of `T`, which will select one of the values of given list when sampled.
+    """A generator drawing one of the given values, shrinking toward the
+    first.
 
-    :param values: A list of values of type `T`.
-    :type values: `List[T]`
-
-    :return: A generator of type `T`.
-    :rtype: `Generator[T]`
+    :raises ValueError: When ``values`` is empty.
     """
-    assert len(values) != 0
+    if len(values) == 0:
+        raise ValueError("one_of requires at least one value")
+    snapshot = list(values)
 
     def _select(index: int) -> T:
-        return values[index]
+        return snapshot[index]
 
-    return map(_select, int_range(0, len(values) - 1))
+    return map(_select, int_range(0, len(snapshot) - 1))
 
 
 def subset_of[T](values: set[T]) -> Generator[set[T]]:
-    """A generator of a type `T` defined over a list of `T`, which will select a subset of the values of given set when sampled.
-
-    :param values: A set of values of type `T`.
-    :type values: `Set[T]`
-
-    :return: A set generator of type `T`.
-    :rtype: `Generator[Set[T]]`
-    """
-    assert len(values) != 0
-    _values = list(values)
+    """A generator of subsets of the given set."""
+    snapshot = list(values)
 
     def _select(indices: set[int]) -> set[T]:
-        return {_values[index] for index in indices}
+        return {snapshot[index] for index in indices}
 
-    count = len(_values)
-    return map(_select, bounded_sets(0, count, int_range(0, count - 1)))
+    if len(snapshot) == 0:
+        return constant(set())
+    count = len(snapshot)
+    return with_cardinality(
+        map(_select, bounded_sets(0, count, int_range(0, count - 1))),
+        c.finite(2) ** c.finite(count),
+    )
 
 
 ###############################################################################
-# Infer a generator
+# Inference
 ###############################################################################
-def infer(T: type) -> Generator[Any] | None:
-    """Infer a generator for a given type `T`.
+def _optional_inner(T: Any) -> Any | None:
+    """The inner type of an ``X | None`` annotation, or None."""
+    origin = get_origin(T)
+    if origin is not types.UnionType and origin is not typing.Union:
+        return None
+    args = get_args(T)
+    if type(None) not in args:
+        return None
+    inner = [arg for arg in args if arg is not type(None)]
+    if len(inner) != 1:
+        return None
+    return inner[0]
 
-    :param T: A type to infer a generator of.
-    :type T: `type`
 
-    :return: A generator of type T, or None when no generator is known.
-    :rtype: `Generator[Any] | None`
+def infer(T: Any) -> Generator[Any] | None:
+    """Infer a generator from a type annotation.
+
+    Supports ``bool``, ``int``, ``float``, ``str``, ``None``,
+    ``random.Random``, ``X | None``, and ``tuple``, ``list``, ``dict`` and
+    ``set`` of supported types.
+
+    :return: The generator, or None when the annotation is not supported.
     """
 
-    def _case_tuple(T: type) -> Generator[Any] | None:
-        item_generators: list[Generator[Any]] = []
-        for item_T in get_args(T):
-            item_generator = infer(item_T)
-            if item_generator is None:
+    def _all(annotations: tuple[Any, ...]) -> list[Generator[Any]] | None:
+        generators: list[Generator[Any]] = []
+        for annotation in annotations:
+            generator = infer(annotation)
+            if generator is None:
                 return None
-            item_generators.append(item_generator)
-        return tuples(*item_generators)
-
-    def _case_list(T: type) -> Generator[Any] | None:
-        item_generator = infer(get_args(T)[0])
-        if item_generator is None:
-            return None
-        return lists(item_generator)
-
-    def _case_dict(T: type) -> Generator[Any] | None:
-        K, V = get_args(T)[:2]
-        key_generator = infer(K)
-        value_generator = infer(V)
-        if key_generator is None or value_generator is None:
-            return None
-        return dicts(key_generator, value_generator)
-
-    def _case_set(T: type) -> Generator[Any] | None:
-        item_generator = infer(get_args(T)[0])
-        if item_generator is None:
-            return None
-        return sets(item_generator)
+            generators.append(generator)
+        return generators
 
     if T is bool:
         return bools()
@@ -1106,22 +854,30 @@ def infer(T: type) -> Generator[Any] | None:
         return floats()
     if T is str:
         return strings()
+    if T is None or T is type(None):
+        return none()
+    if T is random.Random:
+        return rngs()
 
-    inner = u.optional_inner(T)
+    inner = _optional_inner(T)
     if inner is not None:
         inner_generator = infer(inner)
-        if inner_generator is None:
-            return None
-        return optional(inner_generator)
+        return None if inner_generator is None else optional(inner_generator)
 
-    match get_origin(T):
-        case x if x is tuple:
-            return _case_tuple(T)
-        case x if x is list:
-            return _case_list(T)
-        case x if x is dict:
-            return _case_dict(T)
-        case x if x is set:
-            return _case_set(T)
-        case _:
+    origin = get_origin(T)
+    args = get_args(T)
+    if origin is tuple:
+        if Ellipsis in args:
             return None
+        items = _all(args)
+        return None if items is None else tuples(*items)
+    if origin is list and len(args) == 1:
+        items = _all(args)
+        return None if items is None else lists(items[0])
+    if origin is set and len(args) == 1:
+        items = _all(args)
+        return None if items is None else sets(items[0])
+    if origin is dict and len(args) == 2:
+        items = _all(args)
+        return None if items is None else dicts(items[0], items[1])
+    return None

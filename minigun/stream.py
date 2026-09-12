@@ -1,315 +1,170 @@
 """
-Functional Stream Operations
+Lazy re-iterable streams
 
-This module provides lazy functional streams for efficient handling of
-potentially infinite sequences. Streams are used extensively throughout
-Minigun for shrinking trees, generator composition, and lazy evaluation.
+A ``Stream[T]`` is a zero-argument callable that returns a fresh iterator
+over values of type ``T``. Two properties follow from that shape and both
+are relied on by the shrinking system:
 
-Architecture:
-    - Stream[T]: Lazy thunked computation yielding (value, next_stream)
-    - Exhaustion is signalled by raising StopIteration from the thunk
-    - Combinators: map, filter for stream processing
-    - Construction: unfold, empty, singleton, constant, from_list
-    - Composition: concat, braid for combining streams
+- Laziness: nothing is computed until the iterator is advanced, so a stream
+  can describe an unbounded space of values without materializing it.
+- Re-traversability: calling the stream again yields a fresh iterator over
+  the same values, so one stream can be walked from several places.
 
-Streams enable memory-efficient processing of large or infinite data sets
-while maintaining functional purity and composability. They're particularly
-important in the shrinking system where they represent trees of shrunk
-values.
+Producers are ordinarily generator functions closed over their inputs;
+composition uses ``itertools`` and the builtin iteration protocol. A stream
+must never hold a live iterator, only the means of making one.
 
 Example::
 
         import minigun.stream as fs
 
-        # Create infinite stream of natural numbers
         nats = fs.unfold(lambda n: (n, n + 1), 0)
-
-        # Transform and take first 10 even numbers
         evens = fs.map(lambda x: x * 2, nats)
-        first_10_evens = fs.to_list(evens, 10)
-        # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+        fs.to_list(evens, 5)  # [0, 2, 4, 6, 8]
 """
 
-# External module dependencies
-from collections.abc import Callable
-from functools import partial
-from typing import Any
+import builtins
+import itertools
+from collections.abc import Callable, Iterator
+
+#: A lazy, re-iterable sequence of values of type ``T``.
+type Stream[T] = Callable[[], Iterator[T]]
+
 
 ###############################################################################
-# Persistent streams
+# Construction
 ###############################################################################
-
-type Thunk[R] = Callable[[], R]
-
-#: StreamResult datatype defined over a type parameter `T`.
-type StreamResult[T] = tuple[T, "Stream[T]"]
-
-#: Stream datatype defined over a type parameter `T`. Calling the thunk
-#: yields the head and tail, or raises StopIteration when exhausted.
-type Stream[T] = Thunk[StreamResult[T]]
-
-
-def next[T](stream: Stream[T]) -> tuple[T | None, Stream[T]]:
-    """Get the next head and tail of the stream, if a next head exists.
-
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-
-    :return: A tuple of the head of the stream (None when exhausted) and
-        the tail of the stream.
-    :rtype: `tuple[T | None, Stream[T]]`
-    """
-    try:
-        next_value, next_stream = stream()
-        return next_value, next_stream
-    except StopIteration:
-        return None, stream
-
-
-def peek[T](stream: Stream[T]) -> T | None:
-    """Peek the next head of the stream, if a next head exists.
-
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-
-    :return: The head of the stream, or None when exhausted.
-    :rtype: `T | None`
-    """
-    try:
-        next_value, _ = stream()
-        return next_value
-    except StopIteration:
-        return None
-
-
-def map[*P, R](func: Callable[[*P], R], *streams: Stream[Any]) -> Stream[R]:
-    """A variadic map function of given input streams over types `A`, `B`, etc. to an output stream over type `R`.
-
-    :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
-    :type func: `A x B x ... -> R`
-    :param streams: Input streams over types `A`, `B`, etc. to map from.
-    :type streams: `tuple[Stream[A], Stream[B], ...]`
-
-    :return: A mapped output stream.
-    :rtype: `Stream[R]`
-    """
-
-    def _thunk() -> StreamResult[R]:
-        next_values, next_streams = zip(
-            *[stream() for stream in streams], strict=False
-        )
-        return func(*next_values), map(func, *next_streams)
-
-    return _thunk
-
-
-def filter[T](predicate: Callable[[T], bool], stream: Stream[T]) -> Stream[T]:
-    """Filter a stream of type `T`.
-
-    :param predicate: A predicate on type `T`.
-    :type predicate: `A -> bool`
-    :param stream: A stream of type `T` to be filtered.
-    :type stream: `Stream[T]`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        next_stream: Stream[T] = stream
-        while True:
-            next_value, next_stream = next_stream()
-            if not predicate(next_value):
-                continue
-            return next_value, filter(predicate, next_stream)
-
-    return _thunk
-
-
-def unfold[T, S](func: Callable[[S], tuple[T, S] | None], init: S) -> Stream[T]:
-    """Create a stream of a type `T` unfolded from a function over a state of type `S`.
-
-    :param func: A function that produces a value of type `T` and a next state given a state of type `S`, or None to end the stream.
-    :type func: `S -> tuple[T, S] | None`
-    :param init: An initial value of type `S`.
-    :type init: `S`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        match func(init):
-            case None:
-                raise StopIteration
-            case (value, state):
-                return value, unfold(func, state)
-
-    return _thunk
-
-
 def empty[T]() -> Stream[T]:
-    """Create an empty stream of type `T`.
+    """A stream with no values."""
 
-    :return: An empty stream of type `T`.
-    :rtype: `Stream[T]`
-    """
+    def _iterate() -> Iterator[T]:
+        return iter(())
 
-    def _thunk() -> StreamResult[T]:
-        raise StopIteration
-
-    return _thunk
+    return _iterate
 
 
 def singleton[T](value: T) -> Stream[T]:
-    """Create a stream containing only one value, is empty after that value.
+    """A stream of exactly one value."""
 
-    :param value: A value of type `T`.
-    :type value: `T`
+    def _iterate() -> Iterator[T]:
+        yield value
 
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        return value, empty()
-
-    return _thunk
+    return _iterate
 
 
 def constant[T](value: T) -> Stream[T]:
-    """Create a infinite stream containing a constant value.
+    """An infinite stream repeating one value."""
 
-    :param value: A value of type `T`.
-    :type value: `T`
+    def _iterate() -> Iterator[T]:
+        return itertools.repeat(value)
 
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        return value, constant(value)
-
-    return _thunk
-
-
-def prepend[T](value: T, stream: Stream[T]) -> Stream[T]:
-    """Prepend a value of type `T` to a stream of type `T`.
-
-    :param value: A value of type `T`.
-    :type value: `T`
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        return value, stream
-
-    return _thunk
-
-
-def append[T](stream: Stream[T], value: T) -> Stream[T]:
-    """Append a value of type `T` to a stream of type `T`.
-
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-    :param value: A value of type `T`.
-    :type value: `T`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        try:
-            next_value, next_stream = stream()
-        except StopIteration:
-            return value, empty()
-        return next_value, append(next_stream, value)
-
-    return _thunk
-
-
-def concat[T](left: Stream[T], right: Stream[T]) -> Stream[T]:
-    """Concatenate two streams of type `T`.
-
-    :param left: A stream of type `T`.
-    :type left: `Stream[T]`
-    :param right: A stream of type `T`.
-    :type right: `Stream[T]`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _thunk() -> StreamResult[T]:
-        try:
-            next_value, next_left = left()
-        except StopIteration:
-            return right()
-        return next_value, concat(next_left, right)
-
-    return _thunk
-
-
-def braid[T](*streams: Stream[T]) -> Stream[T]:
-    """Braid multiple streams of type `T` together into a single stream of type `T`.
-
-    :param streams: Multiple streams of type `T`.
-    :type streams: `tuple[Stream[T], ...]`
-
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
-    """
-
-    def _impl(streams: list[Stream[T]]) -> StreamResult[T]:
-        while len(streams) != 0:
-            stream = streams.pop(0)
-            try:
-                next_value, next_stream = stream()
-            except StopIteration:
-                continue
-            streams.append(next_stream)
-            return next_value, partial(_impl, streams)
-        raise StopIteration
-
-    return partial(_impl, list(streams))
+    return _iterate
 
 
 def from_list[T](items: list[T]) -> Stream[T]:
-    """Create a stream of type `T` from a list of type `T`.
+    """A stream over a snapshot of a list."""
+    snapshot = list(items)
 
-    :param items: A list of type `T`.
-    :type items: `list[T]`
+    def _iterate() -> Iterator[T]:
+        return iter(snapshot)
 
-    :return: A stream of type `T`.
-    :rtype: `Stream[T]`
+    return _iterate
+
+
+def unfold[T, S](func: Callable[[S], tuple[T, S] | None], init: S) -> Stream[T]:
+    """A stream unfolded from a step function over a state.
+
+    :param func: Produces the next value and state, or None to end.
+    :param init: The initial state.
     """
-    result: Stream[T] = empty()
-    for item in reversed(items):
-        result = prepend(item, result)
-    return result
+
+    def _iterate() -> Iterator[T]:
+        state = init
+        while (step := func(state)) is not None:
+            value, state = step
+            yield value
+
+    return _iterate
 
 
+###############################################################################
+# Transformation
+###############################################################################
+def map[T, R](func: Callable[[T], R], stream: Stream[T]) -> Stream[R]:
+    """Apply a function to every value of a stream."""
+
+    def _iterate() -> Iterator[R]:
+        return builtins.map(func, stream())
+
+    return _iterate
+
+
+def filter[T](predicate: Callable[[T], bool], stream: Stream[T]) -> Stream[T]:
+    """Keep the values of a stream that satisfy a predicate."""
+
+    def _iterate() -> Iterator[T]:
+        return builtins.filter(predicate, stream())
+
+    return _iterate
+
+
+###############################################################################
+# Composition
+###############################################################################
+def prepend[T](value: T, stream: Stream[T]) -> Stream[T]:
+    """A stream starting with a value followed by another stream."""
+
+    def _iterate() -> Iterator[T]:
+        yield value
+        yield from stream()
+
+    return _iterate
+
+
+def append[T](stream: Stream[T], value: T) -> Stream[T]:
+    """A stream ending with a value after another stream."""
+
+    def _iterate() -> Iterator[T]:
+        yield from stream()
+        yield value
+
+    return _iterate
+
+
+def concat[T](*streams: Stream[T]) -> Stream[T]:
+    """The values of each stream in turn."""
+
+    def _iterate() -> Iterator[T]:
+        for stream in streams:
+            yield from stream()
+
+    return _iterate
+
+
+def braid[T](*streams: Stream[T]) -> Stream[T]:
+    """The values of several streams interleaved round-robin.
+
+    Exhausted streams drop out; the result ends when all have ended.
+    """
+
+    def _iterate() -> Iterator[T]:
+        iterators = [stream() for stream in streams]
+        while iterators:
+            remaining: list[Iterator[T]] = []
+            for iterator in iterators:
+                try:
+                    yield next(iterator)
+                except StopIteration:
+                    continue
+                remaining.append(iterator)
+            iterators = remaining
+
+    return _iterate
+
+
+###############################################################################
+# Consumption
+###############################################################################
 def to_list[T](stream: Stream[T], max_items: int) -> list[T]:
-    """Create a list of type `T` from a stream of type `T`.
-
-    :param stream: A stream of type `T`.
-    :type stream: `Stream[T]`
-    :param max_items: The maximum number of items to take from the stream.
-    :type max_items: `int`
-
-    :return: A list of type `T`.
-    :rtype: `list[T]`
-    """
-    items: list[T] = []
-    for _ in range(max_items):
-        try:
-            item, stream = stream()
-        except StopIteration:
-            break
-        items.append(item)
-    return items
+    """Collect at most ``max_items`` values from the front of a stream."""
+    return list(itertools.islice(stream(), max_items))

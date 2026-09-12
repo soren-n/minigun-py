@@ -1,180 +1,125 @@
 """
-PRNG State Management and Random Generation
+Random source
 
-This module provides random number generation with explicit state threading.
-It implements the foundation for all random generation in Minigun, ensuring
-reproducible and deterministic test case generation: a run is fully
-determined by its seed.
+The random source for all generation in Minigun is a dedicated
+``random.Random`` instance. Draws never touch the global ``random`` module,
+so a test run cannot disturb the host program and independent runs cannot
+disturb each other.
 
-Key Components:
-    - State: PRNG state for deterministic generation
-    - seed(): Initialize state from an optional integer seed
-    - Primitive draws: draw_bool, draw_nat, draw_int, draw_float, probability
-    - Choice utilities: choice, weighted_choice for selection
-
-State is a dedicated random.Random instance: draws never touch the global
-random module, so a test run cannot disturb the host program's RNG and
-concurrent runs cannot disturb each other. Functions thread the state
-explicitly (state in, state out) to keep sampler code order-explicit.
+Reproducibility comes from seeding, parallel safety from forking: a child
+source is seeded from a draw on its parent, so children are deterministic
+given the parent's seed and independent of one another. Draw functions take
+the source and return the drawn value; the source advances in place.
 
 Example::
 
         import minigun.arbitrary as a
 
-        # Initialize state
-        state = a.seed(42)
-
-        # Generate values with explicit state threading
-        state, value1 = a.draw_int(state, 1, 100)
-        state, value2 = a.draw_bool(state)
-        state, chosen = a.choice(state, ["a", "b", "c"])
+        rng = a.seed(42)
+        value = a.draw_int(rng, 1, 100)
+        child = a.fork(rng)
 """
 
-# External module dependencies
 import random
+from collections.abc import Sequence
+
+#: The random source from which values are drawn.
+type Rng = random.Random
+
 
 ###############################################################################
-# PRNG state
+# Sources
 ###############################################################################
+def seed(value: int | str | None = None) -> Rng:
+    """Create a random source.
 
-#: A state from which to generate random values.
-type State = random.Random
+    :param value: The seed; when None the source is seeded from operating
+        system entropy.
 
-
-def seed(value: int | None = None) -> State:
-    """Create an initial state for Minigun's random generation.
-
-    :param value: An optional integer to be used as the seed; when None
-        the state is seeded from operating system entropy.
-    :type value: int, optional
-
-    :return: An initial state for random generation.
-    :rtype: `State`
+    :return: A fresh random source.
     """
     return random.Random(value)
 
 
-###############################################################################
-# Boolean
-###############################################################################
-def draw_bool(state: State) -> tuple[State, bool]:
-    """Draw a random boolean value.
+def fork(rng: Rng) -> Rng:
+    """Create a child source seeded from a draw on the parent.
 
-    :param state: A state from which to draw a random value.
-    :type state: `State`
+    The child is deterministic given the parent's history and independent
+    of the parent's subsequent draws and of other children.
 
-    :return: A tuple of the advanced state and the drawn value.
-    :rtype: `tuple[State, bool]`
+    :param rng: The parent source; advanced by one draw.
+
+    :return: A fresh child source.
     """
-    return state, state.getrandbits(1) == 1
+    return random.Random(rng.getrandbits(64))
 
 
 ###############################################################################
-# Numbers
+# Draws
 ###############################################################################
-def draw_nat(
-    state: State, lower_bound: int, upper_bound: int
-) -> tuple[State, int]:
-    """Draw a random natural number :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
+def draw_bool(rng: Rng) -> bool:
+    """Draw a boolean, each value equally likely."""
+    return rng.getrandbits(1) == 1
 
-    :param state: A state from which to draw a random value.
-    :type state: `State`
-    :param lower_bound: A min bound for the drawn value, must be greater than or equal to zero, and less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the drawn value, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
 
-    :return: A tuple of the advanced state and the drawn value.
-    :rtype: `tuple[State, int]`
+def draw_int(rng: Rng, lower_bound: int, upper_bound: int) -> int:
+    """Draw an integer ``n`` with ``lower_bound <= n <= upper_bound``.
+
+    :raises ValueError: When ``lower_bound > upper_bound``.
     """
-    assert 0 <= lower_bound
-    assert lower_bound <= upper_bound
-    return state, state.randint(lower_bound, upper_bound)
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"draw_int requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+    return rng.randint(lower_bound, upper_bound)
 
 
-def draw_int(
-    state: State, lower_bound: int, upper_bound: int
-) -> tuple[State, int]:
-    """Draw a random integer value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
+def draw_float(rng: Rng, lower_bound: float, upper_bound: float) -> float:
+    """Draw a float ``x`` with ``lower_bound <= x <= upper_bound``.
 
-    :param state: A state from which to draw a random value.
-    :type state: `State`
-    :param lower_bound: A min bound for the drawn value, must be less than or equal to `upper_bound`.
-    :type lower_bound: `int`
-    :param upper_bound: A max bound for the drawn value, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `int`
-
-    :return: A tuple of the advanced state and the drawn value.
-    :rtype: `tuple[State, int]`
+    :raises ValueError: When ``lower_bound > upper_bound``.
     """
-    assert lower_bound <= upper_bound
-    return state, state.randint(lower_bound, upper_bound)
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"draw_float requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+    return rng.uniform(lower_bound, upper_bound)
 
 
-def probability(state: State) -> tuple[State, float]:
-    """Draw a random float value :code:`n` in the range :code:`0.0 <= n <= 1.0`.
+def probability(rng: Rng) -> float:
+    """Draw a float ``p`` with ``0.0 <= p < 1.0``."""
+    return rng.random()
 
-    :param state: A state from which to draw a random value.
-    :type state: `State`
 
-    :return: A tuple of the advanced state and the drawn value.
-    :rtype: `tuple[State, float]`
+def choice[T](rng: Rng, items: Sequence[T]) -> T:
+    """Draw one item, each equally likely.
+
+    :raises ValueError: When ``items`` is empty.
     """
-    return state, state.random()
+    if len(items) == 0:
+        raise ValueError("choice requires at least one item")
+    return rng.choice(items)
 
 
-def draw_float(
-    state: State, lower_bound: float, upper_bound: float
-) -> tuple[State, float]:
-    """Draw a random float value :code:`n` in the range :code:`lower_bound <= n <= upper_bound`.
-
-    :param state: A state from which to draw a random value.
-    :type state: `State`
-    :param lower_bound: A min bound for the drawn value, must be less than or equal to `upper_bound`.
-    :type lower_bound: `float`
-    :param upper_bound: A max bound for the drawn value, must be greater than or equal to `lower_bound`.
-    :type upper_bound: `float`
-
-    :return: A tuple of the advanced state and the drawn value.
-    :rtype: `tuple[State, float]`
-    """
-    assert lower_bound <= upper_bound
-    return state, state.uniform(lower_bound, upper_bound)
-
-
-###############################################################################
-# Sequences
-###############################################################################
 def weighted_choice[T](
-    state: State, weights: list[int], choices: list[T]
-) -> tuple[State, T]:
-    """Select a random item from a list of weighted choices.
+    rng: Rng, weights: Sequence[int], items: Sequence[T]
+) -> T:
+    """Draw one item with probability proportional to its weight.
 
-    :param state: A state from which to draw a random value.
-    :type state: `State`
-    :param weights: A list of chances for each item in `choices`, must have same length as `choices`.
-    :type weights: `list[int]`
-    :param choices: A list of items to choose from, must have same length as `weights`.
-    :type choices: `list[T]`
-
-    :return: A tuple of the advanced state and the chosen item.
-    :rtype: `tuple[State, T]`
+    :raises ValueError: When ``items`` is empty, the lengths differ, a
+        weight is negative, or all weights are zero.
     """
-    assert len(choices) > 0
-    assert len(choices) == len(weights)
-    return state, state.choices(choices, weights, k=1)[0]
-
-
-def choice[T](state: State, choices: list[T]) -> tuple[State, T]:
-    """Select a random item from a list of choices.
-
-    :param state: A state from which to draw a random value.
-    :type state: `State`
-    :param choices: A list of items to choose from.
-    :type choices: `list[T]`
-
-    :return: A tuple of the advanced state and the chosen item.
-    :rtype: `tuple[State, T]`
-    """
-    assert len(choices) > 0
-    return state, state.choice(choices)
+    if len(items) == 0:
+        raise ValueError("weighted_choice requires at least one item")
+    if len(items) != len(weights):
+        raise ValueError(
+            f"weighted_choice received {len(weights)} weights for "
+            f"{len(items)} items"
+        )
+    if any(weight < 0 for weight in weights):
+        raise ValueError("weighted_choice weights must be non-negative")
+    if sum(weights) == 0:
+        raise ValueError("weighted_choice requires a positive total weight")
+    return rng.choices(items, weights, k=1)[0]

@@ -101,13 +101,13 @@ def _calibrate_property(
     from minigun import search as s
 
     attempt_times: list[float] = []
-    state = a.seed(seed)
+    rng = a.seed(seed)
     start_time = time.time()
     total_attempts = 0
 
     for total_attempts in range(1, _MAX_CALIBRATION_ATTEMPTS + 1):
         attempt_start = time.time()
-        state, _ = s.find_counter_example(state, 1, prop.law, generators)
+        s.find_counter_example(rng, prop.law, generators, 1)
         attempt_times.append(time.time() - attempt_start)
 
         if total_attempts < _MIN_CALIBRATION_ATTEMPTS:
@@ -210,11 +210,11 @@ class TestOrchestrator:
                 )
             )
 
-        state = a.seed(seed)
+        rng = a.seed(seed)
         for module in modules:
             reporter.start_module(module.name)
-            state, _ = specify.evaluate(
-                state,
+            specify.evaluate(
+                rng,
                 module.spec,
                 _attempts_for,
                 reporter.start_test,

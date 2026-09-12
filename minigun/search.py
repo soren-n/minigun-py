@@ -1,87 +1,130 @@
-# External module dependencies
+"""
+Counterexample search
+
+Draw arguments, evaluate the law, and on failure shrink the arguments to a
+locally minimal counterexample: one none of whose immediate alternatives
+fails. Every candidate is evaluated exactly once. An exception raised by
+the law counts as a failure and is reported with the counterexample.
+
+Each attempt draws from a fresh child of the property's random source, so
+an attempt is reproducible from the property's seed and its index alone.
+"""
+
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-# Internal module dependencies
 from minigun import arbitrary as a
 from minigun import generate as g
 from minigun import shrink as s
-from minigun import stream as fs
+
+#: A law under test: a callable over keyword arguments returning truth.
+type Law = Callable[..., bool]
 
 
 ###############################################################################
-# Exception handling for counter examples
+# Results
 ###############################################################################
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CounterExample:
-    """Represents a counter-example with optional exception information."""
+    """Arguments falsifying a law.
+
+    :param args: The counterexample arguments by parameter name.
+    :param attempt: The zero-based attempt index that found it.
+    :param exception: The exception the law raised on these arguments, when
+        the failure was an exception rather than a False result.
+    """
 
     args: dict[str, Any]
+    attempt: int
     exception: Exception | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Search:
+    """The outcome of a counterexample search.
+
+    :param attempts: Attempts performed, including discarded ones.
+    :param discards: Attempts whose argument generation was rejected.
+    :param counter_example: The counterexample found, if any.
+    """
+
+    attempts: int
+    discards: int
+    counter_example: CounterExample | None
+
+    @property
+    def evaluations(self) -> int:
+        """Attempts on which the law was actually evaluated."""
+        return self.attempts - self.discards
+
+
 ###############################################################################
-# Find and trim counter examples
+# Evaluation and trimming
 ###############################################################################
-def _evaluate(
-    law: Callable[..., bool], args: dict[str, Any]
-) -> tuple[bool, Exception | None]:
-    """Evaluate a law; an exception counts as a failed evaluation."""
+def _evaluate(law: Law, args: dict[str, Any]) -> tuple[bool, Exception | None]:
+    """Evaluate a law once; an exception is a failed evaluation."""
     try:
         return law(**args), None
     except Exception as exception:
         return False, exception
 
 
-def _trim_counter_example(
-    law: Callable[..., bool], example: s.Dissection[dict[str, Any]]
-) -> s.Dissection[dict[str, Any]]:
-    def _is_counter_example(args: s.Dissection[dict[str, Any]]) -> bool:
-        holds, _ = _evaluate(law, args.head)
-        return not holds
+def _trim(
+    law: Law,
+    dissection: s.Dissection[dict[str, Any]],
+    exception: Exception | None,
+) -> tuple[dict[str, Any], Exception | None]:
+    """Walk to a locally minimal failing dissection.
 
-    dissection = example
+    Each candidate is evaluated once; the exception of the last accepted
+    candidate is kept so the report matches the arguments shown.
+    """
     while True:
-        shrunk = fs.peek(fs.filter(_is_counter_example, dissection.shrinks))
-        if shrunk is None:
-            return dissection
-        dissection = shrunk
+        for child in dissection.shrinks():
+            holds, child_exception = _evaluate(law, child.head)
+            if holds:
+                continue
+            dissection, exception = child, child_exception
+            break
+        else:
+            return dissection.head, exception
 
 
 def find_counter_example(
-    state: a.State,
-    attempts: int,
-    law: Callable[..., bool],
+    rng: a.Rng,
+    law: Law,
     generators: dict[str, g.Generator[Any]],
-) -> tuple[a.State, CounterExample | None]:
-    """Attempt to find a counter example to a given law.
+    max_attempts: int,
+    deadline: float | None = None,
+) -> Search:
+    """Search for a counterexample to a law.
 
-    :param state: A state from which to generate a random value.
-    :type state: `State`
-    :param attempts: The number of test attempts.
-    :type attempts: `int`
-    :param law: The law to be tested.
-    :type law: `Callable[Parameters, bool]`
-    :param generators: The generators for the arguments.
-    :type generators: `dict[str, minigun.generate.Generator[Any]]`
+    :param rng: The property's random source; one child is forked per
+        attempt.
+    :param law: The law under test.
+    :param generators: Generators for the law's parameters by name.
+    :param max_attempts: The maximum number of attempts.
+    :param deadline: A ``time.perf_counter`` instant after which no further
+        attempt starts, or None for no deadline.
 
-    :return: The resulting RNG state and the found counter example, if any.
-    :rtype: `tuple[minigun.arbitrary.State, CounterExample | None]`
+    :return: The search outcome.
     """
-
-    def _is_counter_example(args: dict[str, Any]) -> bool:
-        holds, _ = _evaluate(law, args)
-        return not holds
-
-    arguments = g.filter(_is_counter_example, g.argument_pack(generators))
-    for _attempt in range(attempts):
-        state, counter_example = arguments.sample(state)
-        if counter_example is None:
+    arguments = g.argument_pack(generators)
+    discards = 0
+    for attempt in range(max_attempts):
+        if deadline is not None and time.perf_counter() >= deadline:
+            return Search(attempt, discards, None)
+        dissection = arguments.sample(a.fork(rng))
+        if dissection is None:
+            discards += 1
             continue
-        trimmed = _trim_counter_example(law, counter_example)
-        # Re-evaluate on the trimmed arguments so a reported exception
-        # matches the counter example actually shown.
-        _, exception = _evaluate(law, trimmed.head)
-        return state, CounterExample(args=trimmed.head, exception=exception)
-    return state, None
+        holds, exception = _evaluate(law, dissection.head)
+        if holds:
+            continue
+        args, exception = _trim(law, dissection, exception)
+        return Search(
+            attempt + 1, discards, CounterExample(args, attempt, exception)
+        )
+    return Search(max_attempts, discards, None)

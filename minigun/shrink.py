@@ -1,30 +1,22 @@
 """
-Shrinking Strategies and Algorithms
+Shrinking
 
-This module implements the shrinking system that finds minimal counterexamples
-when properties fail. It provides dissection trees that represent all possible
-ways to shrink a value while preserving the failure condition.
+A ``Dissection[T]`` is a value together with a lazy stream of dissections of
+shrunk alternatives: a rose tree whose children are built only when the
+search walks into them. Shrinkers for the built-in types are provided, and
+``unfold`` builds a shrinker from trimmers, functions that produce the
+immediate shrunk alternatives of a value.
 
-Architecture:
-    - Dissection[T]: Tree structure representing value and shrinking options
-    - Trimmer[T]: Function producing stream of smaller values
-    - unfold(): Create dissection from multiple trimming strategies
-
-Built-in Shrinking:
-    - Primitives: int, float, bool shrinking towards zero/false
-    - Combinators: map for custom data structure shrinking
-
-The shrinking system is integrated with generators to automatically provide
-minimal counterexamples without additional user configuration.
+Alternatives are ordered from the most aggressive shrink to the least, so a
+first-failing-child search behaves as a binary search toward the smallest
+failing value.
 """
 
-# External module dependencies
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-# Internal module dependencies
 from minigun import stream as fs
 
 ###############################################################################
@@ -37,193 +29,135 @@ class Dissection[T]:
     """A value together with a lazy stream of shrunk alternatives.
 
     :param head: The value itself.
-    :param shrinks: A lazy stream of dissections of shrunk values.
+    :param shrinks: A lazy, re-iterable stream of dissections of shrunk
+        values, ordered from most to least aggressive shrink. Never a live
+        iterator: always the means of making one.
     """
 
     head: T
     shrinks: fs.Stream["Dissection[T]"]
 
 
-#: Shrinker datatype defined over a type parameter `T`.
+#: A shrinker over a type ``T``.
 type Shrinker[T] = Callable[[T], Dissection[T]]
 
-
-def map[*Ts, R](
-    func: Callable[[*Ts], R], *dissections: Dissection[Any]
-) -> Dissection[R]:
-    """A variadic map function of given input dissections over types `A`, `B`, etc. to an output dissection over type `R`.
-
-    :param func: A function mapping the input values of type `A`, `B`, etc. to an output value of type `R`.
-    :type func: `A x B x ... -> R`
-    :param dissections: Input dissections over types `A`, `B`, etc. to map from.
-    :type dissections: `tuple[Dissection[A], Dissection[B], ...]`
-
-    :return: A mapped output dissection.
-    :rtype: `Dissection[R]`
-    """
-
-    def _combine(input_dissections: list[Dissection[Any]]) -> Dissection[R]:
-        output_heads = [dissection.head for dissection in input_dissections]
-        return Dissection(func(*output_heads), _cartesian(input_dissections))
-
-    def _cartesian(
-        input_dissections: list[Dissection[Any]],
-    ) -> fs.Stream[Dissection[R]]:
-        past = len(input_dissections)
-        tails = [dissection.shrinks for dissection in input_dissections]
-
-        def _shift_horizontal(index: int) -> fs.Stream[Dissection[R]]:
-            if past <= index:
-                return fs.empty()
-
-            def _shift_vertical(
-                next_dissection: Dissection[Any],
-            ) -> Dissection[R]:
-                next_dissections = input_dissections.copy()
-                next_dissections[index] = next_dissection
-                return _combine(next_dissections)
-
-            return fs.braid(
-                fs.map(_shift_vertical, tails[index]),
-                _shift_horizontal(index + 1),
-            )
-
-        return _shift_horizontal(0)
-
-    return _combine(list(dissections))
+#: A trimmer over a type ``T``: the immediate shrunk alternatives of a value.
+type Trimmer[T] = Callable[[T], fs.Stream[T]]
 
 
-def filter[T](
-    predicate: Callable[[T], bool], dissection: Dissection[T]
-) -> Dissection[T] | None:
-    """Filter a dissection of type `T`, both its head and shrunk values.
-
-    :param predicate: A predicate on type `T`.
-    :type predicate: `A -> bool`
-    :param dissection: A dissection of type `T` to be filtered.
-    :type dissection: `Dissection[T]`
-
-    :return: The filtered dissection, or None if the head fails the predicate.
-    :rtype: `Dissection[T] | None`
-    """
-    if not predicate(dissection.head):
-        return None
-
-    def _filter_shrinks(
-        shrinks: fs.Stream[Dissection[T]],
-    ) -> fs.Stream[Dissection[T]]:
-        def _rebuild(dissection: Dissection[T]) -> Dissection[T]:
-            return Dissection(
-                dissection.head, _filter_shrinks(dissection.shrinks)
-            )
-
-        def _predicate(dissection: Dissection[T]) -> bool:
-            return predicate(dissection.head)
-
-        return fs.map(_rebuild, fs.filter(_predicate, shrinks))
-
-    return Dissection(dissection.head, _filter_shrinks(dissection.shrinks))
+def singleton[T](value: T) -> Dissection[T]:
+    """A dissection of an unshrinkable value."""
+    return Dissection(value, fs.empty())
 
 
 def prepend[T](value: T, dissection: Dissection[T]) -> Dissection[T]:
-    """Prepend a value to a dissection.
-
-    :param value: The value to be prepended.
-    :type value: `T`
-    :param dissection: The dissection to be prepended to.
-    :type dissection: `Dissection[T]`
-
-    :return: The updated dissection containing the given value.
-    :rtype: `Dissection[T]`
-    """
+    """A dissection of ``value`` whose only alternative is ``dissection``."""
     return Dissection(value, fs.singleton(dissection))
 
 
 def append[T](dissection: Dissection[T], value: T) -> Dissection[T]:
-    """Append a value to a dissection.
-
-    :param dissection: The dissection to be appended to.
-    :type dissection: `Dissection[T]`
-    :param value: The value to be appended.
-    :type value: `T`
-
-    :return: The updated dissection containing the given value.
-    :rtype: `Dissection[T]`
-    """
+    """The dissection with an unshrinkable ``value`` as its last alternative."""
     return Dissection(
         dissection.head, fs.append(dissection.shrinks, singleton(value))
     )
 
 
-def singleton[T](value: T) -> Dissection[T]:
-    """A singleton dissection containing a single unshrinkable value.
+def map[*Ts, R](
+    func: Callable[[*Ts], R], *dissections: Dissection[Any]
+) -> Dissection[R]:
+    """Combine dissections with a function.
 
-    :param value: An unshrinkable value.
-    :type value: `T`
-
-    :return: A dissection over the type `T`.
-    :rtype: `Dissection[T]`
+    The result shrinks one argument at a time, interleaving the arguments
+    round-robin so no single argument starves the others.
     """
-    return Dissection(value, fs.empty())
+    inputs = list(dissections)
+
+    def _combine(current: list[Dissection[Any]]) -> Dissection[R]:
+        def _dimension(index: int) -> fs.Stream[Dissection[R]]:
+            def _iterate() -> Iterator[Dissection[R]]:
+                for child in current[index].shrinks():
+                    replaced = list(current)
+                    replaced[index] = child
+                    yield _combine(replaced)
+
+            return _iterate
+
+        heads = [dissection.head for dissection in current]
+        return Dissection(
+            func(*heads),
+            fs.braid(*[_dimension(index) for index in range(len(current))]),
+        )
+
+    return _combine(inputs)
 
 
-###############################################################################
-# Trimmer
-###############################################################################
+def filter[T](
+    predicate: Callable[[T], bool], dissection: Dissection[T]
+) -> Dissection[T] | None:
+    """Restrict a dissection to values satisfying a predicate.
 
-#: A trimmer over a type `T`
-type Trimmer[T] = Callable[[T], fs.Stream[T]]
+    :return: The restricted dissection, or None when the head itself fails
+        the predicate.
+    """
+    if not predicate(dissection.head):
+        return None
+
+    def _restrict(node: Dissection[T]) -> Dissection[T]:
+        def _iterate() -> Iterator[Dissection[T]]:
+            for child in node.shrinks():
+                if predicate(child.head):
+                    yield _restrict(child)
+
+        return Dissection(node.head, _iterate)
+
+    return _restrict(dissection)
 
 
 ###############################################################################
 # Unfold trimmers
 ###############################################################################
 def unfold[T](value: T, *trimmers: Trimmer[T]) -> Dissection[T]:
-    """Define a dissection of an n-ary dimensional trimmed iteration of a given value.
+    """The dissection of a value under a set of trimmers.
 
-    :param value: The initial value to do a trimmed iteration of.
-    :type value: `T`
-    :param trimmers: The given trimmers for values of type `T`.
-    :type trimmers: `Trimmer[T]`
-
-    :return: A dissection of trimmed interations over the given value.
-    :rtype: `Dissection[T]`
+    Children are the alternatives of each trimmer in turn, each child
+    recursively unfolded under all trimmers. Nothing is computed until the
+    children are iterated.
     """
 
-    # Bind the complementary trimmer set per iteration: the mapped stream
-    # is forced lazily, after the loop variable has moved on.
-    def _child(rest: list[Trimmer[T]]) -> Callable[[T], Dissection[T]]:
-        def _mapping(shrunk_more: T) -> Dissection[T]:
-            return unfold(shrunk_more, *rest)
+    def _iterate() -> Iterator[Dissection[T]]:
+        for trimmer in trimmers:
+            for shrunk in trimmer(value)():
+                yield unfold(shrunk, *trimmers)
 
-        return _mapping
+    return Dissection(value, _iterate)
 
-    _trimmers: list[Trimmer[T]] = list(trimmers)
-    dissections: list[Dissection[T]] = []
-    for index, trimmer in enumerate(trimmers):
-        other_trimmers = _trimmers[:index] + _trimmers[index + 1 :]
-        shrunk, shrunk_stream = fs.next(trimmer(value))
-        if shrunk is None:
-            continue
-        dissections.append(
-            Dissection(shrunk, fs.map(_child(other_trimmers), shrunk_stream))
-        )
-    return Dissection(value, fs.from_list(dissections))
+
+###############################################################################
+# Removal of chunks from sequences
+###############################################################################
+def chunk_removals(length: int, max_removed: int) -> Iterator[tuple[int, int]]:
+    """Index ranges to delete from a sequence, largest chunks first.
+
+    Yields ``(start, end)`` half-open ranges for chunk sizes halving from
+    ``min(length, max_removed)`` down to one, at positions aligned to the
+    chunk size. This is the sequence shrinking order of QuickCheck.
+    """
+    size = min(length, max_removed)
+    while size >= 1:
+        for start in range(0, length - size + 1, size):
+            yield start, start + size
+        size //= 2
 
 
 ###############################################################################
 # Booleans
 ###############################################################################
 def boolean() -> Shrinker[bool]:
-    """A shrinker for booleans which shrinks towards False.
-
-    :return: A shrinker of bool.
-    :rtype: `Shrinker[bool]`
-    """
+    """A shrinker for booleans, shrinking True to False."""
 
     def _impl(value: bool) -> Dissection[bool]:
         if value:
-            return Dissection(True, fs.singleton(singleton(False)))
+            return prepend(True, singleton(False))
         return singleton(False)
 
     return _impl
@@ -233,26 +167,25 @@ def boolean() -> Shrinker[bool]:
 # Numbers
 ###############################################################################
 def integer(target: int) -> Shrinker[int]:
-    """A shrinker for integers which shrinks towards a given target.
+    """A shrinker for integers, shrinking toward a target.
 
-    :param target: A target value to shrink towards.
-    :type target: `int`
-
-    :return: A shrinker of int.
-    :rtype: `Shrinker[T]`
+    Alternatives are the target, then values halving the distance toward
+    the target from the far side: ``target, v - d/2, v - d/4, ...`` where
+    ``d = v - target``. A first-failing-child search over this order finds
+    the exact boundary of a monotone failing region.
     """
 
-    def _trim(initial: int) -> fs.Stream[int]:
-        def _towards(
-            state: tuple[int, int],
-        ) -> tuple[int, tuple[int, int]] | None:
-            value, current = state
-            if current == value:
-                return None
-            _value = current + int((value - current) / 2)
-            return _value, (_value, current)
+    def _trim(value: int) -> fs.Stream[int]:
+        def _iterate() -> Iterator[int]:
+            if value == target:
+                return
+            yield target
+            step = int((value - target) / 2)
+            while step != 0:
+                yield value - step
+                step = int(step / 2)
 
-        return fs.unfold(_towards, (initial, target))
+        return _iterate
 
     def _impl(value: int) -> Dissection[int]:
         return unfold(value, _trim)
@@ -261,69 +194,67 @@ def integer(target: int) -> Shrinker[int]:
 
 
 def floating(target: float) -> Shrinker[float]:
-    """A shrinker for floats which takes a target to shrink towards.
+    """A shrinker for floats, shrinking toward a target.
 
-    :param target: A target value to shrink towards.
-    :type target: `float`
-
-    :return: A shrinker of float.
-    :rtype: `Shrinker[float]`
+    Alternatives are the target, the value truncated to an integer, then
+    values halving the distance toward the target. Non-finite values shrink
+    directly to the target.
     """
 
-    def _trim_integer_part(initial: float) -> fs.Stream[float]:
-        def _towards(
-            state: tuple[float, int],
-        ) -> tuple[float, tuple[float, int]] | None:
-            value, current = state
-            value_f, value_i = math.modf(value)
-            if current == int(value_i):
-                return None
-            _value = current + value_f + int((value_i - current) / 2)
-            return _value, (_value, current)
+    def _to_target(value: float) -> fs.Stream[float]:
+        def _iterate() -> Iterator[float]:
+            if value != target:
+                yield target
 
-        return fs.unfold(_towards, (initial, int(target)))
+        return _iterate
 
-    def _trim_fractional_part(initial: float) -> fs.Stream[float]:
-        def _towards(
-            state: tuple[int, float, float],
-        ) -> tuple[float, tuple[int, float, float]] | None:
-            count, value, current = state
-            value_f, value_i = math.modf(value)
-            if count == 0:
-                return None
-            if current == value_f:
-                return None
-            _value = value_i + current + ((value_f - current) / 2)
-            return _value, (count - 1, _value, current)
+    def _truncate(value: float) -> fs.Stream[float]:
+        def _iterate() -> Iterator[float]:
+            if not math.isfinite(value):
+                return
+            truncated = float(math.trunc(value))
+            if truncated != value and abs(truncated - target) < abs(
+                value - target
+            ):
+                yield truncated
 
-        return fs.unfold(_towards, (10, initial, math.modf(target)[0]))
+        return _iterate
+
+    def _halve(value: float) -> fs.Stream[float]:
+        def _iterate() -> Iterator[float]:
+            if not math.isfinite(value):
+                return
+            distance = abs(value - target)
+            step = (value - target) / 2
+            while True:
+                candidate = value - step
+                # Stop once float arithmetic no longer makes progress: the
+                # candidate must be strictly closer to the target.
+                if candidate == target or abs(candidate - target) >= distance:
+                    return
+                yield candidate
+                step /= 2
+
+        return _iterate
 
     def _impl(value: float) -> Dissection[float]:
-        return unfold(value, _trim_integer_part, _trim_fractional_part)
+        return unfold(value, _to_target, _truncate, _halve)
 
     return _impl
 
 
 ###############################################################################
-# String
+# Strings
 ###############################################################################
 def string() -> Shrinker[str]:
-    """A shrinker for strings.
+    """A shrinker for strings, removing chunks of characters."""
 
-    :return: A shrinker of str.
-    :rtype: `Shrinker[str]`
-    """
+    def _trim(value: str) -> fs.Stream[str]:
+        def _iterate() -> Iterator[str]:
+            for start, end in chunk_removals(len(value), len(value)):
+                yield value[:start] + value[end:]
 
-    def _trim(initial: str) -> fs.Stream[str]:
-        past = len(initial)
-
-        def _towards(index: int) -> tuple[str, int] | None:
-            if index == past:
-                return None
-            _value = initial[:index] + initial[index + 1 :]
-            return _value, index + 1
-
-        return fs.unfold(_towards, 0)
+        return _iterate
 
     def _impl(value: str) -> Dissection[str]:
         return unfold(value, _trim)
