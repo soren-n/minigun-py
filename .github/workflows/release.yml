@@ -59,30 +59,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          BUMP=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.version_bump }}" != "auto" ]; then
-            # Manual release with specific version bump
-            uv tool run python-semantic-release version --${{ github.event.inputs.version_bump }} --no-push
-            if [ $? -eq 0 ]; then
-              VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
-              git push origin main --follow-tags
-              echo "released=true" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
-              echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-            else
-              echo "released=false" >> $GITHUB_OUTPUT
-            fi
+            BUMP="--${{ github.event.inputs.version_bump }}"
+          fi
+
+          BEFORE=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
+          uv tool run python-semantic-release version $BUMP --no-push
+          AFTER=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
+
+          # semantic-release exits 0 when no release is due, so detect a
+          # release by the version actually changing rather than by exit code.
+          if [ "$BEFORE" != "$AFTER" ]; then
+            git push origin main --follow-tags
+            echo "released=true" >> $GITHUB_OUTPUT
+            echo "version=$AFTER" >> $GITHUB_OUTPUT
+            echo "tag=v$AFTER" >> $GITHUB_OUTPUT
           else
-            # Automatic release based on conventional commits
-            uv tool run python-semantic-release version --no-push
-            if [ $? -eq 0 ]; then
-              VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
-              git push origin main --follow-tags
-              echo "released=true" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
-              echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-            else
-              echo "released=false" >> $GITHUB_OUTPUT
-            fi
+            echo "No version change from $BEFORE; skipping publish"
+            echo "released=false" >> $GITHUB_OUTPUT
           fi
 
   build_and_publish:
