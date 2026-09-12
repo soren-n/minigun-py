@@ -424,7 +424,7 @@ Some laws need a place on disk: a file to round-trip through, or a directory of 
    :start-after: # -- start: temporary --
    :end-before: # -- end: temporary --
 
-:code:`permanent_path` gives a fresh directory that outlives the run, for artifacts you want to inspect afterwards, such as renderings of generated structures:
+:code:`permanent_path` gives a fresh directory that outlives the run, for artifacts you want to inspect afterwards, such as renderings of generated structures. Create it once, when the module loads, so a run produces one directory rather than one per attempt:
 
 .. literalinclude:: ../../examples/fixtures.py
    :language: python

@@ -7,9 +7,11 @@ so the tutorial cannot drift from the library.
 import contextlib
 import importlib.util
 import io
+import shutil
 import sys
 from pathlib import Path
 
+import minigun.fixture as f
 import minigun.specify as sp
 from minigun import check
 from minigun.specify import Spec, conj, prop
@@ -32,23 +34,45 @@ def _load(name: str) -> sp.Spec:
     return spec
 
 
-def _holds(spec: sp.Spec, seed: int, attempts: int) -> bool:
-    with contextlib.redirect_stdout(io.StringIO()):
-        return sp.evaluate(
-            seed,
-            spec,
-            lambda resolved: sp.Allowance(attempts),
-            lambda p: None,
-            lambda outcome: None,
-        )
+def _permanent() -> set[Path]:
+    permanent = f.ROOT / "permanent"
+    return set(permanent.iterdir()) if permanent.is_dir() else set()
+
+
+def _holds(name: str, seed: int, attempts: int) -> bool:
+    """Load and evaluate an example, reclaiming every fixture it creates.
+
+    Loading happens inside the reclaim window because an example may
+    create a permanent artifact directory at import time.
+    """
+    before = _permanent()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), f.scope():
+            return sp.evaluate(
+                seed,
+                _load(name),
+                lambda resolved: sp.Allowance(attempts),
+                lambda p: None,
+                lambda outcome: None,
+            )
+    finally:
+        for path in _permanent() - before:
+            shutil.rmtree(path)
 
 
 def _example(name: str, attempts: int = 30) -> Spec:
     @prop(f"example {name} holds")
     def _runs(seed: int) -> bool:
-        return _holds(_load(name), seed, attempts)
+        return _holds(name, seed, attempts)
 
     return _runs
+
+
+@prop("examples leave no permanent fixtures behind once reclaimed")
+def _no_litter(seed: int) -> bool:
+    before = _permanent()
+    _holds("fixtures", seed, 5)
+    return _permanent() == before
 
 
 @prop("every example file is covered by a property")
@@ -72,7 +96,7 @@ _NAMES = [
     "programmatic",
 ]
 
-spec = conj(_all_covered, *[_example(name) for name in _NAMES])
+spec = conj(_all_covered, _no_litter, *[_example(name) for name in _NAMES])
 
 
 if __name__ == "__main__":
