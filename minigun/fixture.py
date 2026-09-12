@@ -7,6 +7,8 @@ it ends; permanent paths outlive it, for rendered artifacts such as images
 of generated structures.
 """
 
+from __future__ import annotations
+
 import secrets
 import shutil
 from collections.abc import Iterator

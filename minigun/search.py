@@ -10,6 +10,8 @@ Each attempt draws from a fresh child of the property's random source, so
 an attempt is reproducible from the property's seed and its index alone.
 """
 
+from __future__ import annotations
+
 import time
 from collections.abc import Callable
 from dataclasses import dataclass

@@ -12,6 +12,8 @@ first-failing-child search behaves as a binary search toward the smallest
 failing value.
 """
 
+from __future__ import annotations
+
 import math
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -53,7 +55,7 @@ class Dissection[T]:
     """
 
     head: T
-    shrinks: fs.Stream["Dissection[T]"]
+    shrinks: fs.Stream[Dissection[T]]
 
 
 #: A shrinker over a type ``T``.

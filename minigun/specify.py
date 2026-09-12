@@ -28,6 +28,8 @@ Example::
         spec = conj(_length, _bounded)
 """
 
+from __future__ import annotations
+
 import inspect
 import time
 from collections.abc import Callable
@@ -97,14 +99,14 @@ class Prop:
 class Neg:
     """The negation of a specification: holds when its term fails."""
 
-    spec: "Spec"
+    spec: Spec
 
 
 @dataclass(frozen=True)
 class Conj:
     """The conjunction of specifications: holds when every term holds."""
 
-    specs: tuple["Spec", ...]
+    specs: tuple[Spec, ...]
 
 
 #: A specification: a tree of properties under negation and conjunction.

@@ -9,6 +9,8 @@ the budget is held strictly while cheap properties never starve expensive
 ones.
 """
 
+from __future__ import annotations
+
 import math
 import time
 from dataclasses import dataclass

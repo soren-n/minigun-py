@@ -23,6 +23,8 @@ Example::
         fs.to_list(evens, 5)  # [0, 2, 4, 6, 8]
 """
 
+from __future__ import annotations
+
 import builtins
 import itertools
 from collections.abc import Callable, Iterator

@@ -4,6 +4,8 @@ Command-line interface
 Discovers test modules in a directory and runs them under a time budget.
 """
 
+from __future__ import annotations
+
 import argparse
 import importlib.util
 import sys

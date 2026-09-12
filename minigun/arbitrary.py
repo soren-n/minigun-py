@@ -20,6 +20,8 @@ Example::
         child = a.fork(rng)
 """
 
+from __future__ import annotations
+
 import random
 from collections.abc import Sequence
 

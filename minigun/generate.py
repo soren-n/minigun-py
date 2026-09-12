@@ -20,6 +20,8 @@ Example::
         dissection = person.sample(a.seed(42))
 """
 
+from __future__ import annotations
+
 import math
 import random
 import string
@@ -179,7 +181,7 @@ def bind[*Ts, R](
         if dissections is None:
             return None
         values = cast(
-            tuple[*Ts], tuple(dissection.head for dissection in dissections)
+            "tuple[*Ts]", tuple(dissection.head for dissection in dissections)
         )
         return func(*values).sample(rng)
 

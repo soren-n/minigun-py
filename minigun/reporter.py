@@ -11,6 +11,8 @@ renderings are provided:
     - JSONReporter: structured output for tool integration
 """
 
+from __future__ import annotations
+
 import io
 import json
 import pprint

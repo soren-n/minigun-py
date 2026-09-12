@@ -10,6 +10,8 @@ Sizes are represented as non-negative floats so that unbounded domains can
 be expressed as math.inf; arithmetic saturates to infinity on overflow.
 """
 
+from __future__ import annotations
+
 import math
 from dataclasses import dataclass
 
@@ -43,17 +45,17 @@ class Cardinality:
         """Whether the domain has finitely many values."""
         return self.size != math.inf
 
-    def __add__(self, other: "Cardinality") -> "Cardinality":
+    def __add__(self, other: Cardinality) -> Cardinality:
         """Disjoint union: |A| + |B|."""
         return Cardinality(self.size + other.size)
 
-    def __mul__(self, other: "Cardinality") -> "Cardinality":
+    def __mul__(self, other: Cardinality) -> Cardinality:
         """Cartesian product: |A| * |B|."""
         if self.size == 0 or other.size == 0:
             return ZERO
         return Cardinality(self.size * other.size)
 
-    def __pow__(self, other: "Cardinality") -> "Cardinality":
+    def __pow__(self, other: Cardinality) -> Cardinality:
         """Exponentiation: |A| ** |B|."""
         try:
             return Cardinality(self.size**other.size)

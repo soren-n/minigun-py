@@ -8,6 +8,8 @@ runs, evaluate every property, and remove the temporary fixtures they
 created at the end.
 """
 
+from __future__ import annotations
+
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
