@@ -4,6 +4,12 @@ minigun.specify module
 .. automodule:: minigun.specify
    :members:
 
+minigun.search module
+=====================
+
+.. automodule:: minigun.search
+   :members:
+
 minigun.generate module
 =======================
 
@@ -28,6 +34,12 @@ minigun.stream module
 .. automodule:: minigun.stream
    :members:
 
+minigun.util module
+===================
+
+.. automodule:: minigun.util
+   :members:
+
 minigun.cardinality module
 ==========================
 
@@ -50,4 +62,10 @@ minigun.reporter module
 =======================
 
 .. automodule:: minigun.reporter
+   :members:
+
+minigun.cli module
+==================
+
+.. automodule:: minigun.cli
    :members:
