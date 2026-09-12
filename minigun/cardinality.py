@@ -13,6 +13,14 @@ be expressed as math.inf; arithmetic saturates to infinity on overflow.
 import math
 from dataclasses import dataclass
 
+__all__ = [
+    "Cardinality",
+    "finite",
+    "ZERO",
+    "ONE",
+    "INFINITE",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class Cardinality:

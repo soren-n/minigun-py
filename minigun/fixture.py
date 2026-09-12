@@ -13,6 +13,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+__all__ = [
+    "ROOT",
+    "temporary_path",
+    "permanent_path",
+    "scope",
+    "cleanup_temporary",
+]
+
+
 #: The root of all fixture directories.
 ROOT = Path(".minigun")
 

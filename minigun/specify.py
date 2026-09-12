@@ -44,6 +44,32 @@ class SpecificationError(Exception):
     """A specification cannot be evaluated as written."""
 
 
+__all__ = [
+    "SpecificationError",
+    "Prop",
+    "Neg",
+    "Conj",
+    "Spec",
+    "is_spec",
+    "prop",
+    "context",
+    "neg",
+    "conj",
+    "Resolved",
+    "collect",
+    "resolve",
+    "resolve_all",
+    "MAX_DISCARD_RATIO",
+    "Allowance",
+    "Outcome",
+    "AllowanceFor",
+    "OnStart",
+    "OnOutcome",
+    "property_rng",
+    "evaluate",
+]
+
+
 ###############################################################################
 # Specifications
 ###############################################################################

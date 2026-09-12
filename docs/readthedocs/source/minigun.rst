@@ -34,12 +34,6 @@ minigun.stream module
 .. automodule:: minigun.stream
    :members:
 
-minigun.util module
-===================
-
-.. automodule:: minigun.util
-   :members:
-
 minigun.cardinality module
 ==========================
 
@@ -62,6 +56,12 @@ minigun.reporter module
 =======================
 
 .. automodule:: minigun.reporter
+   :members:
+
+minigun.fixture module
+======================
+
+.. automodule:: minigun.fixture
    :members:
 
 minigun.cli module

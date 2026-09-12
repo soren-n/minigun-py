@@ -31,6 +31,23 @@ from collections.abc import Callable, Iterator
 type Stream[T] = Callable[[], Iterator[T]]
 
 
+__all__ = [
+    "Stream",
+    "empty",
+    "singleton",
+    "constant",
+    "from_list",
+    "unfold",
+    "map",
+    "filter",
+    "prepend",
+    "append",
+    "concat",
+    "braid",
+    "to_list",
+]
+
+
 ###############################################################################
 # Construction
 ###############################################################################

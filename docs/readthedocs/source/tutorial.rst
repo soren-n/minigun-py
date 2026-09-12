@@ -72,24 +72,15 @@ QuickCheck implements utility for working with the following two concepts:
 
 In Minigun these two concepts are joined under one type :code:`Generator[A]`: a generator draws values together with their shrink trees. Counter examples are printed with Python's own :code:`repr`.
 
+Every example in this tutorial is a complete program under ``docs/examples`` in the repository, and every one of them is run by Minigun's own test suite; the tutorial cannot drift from the library.
+
 Basic usage
 -----------
 Lets start with a simple example where we define a law for an interface interaction between list concatenation, list length and integer addition. Then we will define a brief executable section, that when evaluated will check the implementation of the referenced interfaces, against the specification that we defined.
 
-.. code-block:: python
-
-    from minigun.specify import prop, context, check
-    import minigun.generate as g
-
-    @context(g.lists(g.ints()), g.lists(g.ints()))
-    @prop('Length distributes over concatenation via addition')
-    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
-        return len(xs + ys) == len(xs) + len(ys)
-
-    if __name__ == '__main__':
-        import sys
-        success = check(_list_len_concat_add_dist)
-        sys.exit(0 if success else -1)
+.. literalinclude:: ../../examples/basic.py
+   :language: python
+   :lines: 3-
 
 Declared at the top are the imports to the relevant dependencies of Minigun. When defining basic specifications, you should not need any other imports than those listed.
 
@@ -99,7 +90,7 @@ The :code:`@context` decorator will quantify the input domain of the law; here p
 
 The :code:`@prop` decorator defines a human readable description for the specification, and in turn converts the law into a property.
 
-At last there is the executable section, where the implementation is checked against the specification.
+At last there is the executable section, where the implementation is checked against the specification with :code:`check`.
 
 .. tip::
     Parameter generators can also be quantified by name, e.g:
@@ -127,8 +118,10 @@ At last there is the executable section, where the implementation is checked aga
     .. code-block:: python
 
         @prop('Length distributes over concatenation via addition')
-        def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
+        def _list_len_concat_add_dist(xs: list[int], ys: list[int]) -> bool:
             return len(xs + ys) == len(xs) + len(ys)
+
+    Inference covers :code:`bool`, :code:`int`, :code:`float`, :code:`str`, :code:`None`, :code:`X | None`, and :code:`tuple`, :code:`list`, :code:`set` and :code:`dict` of those. Annotating a parameter with :code:`random.Random` gives the law a random source of its own, reproducible from the run seed.
 
 Running tests
 ^^^^^^^^^^^^^
@@ -140,16 +133,9 @@ Save the example above as :code:`test_list.py` and run it directly:
 
 Minigun also ships with a CLI test runner that discovers and runs test modules with a time budget. A test module is a Python file that exports its specification as a module-level attribute named :code:`spec`:
 
-.. code-block:: python
-
-    # tests/lists.py
-    from minigun.specify import prop, conj
-
-    @prop('Length distributes over concatenation via addition')
-    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
-        return len(xs + ys) == len(xs) + len(ys)
-
-    spec = conj(_list_len_concat_add_dist)
+.. literalinclude:: ../../examples/lists.py
+   :language: python
+   :lines: 3-
 
 If you have a :code:`tests/` directory with such test modules, you can run:
 
@@ -157,7 +143,7 @@ If you have a :code:`tests/` directory with such test modules, you can run:
 
     $ minigun --time-budget 30
 
-This will discover all test modules, run a calibration phase to measure execution time per property, then allocate attempts proportionally within the time budget. The output looks something like:
+This will discover all test modules and evaluate every property in every module. There is no calibration phase: the time budget is shared between the properties in proportion to how many attempts their input domains are worth, each property runs until it has spent its share or reached its attempt limit, and time a property leaves unspent flows to the properties after it. The output ends with a summary like:
 
 .. code-block:: text
 
@@ -165,53 +151,39 @@ This will discover all test modules, run a calibration phase to measure executio
     ╭──────────┬───────┬────────┬────────┬──────────┬─────────╮
     │ Module   │ Tests │ Passed │ Failed │ Duration │ Status  │
     ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
-    │ positive │  34   │   34   │   0    │  7.698s  │ PASS    │
+    │ lists    │  1    │   1    │   0    │  0.398s  │ PASS    │
     ├──────────┼───────┼────────┼────────┼──────────┼─────────┤
-    │ TOTAL    │  34   │   34   │   0    │ 12.816s  │ PASS    │
+    │ TOTAL    │  1    │   1    │   0    │ 0.412s   │ PASS    │
     ╰──────────┴───────┴────────┴────────┴──────────┴─────────╯
 
-Every run is seeded, and the seed is printed in the run header and again when a property fails. To reproduce a failing run exactly, pass the reported seed back:
+Every run is seeded, and the seed is printed in the run header and again when a property fails. Each property draws from its own random source derived from the run seed and the property's description, so to reproduce a failing run exactly, pass the reported seed back:
 
 .. code-block:: shell
 
     $ minigun --time-budget 30 --seed 5015299433215186410
 
-See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules, :code:`--quiet` for CI output, and :code:`--json` for structured output.
+See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules and :code:`--output quiet` or :code:`--output json` for CI and tool integration.
+
+.. note::
+
+    A property is only as good as the values it is tested on. When a generator discards most of its draws, for example because a :code:`g.filter` predicate is too restrictive, the property fails with a message saying how many attempts were discarded, rather than passing untested.
 
 Composing specifications
 ------------------------
-A specification in Minigun's environment is represented as an instance of :code:`Spec`. You have seen one constructor for :code:`Spec`, namely the decorator :code:`minigun.specify.prop`, but there are other constructors.
+A specification in Minigun's environment is a value of type :code:`Spec`: a property, or a composition of specifications. You have seen one constructor, namely the decorator :code:`minigun.specify.prop`, but there are others.
 
 ``minigun.specify.conj``
-    For a check of a conjunction to succeed, checks of all of its terms must succeed.
+    For a check of a conjunction to succeed, checks of all of its terms must succeed. Every term is evaluated and reported, even after a failure.
 
 ``minigun.specify.neg``
-    For a check of a negation to succeed, the check of its term must fail.
+    For a check of a negation to succeed, the check of its term must fail; that is, a counter example must be found.
 
 A simple example of how to use :code:`conj`, is to extend our example from earlier with an additional specification:
 
-.. code-block:: python
-
-    from minigun.specify import prop, conj, check
-
-    @prop('Length distributes over concatenation via addition')
-    def _list_len_concat_add_dist(xs: list[int], ys: list[int]):
-        return len(xs + ys) == len(xs) + len(ys)
-
-    @prop('Reverse distributes over concatenation')
-    def _list_rev_concat_dist(xs: list[int], ys: list[int]):
-        return (
-            list(reversed(xs + ys)) ==
-            list(reversed(ys)) + list(reversed(xs))
-        )
-
-    if __name__ == '__main__':
-        import sys
-        success = check(conj(
-            _list_len_concat_add_dist,
-            _list_rev_concat_dist
-        ))
-        sys.exit(0 if success else -1)
+.. literalinclude:: ../../examples/composition.py
+   :language: python
+   :start-after: # -- start: properties --
+   :end-before: # -- end: properties --
 
 Notice that we are testing the conjunction of the two specifications.
 
@@ -221,74 +193,17 @@ We might wish to capture certain concepts as specifications, and repurpose them 
 
 To do this with Minigun you can use the technique of template specifications (we could also call it parameterized or higher-kinded specifications). Python supports this naturally via functions, so we can template (or parameterize) our specifications as we otherwise would.
 
-.. code-block:: python
+.. literalinclude:: ../../examples/templates.py
+   :language: python
+   :start-after: # -- start: template --
+   :end-before: # -- end: template --
 
-    from collections.abc import Callable
-    from minigun.specify import Spec, prop, context, conj, check
-    import minigun.generate as g
+.. literalinclude:: ../../examples/templates.py
+   :language: python
+   :start-after: # -- start: instance --
+   :end-before: # -- end: instance --
 
-    def _stack[S, A](
-        item_generator: g.Generator[A],
-        stack_generator: g.Generator[S],
-        initial: S,
-        length: Callable[[S], int],
-        push: Callable[[S, A], S],
-        pop: Callable[[S], tuple[A, S]]
-        ) -> Spec:
-
-        @context(g.constant(initial))
-        @prop('Initial stack is empty')
-        def _initial_empty(s: S):
-            return length(s) == 0
-
-        @context(stack_generator, item_generator)
-        @prop('Stack push increments size')
-        def _push_inc(s: S, a: A):
-            return length(push(s, a)) == length(s) + 1
-
-        @context(stack_generator)
-        @prop('Stack pop decrements size')
-        def _pop_dec(s: S):
-            if length(s) == 0: return True
-            _, s1 = pop(s)
-            return length(s) - 1 == length(s1)
-
-        @context(stack_generator, item_generator)
-        @prop('Stack push and pop are inverse')
-        def _push_pop_inv(s: S, a: A):
-            b, t = pop(push(s, a))
-            return a == b and s == t
-
-        return conj(
-            _initial_empty,
-            _push_inc,
-            _pop_dec,
-            _push_pop_inv
-        )
-
-    # An implementation of an immutable stack of integers
-    def _push[A](xs: list[A], x: A) -> list[A]:
-        xs1 = xs.copy()
-        xs1.append(x)
-        return xs1
-
-    def _pop[A](xs: list[A]) -> tuple[A, list[A]]:
-        xs1 = xs.copy()
-        x = xs1.pop(-1)
-        return x, xs1
-
-    # A specification for the above implementation
-    _stack_int = _stack(
-        g.ints(), g.lists(g.ints()),
-        [], len, _push, _pop
-    )
-
-    if __name__ == '__main__':
-        import sys
-        success = check(_stack_int)
-        sys.exit(0 if success else -1)
-
-What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code:`_pop` together implements the specification of :code:`_stack`, a relationship which is represented by :code:`_stack_int`. We can then run :code:`check` to test if the implementation adheres to the specification of :code:`_stack` (at least for the unit test cases generated during that given run).
+What we are saying here is that :code:`[]`, :code:`len`, :code:`_push` and :code:`_pop` together implement the specification of :code:`stack`, a relationship which is represented by :code:`spec`. We can then run :code:`check` to test if the implementation adheres to the specification of :code:`stack` (at least for the unit test cases generated during that given run).
 
 The above example is a naive and shallow specification for immutable stacks; it does not capture more complex interactions with the stack interface; and therefore does not challenge the implementation very deeply. A more complete specification would be to model programs over the stack interface; i.e. arbitrary sequences of applications of :code:`push` and :code:`pop`.
 
@@ -303,35 +218,19 @@ Map
 ^^^
 As our first example, lets consider generators for even and odd natural numbers, both of which are subsets of the Python type :code:`int`.
 
-.. code-block:: python
-
-    import minigun.generate as g
-
-    def even_natural() -> g.Generator[int]:
-        def _impl(i: int) -> int:
-            return i * 2
-        return g.map(_impl, g.nats())
-
-    def odd_natural() -> g.Generator[int]:
-        def _impl(i: int) -> int:
-            return ((i + 1) * 2) - 1
-        return g.map(_impl, g.nats())
+.. literalinclude:: ../../examples/refine_map.py
+   :language: python
+   :start-after: # -- start: generators --
+   :end-before: # -- end: generators --
 
 Here we :code:`map` over the natural numbers, and use them as indices into the sets of even and odd natural numbers.
 
 To use our new generators, we instantiate them the same as we would other generators defined in :code:`minigun.generate`:
 
-.. code-block:: python
-
-    @context(even_natural())
-    @prop('Even natural numbers are even')
-    def _even_is_even(n: int):
-        return n % 2 == 0
-
-    @context(odd_natural())
-    @prop('Odd natural numbers are odd')
-    def _odd_is_odd(n: int):
-        return n % 2 == 1
+.. literalinclude:: ../../examples/refine_map.py
+   :language: python
+   :start-after: # -- start: properties --
+   :end-before: # -- end: properties --
 
 Bind
 ^^^^
@@ -347,38 +246,16 @@ We would end up generating and testing with instances of dictionaries that do no
 
 To generate valid instances we need to define a refined generator:
 
-.. code-block:: python
-
-    import minigun.generate as g
-
-    def sized_directed_graph(size: int) -> g.Generator[dict[int, list[int]]]:
-        def _impl(
-            graph_data: list[list[bool]]
-            ) -> dict[int, list[int]]:
-            result: dict[int, list[int]] = {}
-            for src_index, row_data in enumerate(graph_data):
-                result[src_index] = []
-                for dst_index, column_data in enumerate(row_data):
-                    if not column_data: continue
-                    result[src_index].append(dst_index)
-            return result
-
-        return g.map(_impl, g.bounded_lists(
-            size, size,
-            g.bounded_lists(
-                size, size,
-                g.bools()
-            )
-        ))
-
-    def directed_graph() -> g.Generator[dict[int, list[int]]]:
-        return g.bind(sized_directed_graph, g.small_nats())
+.. literalinclude:: ../../examples/refine_bind.py
+   :language: python
+   :start-after: # -- start: generators --
+   :end-before: # -- end: generators --
 
 Here we define two generators over directed graphs. The first generates directed graphs of a given size, the second is defined using :code:`bind` which draws from the domain of small natural numbers (0 <= n <= 100) and use it as the size argument for the sized generator.
 
-.. tip::
+.. note::
 
-    Minigun provides the helper functions :code:`minigun.specify.temporary_path` and :code:`minigun.specify.permanent_path`, which provide paths to temporary and permanent filesystem directories within the :code:`.minigun` test directory. These are useful for tests that need filesystem fixtures, or for storing rendered artifacts (such as images of generated graphs) that outlive the test run.
+    A generator built with :code:`bind` does not know the size of its domain up front, so it reports an unbounded cardinality. When you do know the size, wrap it with :code:`g.with_cardinality`; the runner uses cardinality to decide how many attempts a property is worth.
 
 Choice
 ^^^^^^
@@ -386,117 +263,61 @@ When defining generators for inductive datastructures such as various forms of t
 
 Lets consider an AST for arithmetic expressions:
 
-.. code-block:: python
-
-    from dataclasses import dataclass
-
-    @dataclass
-    class Arith: pass
-
-    @dataclass
-    class Number(Arith):
-        value: int
-
-    @dataclass
-    class Plus(Arith):
-        left: Arith
-        right: Arith
-
-    @dataclass
-    class Minus(Arith):
-        left: Arith
-        right: Arith
-
-    @dataclass
-    class Times(Arith):
-        left: Arith
-        right: Arith
-
-    @dataclass
-    class Divide(Arith):
-        left: Arith
-        right: Arith
+.. literalinclude:: ../../examples/refine_choice.py
+   :language: python
+   :start-after: # -- start: ast --
+   :end-before: # -- end: ast --
 
 Now lets define a generator for this abstract datatype :code:`Arith`:
 
-.. code-block:: python
-
-    import minigun.generate as g
-
-    def sized_arith(size: int) -> g.Generator[Arith]:
-        assert 0 <= size
-
-        if size == 0: return g.map(Number, g.ints())
-        _size = size // 2
-        _sub_arith = sized_arith(_size)
-        return g.weighted_choice(
-            (1, g.map(Number, g.ints())),
-            (_size, g.map(Plus,
-                _sub_arith,
-                _sub_arith
-            )),
-            (_size, g.map(Minus,
-                _sub_arith,
-                _sub_arith
-            )),
-            (_size, g.map(Times,
-                _sub_arith,
-                _sub_arith
-            )),
-            (_size, g.map(Divide,
-                _sub_arith,
-                _sub_arith
-            ))
-        )
-
-    def arith() -> g.Generator[Arith]:
-        return g.bind(sized_arith, g.small_nats())
+.. literalinclude:: ../../examples/refine_choice.py
+   :language: python
+   :start-after: # -- start: generators --
+   :end-before: # -- end: generators --
 
 The parameter :code:`size` is used here to control the height of the tree; you can think of :code:`size` as fuel for growing the tree. It is used in the application of :code:`weighted_choice` to skew the probability of a branch of the tree from terminating with a leaf, if :code:`size` is relatively large.
 
 .. tip::
 
-    For recursive generators, :code:`minigun.generate.lazy` defers construction of the inner generator until the first sample is drawn. This avoids the exponential construction cost that eager recursion would otherwise incur for deeply recursive generator definitions.
+    For recursive generators, :code:`minigun.generate.lazy` defers construction of the inner generator until the first sample is drawn. Without it, :code:`sized_arith` would build its subtrees eagerly and the construction cost would grow exponentially with the depth.
 
 Beyond
 ^^^^^^
-You will not be able to compose generators for all datatypes using the combinators that Minigun provide. If you do not see a way to compose one for your specific use case, you will need to implement your own shrinker and generator. Here is some pseudo code that frames the general workflow:
+You will not be able to compose generators for all datatypes using the combinators that Minigun provide. If you do not see a way to compose one for your specific use case, you can implement your own shrinker and generator. Three pieces are involved:
 
-.. code-block:: python
+:Stream:
+    :code:`minigun.stream.Stream[A]` is a lazy, re-traversable sequence: a zero-argument function returning a fresh iterator. Nothing is computed until the iterator is advanced, so a stream can describe a large space of values without materializing it, and calling it again walks the same values afresh. Generator functions are the natural way to write one.
 
-    import minigun.arbitrary as a
-    import minigun.cardinality as c
-    import minigun.stream as fs
-    import minigun.shrink as s
-    import minigun.generate as g
+:Trimmer:
+    :code:`minigun.shrink.Trimmer[A]` takes an instance of :code:`A` and produces a stream of its immediate shrunk alternatives, most aggressive first.
 
-    def your_shrinker(instance: YourType) -> s.Dissection[YourType]:
-        def your_trimmer_1(instance: YourType) -> fs.Stream[YourType]:
-            ...
-        def your_trimmer_2(instance: YourType) -> fs.Stream[YourType]:
-            ...
-        return s.unfold(
-            instance,
-            your_trimmer_1,
-            your_trimmer_2,
-            ...
-            your_trimmer_N
-        )
+:Shrinker:
+    :code:`minigun.shrink.Shrinker[A]` takes an instance of :code:`A` and produces a :code:`Dissection[A]`: the value together with a lazy tree of shrunk alternatives. :code:`minigun.shrink.unfold` builds one from trimmers, applying every trimmer recursively to every alternative.
 
-    def your_sampler(state: a.State) -> g.Sample[YourType]:
-        state, instance = ...
-        return state, your_shrinker(instance)
+Consider closed integer intervals, a type whose invariant :code:`lower <= upper` a generic shrinker would break:
 
-    def your_generator() -> g.Generator[YourType]:
-        return g.Generator(your_sampler, c.INFINITE)
+.. literalinclude:: ../../examples/custom_generator.py
+   :language: python
+   :start-after: # -- start: type --
+   :end-before: # -- end: type --
 
-A :code:`Trimmer[A]` will take an instance of :code:`A`, and produce a lazy stream of shrunk instances of :code:`A` from that given instance. Exactly how you are going to implement a trimmer depends on your datatype.
+Two trimmers describe what a smaller interval is: narrower, and closer to zero. Both reuse the bundled integer shrinker for the numbers involved, so the alternatives come in the same most-aggressive-first order as for plain integers:
 
-A :code:`Shrinker[A]` will take an instance of :code:`A`, and produce a lazy tree of shrunk instances of :code:`A`. Think of the shrinker as being the given trimmer lazy recursively applied to the shrunk values. The reason it is a tree, is because you can use multiple trimmers to build it; each step down the tree a trimmer is selected from the given trimmers in a rotating manner.
+.. literalinclude:: ../../examples/custom_generator.py
+   :language: python
+   :start-after: # -- start: shrinker --
+   :end-before: # -- end: shrinker --
 
-A sampler returns the advanced state together with a dissection of the drawn value, or :code:`None` when generation failed (for example when a filtered generator rejected the drawn value). The cardinality describes the size of the generator's domain and is used by the test runner to allocate attempts; use :code:`minigun.cardinality.finite(n)` when the domain has :code:`n` values, and :code:`minigun.cardinality.INFINITE` when it is unbounded for practical purposes.
+A generator is a sampler paired with the cardinality of its domain. A sampler takes the random source, draws with the functions of :code:`minigun.arbitrary`, and returns the dissection of the drawn value, or :code:`None` when the draw is to be discarded:
 
-If you need examples for further clarification, then the following section on Modeling will define a custom generator and trimmer. Also please check out the implementation of Minigun, where there are implementations for all of Python's built-in types.
+.. literalinclude:: ../../examples/custom_generator.py
+   :language: python
+   :start-after: # -- start: generator --
+   :end-before: # -- end: generator --
+
+Use :code:`minigun.cardinality.finite(n)` when the domain has :code:`n` values and :code:`minigun.cardinality.INFINITE` when it is unbounded for practical purposes.
+
+The bundled shrinkers cover the primitive types: :code:`s.boolean()` shrinks :code:`True` to :code:`False`; :code:`s.integer(target)` and :code:`s.floating(target)` shrink toward a target; :code:`s.string()` removes chunks of characters, largest first. :code:`s.map` combines dissections with a function, shrinking one argument at a time, and :code:`s.filter` restricts a dissection to values satisfying a predicate. Please also check out the implementation of Minigun, where there are generators and shrinkers for all of Python's built-in types.
 
 Modeling
 --------
@@ -515,196 +336,40 @@ Lets consider modeling strategies for software with different challenges:
 :Nondeterminism:
     E.g. because of concurrency, asynchrony or IO. Generate randomly ordered sequences of modelled operations, representing the possible interleavings that could arise from concurrent access. Run these sequences sequentially against the system under test and verify that it behaves correctly regardless of ordering.
 
-Let us consider the modeling of the stack example from earlier:
+Let us consider the modeling of the stack example from earlier. First the reference model:
 
-.. code-block:: python
+.. literalinclude:: ../../examples/modeling.py
+   :language: python
+   :start-after: # -- start: model --
+   :end-before: # -- end: model --
 
-    from collections.abc import Callable
-    from dataclasses import dataclass
-    from functools import partial
+Then a denotation of programs over the stack interface:
 
-    import minigun.arbitrary as a
-    import minigun.cardinality as c
-    import minigun.generate as g
-    import minigun.shrink as s
-    import minigun.stream as fs
+.. literalinclude:: ../../examples/modeling.py
+   :language: python
+   :start-after: # -- start: programs --
+   :end-before: # -- end: programs --
 
-    # Stack model
-    def model_init[T]() -> list[T]:
-        return []
+A generator of programs, whose trimmer drops one operation at a time so failing programs shrink to the shortest sequence that still diverges:
 
-    def model_push[T](stack: list[T], item: T) -> list[T]:
-        result = stack.copy()
-        result.append(item)
-        return result
+.. literalinclude:: ../../examples/modeling.py
+   :language: python
+   :start-after: # -- start: generator --
+   :end-before: # -- end: generator --
 
-    def model_pop[T](stack: list[T]) -> tuple[list[T], T]:
-        result = stack.copy()
-        item = result.pop(-1)
-        return result, item
+The evaluator runs a program against both the model and the implementation under test and compares what is observable:
 
-    # Programs over stack operations
-    @dataclass
-    class Value[T]: ...
-
-    @dataclass
-    class Constant[T](Value[T]):
-        value: T
-
-    @dataclass
-    class Variable[T](Value[T]):
-        name: str
-
-    @dataclass
-    class StackOp[T]: pass
-
-    @dataclass
-    class InitOp[T](StackOp[T]):
-        after: str
-
-    @dataclass
-    class PushOp[T](StackOp[T]):
-        before: str
-        after: str
-        item: Value[T]
-
-    @dataclass
-    class PopOp[T](StackOp[T]):
-        before: str
-        after: str
-        item: str
-
-    type StackProg[T] = list[StackOp[T]]
-
-    def stack_prog_generator[T](
-        value_generator: g.Generator[T],
-        size: int
-        ) -> g.Generator[StackProg[T]]:
-
-        def _trim(prog: StackProg[T]) -> fs.Stream[StackProg[T]]:
-            def _step(index: int) -> tuple[StackProg[T], int] | None:
-                if index < 0: return None
-                trimmed = prog[:index] + prog[index + 1:]
-                return trimmed, index - 1
-            return fs.unfold(_step, len(prog) - 1)
-
-        def _visit(
-            fuel: int,
-            state: a.State,
-            stack_ctr: int,
-            item_ctr: int,
-            stacks: list[str],
-            nonempty: list[str]
-            ) -> tuple[a.State, StackProg[T]]:
-            if fuel <= 0 or len(stacks) == 0 and fuel < 2:
-                name = f's{stack_ctr}'
-                return state, [InitOp(name)]
-            ops: list[str] = ['init']
-            if len(stacks) > 0: ops.append('push')
-            if len(nonempty) > 0: ops.append('pop')
-            state, op = a.choice(state, ops)
-            match op:
-                case 'init':
-                    name = f's{stack_ctr}'
-                    state, rest = _visit(
-                        fuel - 1, state,
-                        stack_ctr + 1, item_ctr,
-                        stacks + [name], nonempty
-                    )
-                    return state, [InitOp(name)] + rest
-                case 'push':
-                    state, before = a.choice(state, stacks)
-                    after = f's{stack_ctr}'
-                    state, dissection = value_generator.sample(state)
-                    if dissection is None:
-                        return state, []
-                    val = dissection.head
-                    state, rest = _visit(
-                        fuel - 1, state,
-                        stack_ctr + 1, item_ctr,
-                        stacks + [after],
-                        nonempty + [after]
-                    )
-                    return state, [
-                        PushOp(before, after, Constant(val))
-                    ] + rest
-                case 'pop':
-                    state, before = a.choice(state, nonempty)
-                    after = f's{stack_ctr}'
-                    item_name = f'v{item_ctr}'
-                    state, rest = _visit(
-                        fuel - 1, state,
-                        stack_ctr + 1, item_ctr + 1,
-                        stacks + [after], nonempty
-                    )
-                    return state, [
-                        PopOp(before, after, item_name)
-                    ] + rest
-
-        def _impl(state: a.State) -> g.Sample[StackProg[T]]:
-            state, result = _visit(size, state, 0, 0, [], [])
-            return state, s.unfold(result, _trim)
-
-        return g.Generator(_impl, c.INFINITE)
-
-    def stack_prog[T](
-        value_generator: g.Generator[T]
-        ) -> g.Generator[StackProg[T]]:
-        return g.bind(
-            partial(stack_prog_generator, value_generator),
-            g.small_nats()
-        )
-
-    # The evaluator
-    def evaluator_stack_prog[S, T](
-        init: Callable[[], S],
-        push: Callable[[S, T], S],
-        pop: Callable[[S], tuple[S, T]],
-        prog: StackProg[T]
-        ) -> bool:
-        model_env: dict[str, list[T]] = {}
-        impl_env: dict[str, S] = {}
-        item_env: dict[str, T] = {}
-        for op in prog:
-            match op:
-                case InitOp(after):
-                    model_env[after] = model_init()
-                    impl_env[after] = init()
-                case PushOp(before, after, item):
-                    match item:
-                        case Constant(value): val = value
-                        case Variable(name): val = item_env[name]
-                    model_env[after] = model_push(
-                        model_env[before], val
-                    )
-                    impl_env[after] = push(
-                        impl_env[before], val
-                    )
-                case PopOp(before, after, item_name):
-                    m_rest, m_item = model_pop(model_env[before])
-                    i_rest, i_item = pop(impl_env[before])
-                    if m_item != i_item:
-                        return False
-                    model_env[after] = m_rest
-                    impl_env[after] = i_rest
-                    item_env[item_name] = m_item
-        return True
+.. literalinclude:: ../../examples/modeling.py
+   :language: python
+   :start-after: # -- start: evaluator --
+   :end-before: # -- end: evaluator --
 
 With all the pieces in place, we can now define a property that generates random stack programs, evaluates them against both the model and our implementation, and reports failure if the two diverge:
 
-.. code-block:: python
-
-    @context(stack_prog(g.ints()))
-    @prop('Stack implementation matches model')
-    def _stack_model(prog: StackProg[int]):
-        return evaluator_stack_prog(
-            list, _push, _pop, prog
-        )
-
-    if __name__ == '__main__':
-        import sys
-        success = check(_stack_model)
-        sys.exit(0 if success else -1)
+.. literalinclude:: ../../examples/modeling.py
+   :language: python
+   :start-after: # -- start: property --
+   :end-before: # -- end: property --
 
 Notice how the property is expressed at a high level: we simply state that running any random stack program should yield the same observable behavior from both the model and the implementation. The generator takes care of producing valid programs, the evaluator compares the two systems, and the shrinker will find a minimal failing program if the implementation diverges.
 
@@ -718,7 +383,7 @@ Nondeterminism
 ^^^^^^^^^^^^^^
 When the system under test may be accessed by multiple clients or processes concurrently, the order in which operations arrive is not under our control. Different runs of the same set of operations may produce different results depending on scheduling decisions made by the runtime.
 
-Rather than actually running things concurrently (which is difficult to reproduce and control), we can model this nondeterminism by generating random interleavings of operations. We then run each interleaving sequentially against the system under test and check that it behaves correctly. This makes our tests deterministic and reproducible (given the same PRNG seed), while still exploring the space of possible orderings.
+Rather than actually running things concurrently (which is difficult to reproduce and control), we can model this nondeterminism by generating random interleavings of operations. We then run each interleaving sequentially against the system under test and check that it behaves correctly. This makes our tests deterministic and reproducible (given the same seed), while still exploring the space of possible orderings.
 
 The approach extends the mutable state modeling technique as follows:
 
@@ -727,118 +392,64 @@ The approach extends the mutable state modeling technique as follows:
 3. Execute each generated sequence sequentially against both the reference model and the system under test.
 4. Compare results; any valid ordering should produce consistent behavior.
 
-Lets consider a simple example with a shared counter that supports :code:`increment`, :code:`decrement` and :code:`read` operations:
+Lets consider a simple example with a shared counter that supports :code:`increment`, :code:`decrement` and :code:`read` operations, together with its reference model:
 
-.. code-block:: python
-
-    from dataclasses import dataclass
-
-    @dataclass
-    class CounterOp: pass
-
-    @dataclass
-    class Increment(CounterOp):
-        client: int
-
-    @dataclass
-    class Decrement(CounterOp):
-        client: int
-
-    @dataclass
-    class Read(CounterOp):
-        client: int
-
-    type CounterProg = list[CounterOp]
-
-    # Reference model
-    def model_counter(prog: CounterProg) -> list[int]:
-        state = 0
-        reads = []
-        for op in prog:
-            match op:
-                case Increment(_): state += 1
-                case Decrement(_): state -= 1
-                case Read(_): reads.append(state)
-        return reads
+.. literalinclude:: ../../examples/nondeterminism.py
+   :language: python
+   :start-after: # -- start: operations --
+   :end-before: # -- end: operations --
 
 We then generate random interleavings of operations from multiple clients. The key is that each client has a fixed sequence of operations it wants to perform, but the order in which different clients' operations are interleaved is random:
 
-.. code-block:: python
-
-    import minigun.arbitrary as a
-    import minigun.cardinality as c
-    import minigun.generate as g
-    import minigun.shrink as s
-    import minigun.stream as fs
-
-    def interleavings(
-        num_clients: int,
-        ops_per_client: int
-        ) -> g.Generator[CounterProg]:
-
-        def _trim(
-            prog: CounterProg
-            ) -> fs.Stream[CounterProg]:
-            def _step(i: int) -> tuple[CounterProg, int] | None:
-                if i < 0: return None
-                return prog[:i] + prog[i + 1:], i - 1
-            return fs.unfold(_step, len(prog) - 1)
-
-        def _impl(state: a.State) -> g.Sample[CounterProg]:
-            # Build per-client operation sequences
-            queues: list[list[CounterOp]] = []
-            for client in range(num_clients):
-                ops = []
-                for _ in range(ops_per_client):
-                    state, op_kind = a.choice(
-                        state, ['inc', 'dec', 'read']
-                    )
-                    match op_kind:
-                        case 'inc': ops.append(Increment(client))
-                        case 'dec': ops.append(Decrement(client))
-                        case 'read': ops.append(Read(client))
-                queues.append(ops)
-
-            # Randomly interleave the queues
-            prog: CounterProg = []
-            indices = [0] * num_clients
-            total = num_clients * ops_per_client
-            for _ in range(total):
-                active = [
-                    c for c in range(num_clients)
-                    if indices[c] < len(queues[c])
-                ]
-                state, client = a.choice(state, active)
-                prog.append(queues[client][indices[client]])
-                indices[client] += 1
-
-            return state, s.unfold(prog, _trim)
-
-        return g.Generator(_impl, c.INFINITE)
+.. literalinclude:: ../../examples/nondeterminism.py
+   :language: python
+   :start-after: # -- start: generator --
+   :end-before: # -- end: generator --
 
 The property then checks that the system under test produces the same observable results as the model for any random interleaving:
 
-.. code-block:: python
-
-    from collections.abc import Callable
-
-    def counter_spec(
-        impl_counter: Callable[[CounterProg], list[int]]
-        ):
-        @context(g.bind(
-            lambda n: g.bind(
-                lambda m: interleavings(n, m),
-                g.small_nats()
-            ),
-            g.small_nats()
-        ))
-        @prop('Counter is consistent under any interleaving')
-        def _counter_consistent(prog: CounterProg):
-            return model_counter(prog) == impl_counter(prog)
-
-        return _counter_consistent
+.. literalinclude:: ../../examples/nondeterminism.py
+   :language: python
+   :start-after: # -- start: property --
+   :end-before: # -- end: property --
 
 The key insight here is that the nondeterminism is entirely captured by the generator. We do not need threads, locks, or any concurrency primitives; the generator explores the space of possible interleavings, and the evaluator runs each one sequentially and deterministically. This means that when a counterexample is found, it is perfectly reproducible, and the shrinker can minimize it to a smallest failing interleaving.
+
+Filesystem fixtures
+-------------------
+Some laws need a place on disk: a file to round-trip through, or a directory of inputs to copy and mutate. :code:`minigun.fixture` provides directories under :code:`.minigun` for this. :code:`temporary_path` gives a fresh directory that is removed when the run ends, optionally populated with a copy of a source directory:
+
+.. literalinclude:: ../../examples/fixtures.py
+   :language: python
+   :start-after: # -- start: temporary --
+   :end-before: # -- end: temporary --
+
+:code:`permanent_path` gives a fresh directory that outlives the run, for artifacts you want to inspect afterwards, such as renderings of generated structures:
+
+.. literalinclude:: ../../examples/fixtures.py
+   :language: python
+   :start-after: # -- start: permanent --
+   :end-before: # -- end: permanent --
+
+Cleanup is scoped to the run that created the paths: a Minigun test that itself runs Minigun does not disturb the outer run's fixtures.
+
+Running specifications programmatically
+---------------------------------------
+Tools that embed Minigun have two entry points below the CLI. :code:`minigun.orchestrator.run` is the CLI's behaviour as a library call: a time budget, a seed, and a reporter chosen by :code:`OutputMode`:
+
+.. literalinclude:: ../../examples/programmatic.py
+   :language: python
+   :start-after: # -- start: run --
+   :end-before: # -- end: run --
+
+Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample.
+
+.. literalinclude:: ../../examples/programmatic.py
+   :language: python
+   :start-after: # -- start: evaluate --
+   :end-before: # -- end: evaluate --
+
+Both resolve the specification before anything runs, raising :code:`SpecificationError` for a parameter without a generator or a duplicate description.
 
 Summary
 -------
@@ -851,9 +462,10 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to define basic specifications.
 * Learned how to compose specifications.
 * Learned how to abstract over specifications.
-* Learned how to make user defined generators.
+* Learned how to make user defined generators and shrinkers.
 * Learned about modeling.
 * Learned about testing nondeterministic systems by generating random operation orderings.
+* Learned about filesystem fixtures and running specifications from your own tools.
 
 Moving on from this tutorial, please:
 

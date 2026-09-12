@@ -56,7 +56,9 @@ def _saturates(a: c.Cardinality, b: c.Cardinality) -> bool:
 @prop("exponentiation of finite sizes agrees with integer arithmetic")
 def _power(base: int, exponent: int) -> bool:
     result = c.finite(base) ** c.finite(exponent)
-    return result.is_finite and result.size == float(base**exponent)
+    return result.is_finite and _close(
+        result, c.Cardinality(float(base**exponent))
+    )
 
 
 @context(_cardinalities())

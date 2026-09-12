@@ -19,6 +19,24 @@ from typing import Any
 
 from minigun import stream as fs
 
+__all__ = [
+    "Dissection",
+    "Shrinker",
+    "Trimmer",
+    "singleton",
+    "prepend",
+    "append",
+    "map",
+    "filter",
+    "unfold",
+    "chunk_removals",
+    "boolean",
+    "integer",
+    "floating",
+    "string",
+]
+
+
 ###############################################################################
 # Dissection
 ###############################################################################

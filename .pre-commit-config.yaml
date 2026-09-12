@@ -54,7 +54,7 @@ repos:
         language: system
         types: [python]
         stages: [pre-commit]
-        args: [minigun, tests, scripts]
+        args: [minigun, tests, scripts, docs/examples]
         pass_filenames: false
 
       # Import sorting check (pre-commit stage)
@@ -64,7 +64,7 @@ repos:
         language: system
         types: [python]
         stages: [pre-commit]
-        args: [minigun, tests, scripts]
+        args: [minigun, tests, scripts, docs/examples]
         pass_filenames: false
 
       # Lint check (pre-commit stage)
@@ -74,7 +74,7 @@ repos:
         language: system
         types: [python]
         stages: [pre-commit]
-        args: [minigun, tests, scripts]
+        args: [minigun, tests, scripts, docs/examples]
         pass_filenames: false
 
       # Conventional commit message validation (commit-msg stage)

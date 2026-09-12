@@ -13,6 +13,13 @@ from minigun import __version__
 from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
 from minigun.specify import Spec, SpecificationError, is_spec
 
+__all__ = [
+    "discover_test_modules",
+    "run_tests",
+    "main",
+]
+
+
 #: Package name under which discovered test modules are registered.
 _DISCOVERY_NAMESPACE = "minigun_discovered"
 

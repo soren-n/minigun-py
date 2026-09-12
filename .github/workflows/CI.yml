@@ -32,13 +32,13 @@ jobs:
         run: uv sync --group dev --group quality
 
       - name: Format check
-        run: uv run ruff format --check --diff minigun tests scripts
+        run: uv run ruff format --check --diff minigun tests scripts docs/examples
 
       - name: Import sort check
-        run: uv run ruff check --select I minigun tests scripts
+        run: uv run ruff check --select I minigun tests scripts docs/examples
 
       - name: Lint check
-        run: uv run ruff check minigun tests scripts
+        run: uv run ruff check minigun tests scripts docs/examples
 
       - name: Run tests with coverage
         run: uv run coverage run -m minigun.cli --time-budget 60

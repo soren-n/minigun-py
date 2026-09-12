@@ -24,6 +24,14 @@ from minigun.reporter import (
 )
 from minigun.specify import Allowance, Resolved, Spec
 
+__all__ = [
+    "OutputMode",
+    "TestModule",
+    "RunConfig",
+    "run",
+    "check",
+]
+
 
 class OutputMode(StrEnum):
     """How a run reports."""
