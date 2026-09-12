@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv run minigun --time-budget 30
 
 # Run specific test modules with time budget
-uv run minigun --time-budget 45 --modules positive comprehensive
+uv run minigun --time-budget 45 --modules generate shrink
 
 # Run tests in quiet mode (CI/CD)
 uv run minigun --time-budget 60 --output quiet
@@ -45,6 +45,26 @@ uv run mypy minigun/
 # Run coverage analysis (uses minigun's own CLI, not pytest)
 uv run coverage run -m minigun.cli --time-budget 60
 uv run coverage report --show-missing --fail-under=60
+```
+
+### Benchmarks
+```bash
+# Microbenchmarks (draw, shrink, attempts, fork, memory, probe); results
+# are JSON files under --out, kept outside the repository
+uv run python scripts/bench/micro.py --out /tmp/bench/head all
+
+# The same against a baseline checkout, run from that checkout so its
+# own minigun is imported (the scripts run by path, never as a package)
+(cd ../minigun-py-v3.0.1 && uv run python \
+    ../minigun-py/scripts/bench/micro.py --out /tmp/bench/v3.0.1 all)
+
+# End to end CLI runs on both checkouts, HEAD profiles, and the tables
+uv run python scripts/bench/e2e.py --out /tmp/bench --baseline ../minigun-py-v3.0.1
+uv run python scripts/bench/hotspots.py --out /tmp/bench/profiles all
+uv run python scripts/bench/report.py --results /tmp/bench
+
+# Type-check the benchmark scripts (they import each other by bare name)
+uv run mypy --no-namespace-packages scripts/bench
 ```
 
 ### Build and Development
@@ -170,7 +190,8 @@ CI runs on Python 3.12, 3.13 and 3.14: `ruff format --check`,
 `ruff check` (including import sorting), coverage with 60% minimum, and
 distribution build/install check. Scope includes the `minigun`, `tests`,
 `scripts` and `docs/examples` directories. Locally, pre-commit validates conventional commit
-messages at commit-msg and runs mypy at pre-push.
+messages at commit-msg and runs mypy on `minigun` and `scripts/bench` at
+pre-push.
 
 ## Project Configuration
 

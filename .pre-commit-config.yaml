@@ -94,6 +94,15 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: type-check-bench
+        name: Type Check benchmark scripts (MyPy)
+        entry: uv run mypy
+        language: system
+        types: [python]
+        args: [--no-namespace-packages, scripts/bench]
+        pass_filenames: false
+        stages: [pre-push]
+
       # Run tests with coverage (manual stage - CI handles this on push/PR)
       - id: test-coverage
         name: Tests with Coverage
