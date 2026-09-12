@@ -315,6 +315,18 @@ _BIG_TIERS: _Tiers = (
 )
 
 
+def _draw_tiered(rng: a.Rng, tiers: _Tiers, signed: bool) -> int:
+    """Draw an integer with a magnitude from probability tiers."""
+    roll = a.probability(rng)
+    magnitude = tiers[-1][1]
+    for threshold, tier_bound in tiers:
+        if roll < threshold:
+            magnitude = tier_bound
+            break
+    lower = -magnitude if signed else 0
+    return a.draw_int(rng, lower, magnitude)
+
+
 def _tiered_int(tiers: _Tiers, signed: bool) -> Generator[int]:
     """Integers with magnitudes drawn from probability tiers, biased small."""
     shrink = s.integer(0)
@@ -322,14 +334,7 @@ def _tiered_int(tiers: _Tiers, signed: bool) -> Generator[int]:
     size = 2 * bound + 1 if signed else bound + 1
 
     def _impl(rng: a.Rng) -> s.Dissection[int] | None:
-        roll = a.probability(rng)
-        magnitude = bound
-        for threshold, tier_bound in tiers:
-            if roll < threshold:
-                magnitude = tier_bound
-                break
-        lower = -magnitude if signed else 0
-        return shrink(a.draw_int(rng, lower, magnitude))
+        return shrink(_draw_tiered(rng, tiers, signed))
 
     return Generator(_impl, c.finite(size))
 
@@ -442,14 +447,36 @@ def _sequence_dissection[R](
     return _node(dissections)
 
 
+#: Bits beyond which a term of a sized cardinality cannot be a float.
+_FLOAT_BITS_MARGIN = 1100
+
+
 def _sized_cardinality(
     lower_bound: int, upper_bound: int, item_cardinality: c.Cardinality
 ) -> c.Cardinality:
-    """Cardinality of a sized collection: the sum of ``|item|^size``."""
-    total = c.ZERO
-    for size in range(lower_bound, upper_bound + 1):
-        total = total + (item_cardinality ** c.finite(size))
-    return total
+    """Cardinality of a sized collection: the sum of ``|item|^size`` over
+    ``lower_bound <= size <= upper_bound``.
+
+    Computed as a geometric series in exact integers, so small results
+    are exact (they are truncated to ``int`` by their users) and the cost
+    does not grow with the size range. The result is unbounded exactly
+    when summing the terms in floats would overflow, and the integers
+    involved never exceed the float range by more than a small margin.
+    """
+    if not item_cardinality.is_finite:
+        return c.ONE if upper_bound == 0 else c.INFINITE
+    ratio = int(item_cardinality.size)
+    if ratio == 0:
+        return c.ONE if lower_bound == 0 else c.ZERO
+    if ratio == 1:
+        return c.finite(upper_bound - lower_bound + 1)
+    if upper_bound * math.log2(ratio) > _FLOAT_BITS_MARGIN:
+        return c.INFINITE
+    total = (ratio ** (upper_bound + 1) - ratio**lower_bound) // (ratio - 1)
+    try:
+        return c.finite(total)
+    except OverflowError:
+        return c.INFINITE
 
 
 def _check_bounds(name: str, lower_bound: int, upper_bound: int) -> None:
@@ -465,21 +492,45 @@ def _check_bounds(name: str, lower_bound: int, upper_bound: int) -> None:
 #: Upper length bound of the unsized collection generators.
 _COLLECTION_BOUND = 100
 
+#: Draws a collection of at most a given length from a random source.
+type _SizedDraw[T] = Callable[[a.Rng, int], s.Dissection[T] | None]
+
 
 def _unsized[T](
-    sized: Callable[[int], Generator[T]], item_cardinality: c.Cardinality
+    draw: _SizedDraw[T], item_cardinality: c.Cardinality
 ) -> Generator[T]:
-    """A collection generator whose upper size bound is drawn small-biased,
-    with the exact cardinality of the full size range."""
-    return with_cardinality(
-        bind(sized, small_nats()),
-        _sized_cardinality(0, _COLLECTION_BOUND, item_cardinality),
+    """A collection generator whose upper length bound is drawn like a
+    small natural, with the exact cardinality of the full size range.
+
+    The bounded draw is a plain function rather than a generator
+    constructor, so a draw builds no generator: constructing one validates
+    its bounds and sizes its domain, which is work per generator, not per
+    value.
+    """
+
+    def _impl(rng: a.Rng) -> s.Dissection[T] | None:
+        return draw(rng, _draw_tiered(rng, _SMALL_TIERS, signed=False))
+
+    return Generator(
+        _impl, _sized_cardinality(0, _COLLECTION_BOUND, item_cardinality)
     )
 
 
 ###############################################################################
 # Strings
 ###############################################################################
+_shrink_string = s.string()
+
+
+def _draw_string(
+    rng: a.Rng, lower_bound: int, upper_bound: int, alphabet: str
+) -> s.Dissection[str]:
+    length = a.draw_int(rng, lower_bound, upper_bound)
+    return _shrink_string(
+        "".join(a.choice(rng, alphabet) for _ in range(length))
+    )
+
+
 def bounded_strings(
     lower_bound: int, upper_bound: int, alphabet: str
 ) -> Generator[str]:
@@ -491,11 +542,9 @@ def bounded_strings(
     _check_bounds("bounded_strings", lower_bound, upper_bound)
     if len(alphabet) == 0:
         raise ValueError("bounded_strings requires a non-empty alphabet")
-    shrink = s.string()
 
     def _impl(rng: a.Rng) -> s.Dissection[str] | None:
-        length = a.draw_int(rng, lower_bound, upper_bound)
-        return shrink("".join(a.choice(rng, alphabet) for _ in range(length)))
+        return _draw_string(rng, lower_bound, upper_bound, alphabet)
 
     return Generator(
         _impl,
@@ -506,7 +555,7 @@ def bounded_strings(
 def strings() -> Generator[str]:
     """A generator of strings over the printable ASCII characters."""
     return _unsized(
-        lambda bound: bounded_strings(0, bound, string.printable),
+        lambda rng, bound: _draw_string(rng, 0, bound, string.printable),
         c.finite(len(string.printable)),
     )
 
@@ -514,7 +563,7 @@ def strings() -> Generator[str]:
 def words() -> Generator[str]:
     """A generator of strings over the ASCII letters."""
     return _unsized(
-        lambda bound: bounded_strings(0, bound, string.ascii_letters),
+        lambda rng, bound: _draw_string(rng, 0, bound, string.ascii_letters),
         c.finite(len(string.ascii_letters)),
     )
 
@@ -537,6 +586,30 @@ def tuples(*generators: Generator[Any]) -> Generator[tuple[Any, ...]]:
 ###############################################################################
 # Lists
 ###############################################################################
+def _sorted[T](heads: list[T]) -> list[T]:
+    return sorted(heads)  # type: ignore[type-var]
+
+
+def _as_is[T](heads: list[T]) -> list[T]:
+    return heads
+
+
+def _draw_list[T](
+    rng: a.Rng,
+    lower_bound: int,
+    upper_bound: int,
+    generator: Generator[T],
+    ordered: bool,
+) -> s.Dissection[list[T]] | None:
+    length = a.draw_int(rng, lower_bound, upper_bound)
+    dissections = _sample_many(rng, generator, length)
+    if dissections is None:
+        return None
+    return _sequence_dissection(
+        dissections, _sorted if ordered else _as_is, lower_bound
+    )
+
+
 def bounded_lists[T](
     lower_bound: int,
     upper_bound: int,
@@ -552,15 +625,8 @@ def bounded_lists[T](
     """
     _check_bounds("bounded_lists", lower_bound, upper_bound)
 
-    def _rebuild(heads: list[T]) -> list[T]:
-        return sorted(heads) if ordered else heads  # type: ignore[type-var]
-
     def _impl(rng: a.Rng) -> s.Dissection[list[T]] | None:
-        length = a.draw_int(rng, lower_bound, upper_bound)
-        dissections = _sample_many(rng, generator, length)
-        if dissections is None:
-            return None
-        return _sequence_dissection(dissections, _rebuild, lower_bound)
+        return _draw_list(rng, lower_bound, upper_bound, generator, ordered)
 
     return Generator(
         _impl,
@@ -576,7 +642,7 @@ def lists[T](
     :param ordered: Whether drawn lists are sorted.
     """
     return _unsized(
-        lambda bound: bounded_lists(0, bound, generator, ordered),
+        lambda rng, bound: _draw_list(rng, 0, bound, generator, ordered),
         generator.cardinality,
     )
 
@@ -611,6 +677,27 @@ def list_append[T](
 ###############################################################################
 # Dictionaries
 ###############################################################################
+def _pair[K, V](key: K, value: V) -> tuple[K, V]:
+    return key, value
+
+
+def _draw_dict[K, V](
+    rng: a.Rng,
+    lower_bound: int,
+    upper_bound: int,
+    keys: Generator[K],
+    values: Generator[V],
+) -> s.Dissection[dict[K, V]] | None:
+    size = a.draw_int(rng, lower_bound, upper_bound)
+    pairs: list[s.Dissection[tuple[K, V]]] = []
+    for _ in range(size):
+        dissections = _sample_all(rng, (keys, values))
+        if dissections is None:
+            return None
+        pairs.append(s.map(_pair, *dissections))
+    return _sequence_dissection(pairs, dict, lower_bound)
+
+
 def bounded_dicts[K, V](
     lower_bound: int,
     upper_bound: int,
@@ -624,18 +711,8 @@ def bounded_dicts[K, V](
     """
     _check_bounds("bounded_dicts", lower_bound, upper_bound)
 
-    def _pair(key: K, value: V) -> tuple[K, V]:
-        return key, value
-
     def _impl(rng: a.Rng) -> s.Dissection[dict[K, V]] | None:
-        size = a.draw_int(rng, lower_bound, upper_bound)
-        pairs: list[s.Dissection[tuple[K, V]]] = []
-        for _ in range(size):
-            dissections = _sample_all(rng, (keys, values))
-            if dissections is None:
-                return None
-            pairs.append(s.map(_pair, *dissections))
-        return _sequence_dissection(pairs, dict, lower_bound)
+        return _draw_dict(rng, lower_bound, upper_bound, keys, values)
 
     return Generator(
         _impl,
@@ -650,7 +727,7 @@ def dicts[K, V](
 ) -> Generator[dict[K, V]]:
     """A generator of dicts of up to 100 entries, biased small."""
     return _unsized(
-        lambda bound: bounded_dicts(0, bound, keys, values),
+        lambda rng, bound: _draw_dict(rng, 0, bound, keys, values),
         keys.cardinality * values.cardinality,
     )
 
@@ -680,6 +757,16 @@ def dict_insert[K, V](
 ###############################################################################
 # Sets
 ###############################################################################
+def _draw_set[T](
+    rng: a.Rng, lower_bound: int, upper_bound: int, generator: Generator[T]
+) -> s.Dissection[set[T]] | None:
+    size = a.draw_int(rng, lower_bound, upper_bound)
+    dissections = _sample_many(rng, generator, size)
+    if dissections is None:
+        return None
+    return _sequence_dissection(dissections, set, lower_bound)
+
+
 def bounded_sets[T](
     lower_bound: int, upper_bound: int, generator: Generator[T]
 ) -> Generator[set[T]]:
@@ -691,11 +778,7 @@ def bounded_sets[T](
     _check_bounds("bounded_sets", lower_bound, upper_bound)
 
     def _impl(rng: a.Rng) -> s.Dissection[set[T]] | None:
-        size = a.draw_int(rng, lower_bound, upper_bound)
-        dissections = _sample_many(rng, generator, size)
-        if dissections is None:
-            return None
-        return _sequence_dissection(dissections, set, lower_bound)
+        return _draw_set(rng, lower_bound, upper_bound, generator)
 
     return Generator(
         _impl,
@@ -706,7 +789,8 @@ def bounded_sets[T](
 def sets[T](generator: Generator[T]) -> Generator[set[T]]:
     """A generator of sets of up to 100 elements, biased small."""
     return _unsized(
-        lambda bound: bounded_sets(0, bound, generator), generator.cardinality
+        lambda rng, bound: _draw_set(rng, 0, bound, generator),
+        generator.cardinality,
     )
 
 

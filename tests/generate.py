@@ -1,5 +1,6 @@
 """Properties of generators, quantified over generator programs."""
 
+import math
 import random
 from collections.abc import Callable
 from typing import Any
@@ -105,6 +106,26 @@ def _arithmetic(left: Program, right: Program) -> bool:
 ###############################################################################
 # Specific generators
 ###############################################################################
+
+
+@context(
+    g.int_range(0, 100),
+    g.int_range(0, 100),
+    g.one_of([g.ints(), g.bools(), g.constant(0), g.floats(), g.big_ints()]),
+)
+@prop("a sized collection's cardinality is the sum over its sizes")
+def _sized_cardinality(lower: int, upper: int, item: g.Generator[Any]) -> bool:
+    if lower > upper:
+        lower, upper = upper, lower
+    expected = c.ZERO
+    for size in range(lower, upper + 1):
+        expected = expected + item.cardinality ** c.finite(size)
+    actual = g.bounded_lists(lower, upper, item).cardinality
+    if actual.is_finite != expected.is_finite:
+        return False
+    return not actual.is_finite or math.isclose(
+        actual.size, expected.size, rel_tol=1e-9
+    )
 
 
 @prop("unsized collections are not sized by their length draw")
@@ -263,6 +284,7 @@ spec = conj(
     _terminates,
     _monotone,
     _arithmetic,
+    _sized_cardinality,
     _collection_cardinality,
     _int_range_rejects,
     _one_of,
