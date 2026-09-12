@@ -133,7 +133,9 @@ version_toml = ["pyproject.toml:project.version"]
 version_variables = [
     "minigun/__init__.py:__version__",
 ]
-build_command = "uv build"
+# Refresh the lock file so the release commit carries the bumped version.
+assets = ["uv.lock"]
+build_command = "uv lock && uv build"
 dist_path = "dist/"
 upload_to_PyPI = false
 upload_to_release = true

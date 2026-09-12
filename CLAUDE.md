@@ -55,7 +55,8 @@ uv run python scripts/bench/micro.py --out /tmp/bench/head all
 
 # The same against a baseline checkout, run from that checkout so its
 # own minigun is imported (the scripts run by path, never as a package)
-(cd ../minigun-py-v3.0.1 && uv run python \
+git worktree add ../minigun-py-v3.0.1 v3.0.1
+(cd ../minigun-py-v3.0.1 && uv sync && uv run python \
     ../minigun-py/scripts/bench/micro.py --out /tmp/bench/v3.0.1 all)
 
 # End to end CLI runs on both checkouts, HEAD profiles, and the tables
