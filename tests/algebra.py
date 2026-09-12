@@ -1,26 +1,16 @@
-# External imports
+"""Algebraic laws of Python's built-in types, checked through the public DSL.
+
+These are end-to-end tests of the whole pipeline: template specifications
+(monoid, abelian group, ring) instantiated for the built-in types, with
+generators inferred from annotations or supplied by context, and negated
+properties whose counterexamples must be found.
+"""
+
 from collections.abc import Callable
 
 import minigun.generate as g
-
-# Internal imports
 from minigun import check
-from minigun.specify import Spec, conj, context, prop
-
-# The testing strategy for minigun is to exercise the bundled generators.
-# This will cover the following four areas of testing for each generator:
-#   - Positive black-box testing
-#       (Expected outcome of specified interaction with interface)
-#       (Historically referred to as property-based testing)
-#   - Negative black-box testing
-#       (Expected outcome of unspecified interaction with interface)
-#       (Historically referred to as fuzzing)
-#   - Positive white-box testing
-#       (Expected outcome of specified interaction with interface using
-#       implementation knowledge)
-#   - Negative white-box testing
-#       (Expected outcome of unspecified interaction with interface using
-#       implementation knowledge)
+from minigun.specify import Spec, conj, context, neg, prop
 
 ###############################################################################
 # Abstract specifications
@@ -340,9 +330,30 @@ def _pos_white_domain_infer_optional(mi: int | None) -> bool:
 
 
 ###############################################################################
-# Running test suite
+# Negated properties: laws that must be refuted
+###############################################################################
+@prop("bool value not equal to negated value")
+def _neg_bool_eq(a: bool) -> bool:
+    return a == (not a)
+
+
+@prop("int add and mul are not associative")
+def _neg_int_add_mul_assoc(a: int, b: int, c: int) -> bool:
+    return c * (a + b) == (c * a) + b
+
+
+@prop("list reverse does not distribute with concatenate")
+def _neg_list_reverse_concat_dist(xs: list[int], ys: list[int]) -> bool:
+    return list(reversed(xs + ys)) == list(reversed(xs)) + list(reversed(ys))
+
+
+###############################################################################
+# Test suite specification
 ###############################################################################
 spec = conj(
+    neg(_neg_bool_eq),
+    neg(_neg_int_add_mul_assoc),
+    neg(_neg_list_reverse_concat_dist),
     _int_ring,
     _pos_black_float_add_zero,
     _pos_black_float_mul_one,
@@ -375,4 +386,4 @@ spec = conj(
 if __name__ == "__main__":
     import sys
 
-    sys.exit(0 if check(spec) else -1)
+    sys.exit(0 if check(spec) else 1)

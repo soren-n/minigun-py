@@ -25,7 +25,10 @@ class Cardinality:
     size: float
 
     def __post_init__(self) -> None:
-        assert self.size >= 0, "Cardinality must be non-negative"
+        if not self.size >= 0:
+            raise ValueError(
+                f"A cardinality must be non-negative, got {self.size}"
+            )
 
     @property
     def is_finite(self) -> bool:
