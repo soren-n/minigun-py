@@ -14,7 +14,7 @@ For motivation on why you should use a QuickCheck-like system for testing, we re
 
 Installation
 ------------
-Minigun is currently only supported for Python >=3.12, although it might work with older versions. It is distributed via PyPI and can be installed with the following command:
+Minigun requires Python >=3.12; it relies on Python 3.12 generics syntax and will not import on older versions. It is distributed via PyPI and can be installed with the following command:
 
 .. code-block:: shell
 

@@ -1,6 +1,6 @@
 # Pre-commit hooks configuration
 # Install with: uv run pre-commit install
-# For full setup: uv run pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+# (default_install_hook_types below covers the commit-msg and pre-push stages)
 
 # Configure default hook types and language versions
 default_install_hook_types: [pre-commit, pre-push, commit-msg]
