@@ -2,6 +2,53 @@
 
 <!-- version list -->
 
+## v4.0.0 (2026-09-12)
+
+### Bug Fixes
+
+- Keep the kind of failure while shrinking
+  ([`6b7269e`](https://github.com/soren-n/minigun-py/commit/6b7269e56779c6cbd2b5b5fd8afa4c81c5dae095))
+
+### Documentation
+
+- Executable tutorial examples, explicit public surface, and 4.0 documentation
+  ([`872a4f2`](https://github.com/soren-n/minigun-py/commit/872a4f201b704b144bdea01936fca851e691832b))
+
+### Performance Improvements
+
+- Bisect integer and float shrinks with a known passing bound
+  ([`1eb7033`](https://github.com/soren-n/minigun-py/commit/1eb7033bb7706424b713e7c32fa266002c8d2ffe))
+
+- Draw attempts in sequence from the property's source
+  ([`57c0d20`](https://github.com/soren-n/minigun-py/commit/57c0d200021c078f5006b6c3d0d13b5e622f828a))
+
+- Size collections in closed form and draw them without constructing generators
+  ([`fb25d33`](https://github.com/soren-n/minigun-py/commit/fb25d33cc1e4c586d3dfb5417b05dea2f12a9e9a))
+
+- Stop evaluating generic annotations on every nested definition
+  ([`5872fbb`](https://github.com/soren-n/minigun-py/commit/5872fbb0936a302b7ab1102676535497b96e8bc4))
+
+### Refactoring
+
+- Closed spec model, exhaustive evaluation and per-property seeds
+  ([`7cf58b9`](https://github.com/soren-n/minigun-py/commit/7cf58b92078c4e4f616b73863ef469099fdc9b84))
+
+- Rebuild the generation foundation without state threading
+  ([`b4b5b17`](https://github.com/soren-n/minigun-py/commit/b4b5b1752f7f8eb8765a7310cb70c64250d1572e))
+
+- Time-sliced runner, structured reporters and a single output option
+  ([`0dbf885`](https://github.com/soren-n/minigun-py/commit/0dbf88571a3b23449b7624cf95a3aab633c83466))
+
+### Breaking Changes
+
+- Documentation and examples target the 4.0 API.
+
+- TestOrchestrator, OrchestrationConfig, BudgetAllocator, PropertyBudget, TestResult and
+  CardinalityInfo are removed; Reporter hooks are start_run(names, plans), start_property,
+  end_property(Outcome); minigun.util is removed; the CLI flags --quiet and --json are replaced by
+  --output; JSON output is version 3.0.
+
+
 ## v3.0.1 (2026-07-22)
 
 ### Bug Fixes
