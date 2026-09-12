@@ -3,8 +3,15 @@ Counterexample search
 
 Draw arguments, evaluate the law, and on failure shrink the arguments to a
 locally minimal counterexample: one none of whose immediate alternatives
-fails. Every candidate is evaluated exactly once. An exception raised by
-the law counts as a failure and is reported with the counterexample.
+fails in the same way. Every candidate is evaluated exactly once. An
+exception raised by the law counts as a failure and is reported with the
+counterexample.
+
+Shrinking preserves the kind of failure. A shrunk alternative is accepted
+only when it fails as the found counterexample did: by returning False, or
+by raising an exception of the same type. Without this a counterexample
+found by a False result could shrink into arguments that merely crash the
+law, and the report would describe a different failure than the one found.
 
 Attempts draw in sequence from the property's random source, so the whole
 sequence of draws is a function of the property's seed and the reported
@@ -85,12 +92,20 @@ def _evaluate(law: Law, args: dict[str, Any]) -> tuple[bool, Exception | None]:
         return False, exception
 
 
+def _same_failure(found: Exception | None, other: Exception | None) -> bool:
+    """Whether two failed evaluations failed in the same way: both by
+    returning False, or both by raising the same type of exception."""
+    if found is None or other is None:
+        return found is other
+    return type(found) is type(other)
+
+
 def _trim(
     law: Law,
     dissection: s.Dissection[dict[str, Any]],
     exception: Exception | None,
 ) -> tuple[dict[str, Any], Exception | None]:
-    """Walk to a locally minimal failing dissection.
+    """Walk to a locally minimal dissection failing in the same way.
 
     Each candidate is evaluated once; the exception of the last accepted
     candidate is kept so the report matches the arguments shown.
@@ -98,7 +113,7 @@ def _trim(
     while True:
         for child in dissection.shrinks():
             holds, child_exception = _evaluate(law, child.head)
-            if holds:
+            if holds or not _same_failure(exception, child_exception):
                 continue
             dissection, exception = child, child_exception
             break

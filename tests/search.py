@@ -103,6 +103,35 @@ def _exception(rng: random.Random) -> bool:
     )
 
 
+@prop("shrinking keeps the kind of failure that was found")
+def _failure_kind(by_exception: bool, rng: random.Random) -> bool:
+    # Above the boundary the law fails one way; between zero and the
+    # boundary it fails the other way. Only the boundary is a valid
+    # minimum of the failure that was found.
+    def _law(x: int) -> bool:
+        if x >= 1000:
+            if by_exception:
+                raise ValueError("found failure")
+            return False
+        if x > 0:
+            if by_exception:
+                return False
+            raise TypeError("other failure")
+        return True
+
+    search = s.find_counter_example(
+        rng, _law, {"x": g.int_range(1000, 10000)}, 200
+    )
+    if search.counter_example is None:
+        return False
+    found = search.counter_example
+    if found.args != {"x": 1000}:
+        return False
+    if by_exception:
+        return isinstance(found.exception, ValueError)
+    return found.exception is None
+
+
 @prop("a search is a function of its seed")
 def _reproducible(seed: int) -> bool:
     def _run() -> s.Search:
@@ -121,6 +150,7 @@ spec = conj(
     _discards,
     _deadline,
     _exception,
+    _failure_kind,
     _reproducible,
 )
 
