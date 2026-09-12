@@ -17,10 +17,11 @@ Results are written as JSON under ``--out``; see ``report.py``.
 
 import argparse
 import random
+import string
 import sys
 import timeit
 import tracemalloc
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -47,8 +48,11 @@ from support import (
 
 import minigun.cardinality as c
 import minigun.generate as g
+import minigun.shrink
 
 REPEAT = 5
+
+_shrink: Any = minigun.shrink
 
 
 ###############################################################################
@@ -163,7 +167,13 @@ def stack_program(values: g.Generator[int]) -> g.Generator[list[Op]]:
 def run_stack_program(
     pop: Callable[[list[int]], tuple[list[int], int]], prog: list[Op]
 ) -> bool:
-    """Evaluate a stack program against the list model."""
+    """Evaluate a stack program against the list model.
+
+    A program referring to an undefined stack, which dropping an operation
+    can produce, is not a counterexample: it holds vacuously. Without
+    this the exception-as-failure rule lets the shrinker drift toward
+    invalid programs.
+    """
     model: dict[str, list[int]] = {}
     impl: dict[str, list[int]] = {}
     items: dict[str, int] = {}
@@ -173,9 +183,13 @@ def run_stack_program(
                 model[after] = []
                 impl[after] = []
             case ("push", before, after, value):
+                if before not in model:
+                    return True
                 model[after] = [*model[before], value]
                 impl[after] = [*impl[before], value]
             case ("pop", before, after, name):
+                if before not in model or not model[before]:
+                    return True
                 model_rest, model_item = model[before][:-1], model[before][-1]
                 impl_rest, impl_item = pop(impl[before])
                 if model_item != impl_item:
@@ -248,8 +262,18 @@ def bench_draw() -> list[Result]:
             rate_result("draw", name, count, times, discards=discards)
         )
         announce(results[-1])
+        walked = _draw_and_peek(generator, count)
         times = timed(partial(_draw_and_peek, generator, count), REPEAT)
-        results.append(rate_result("draw", f"{name}+peek10", count, times))
+        results.append(
+            rate_result(
+                "draw",
+                f"{name}+peek10",
+                count,
+                times,
+                children_walked=walked,
+                mean_children=walked / count,
+            )
+        )
         announce(results[-1])
     return results
 
@@ -305,6 +329,9 @@ def bench_shrink() -> list[Result]:
     def _int_law(x: int) -> bool:
         return x < threshold
 
+    def _float_law(x: float) -> bool:
+        return x < 1000.0
+
     def _len_law(xs: list[int]) -> bool:
         return len(xs) < 8
 
@@ -321,6 +348,13 @@ def bench_shrink() -> list[Result]:
             _int_law,
             lambda args: args["x"] >= 5000,
             lambda args: str(args["x"]),
+        ),
+        _shrink_case(
+            "float_lt_threshold",
+            {"x": g.floats()},
+            _float_law,
+            lambda args: args["x"] >= 5000.0,
+            lambda args: repr(args["x"]),
         ),
         _shrink_case(
             "list_len_lt_k",
@@ -507,6 +541,134 @@ def bench_memory() -> list[Result]:
 
 
 ###############################################################################
+# Probes behind the candidate fixes
+###############################################################################
+def _children(dissection: Any) -> int:
+    return sum(1 for _ in shrinks(dissection))
+
+
+def bench_probe() -> list[Result]:
+    """Costs that the candidate structural fixes would remove or add."""
+    results: list[Result] = []
+    number = 2_000
+    constructors: dict[str, Callable[[], object]] = {
+        "bounded_strings(0,100)": lambda: g.bounded_strings(
+            0, 100, string.printable
+        ),
+        "bounded_lists(0,100,ints)": lambda: g.bounded_lists(0, 100, g.ints()),
+        "bounded_dicts(0,100,str,int)": lambda: g.bounded_dicts(
+            0, 100, g.strings(), g.ints()
+        ),
+    }
+    for name, func in constructors.items():
+        seconds = min(timeit.repeat(func, number=number, repeat=REPEAT))
+        results.append(
+            Result(
+                "probe",
+                f"construct {name}",
+                "nanoseconds",
+                1e9 * seconds / number,
+                "lower",
+            )
+        )
+        announce(results[-1])
+
+    parent = random.Random(1)
+    state = parent.getstate()
+    clones: dict[str, Callable[[], object]] = {
+        "setstate clone": lambda: random.Random().setstate(state),
+        "getstate": lambda: parent.getstate(),
+    }
+    for name, func in clones.items():
+        seconds = min(timeit.repeat(func, number=20_000, repeat=REPEAT))
+        results.append(
+            Result(
+                "probe", name, "nanoseconds", 1e9 * seconds / 20_000, "lower"
+            )
+        )
+        announce(results[-1])
+
+    class _Box[T]:
+        pass
+
+    def _generic_closure() -> Callable[[], object]:
+        def _inner() -> Iterator[_Box[int]]:
+            return iter(())
+
+        return _inner
+
+    def _plain_closure() -> Callable[[], object]:
+        def _inner():  # type: ignore[no-untyped-def]
+            return iter(())
+
+        return _inner
+
+    closures: dict[str, Callable[[], object]] = {
+        "nested def, generic annotation": _generic_closure,
+        "nested def, no annotation": _plain_closure,
+    }
+    for name, func in closures.items():
+        seconds = min(timeit.repeat(func, number=200_000, repeat=REPEAT))
+        results.append(
+            Result(
+                "probe", name, "nanoseconds", 1e9 * seconds / 200_000, "lower"
+            )
+        )
+        announce(results[-1])
+
+    for name, value in (
+        ("float children 12345.678", 12345.678),
+        ("float children 1e-9", 1e-9),
+        ("int children 6311", 6311),
+    ):
+        shrinker: Any = (
+            _shrink.floating(0.0)
+            if isinstance(value, float)
+            else _shrink.integer(0)
+        )
+        results.append(
+            Result(
+                "probe",
+                name,
+                "children",
+                _children(shrinker(value)),
+                "lower",
+            )
+        )
+        announce(results[-1])
+
+    _, dissection = sample(
+        g.argument_pack({"xs": g.bounded_lists(100, 100, g.ints())}), seed(3)
+    )
+    try:
+        children = _children(dissection)
+        times = timed(partial(_children, dissection), REPEAT)
+        results.append(
+            Result(
+                "probe",
+                "iterate children of list100 node",
+                "seconds",
+                min(times),
+                "lower",
+                {"children": children},
+            )
+        )
+    except RecursionError:
+        results.append(
+            Result(
+                "probe",
+                "iterate children of list100 node",
+                "seconds",
+                0.0,
+                "lower",
+                {"error": "RecursionError"},
+            )
+        )
+    announce(results[-1])
+    return results
+
+
+###############################################################################
 # Entry point
 ###############################################################################
 FAMILIES: dict[str, Callable[[], list[Result]]] = {
@@ -515,6 +677,7 @@ FAMILIES: dict[str, Callable[[], list[Result]]] = {
     "attempts": bench_attempts,
     "fork": bench_fork,
     "memory": bench_memory,
+    "probe": bench_probe,
 }
 
 

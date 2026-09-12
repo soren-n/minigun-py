@@ -14,7 +14,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-FAMILIES = ["draw", "shrink", "attempts", "fork", "memory"]
+FAMILIES = ["draw", "shrink", "attempts", "fork", "memory", "probe"]
 
 
 def _load(results: Path, label: str) -> dict[str, dict[str, dict[str, Any]]]:
@@ -38,7 +38,7 @@ def _fmt(value: float, metric: str) -> str:
         return f"{value:,.0f} ns"
     if metric == "kibibytes":
         return f"{value:,.0f} KiB"
-    if metric == "frames":
+    if metric in ("frames", "children"):
         return f"{value:.0f}"
     return f"{value:.3g}"
 
@@ -79,12 +79,26 @@ def _family_table(
                 f"{_fmt(h['value'], h['metric'])} | | |"
             )
             continue
+        if "error" in b["details"] or "error" in h["details"]:
+            lines.append(
+                f"| {name} | {h['metric']} | "
+                f"{b['details'].get('error') or _fmt(b['value'], b['metric'])}"
+                f" | {h['details'].get('error') or _fmt(h['value'], h['metric'])}"
+                " | | |"
+            )
+            continue
         ratio = h["value"] / b["value"] if b["value"] else float("inf")
         note = _flag(ratio, h["better"], threshold)
         if family == "attempts":
             cost = h["details"]["microseconds_per_attempt"]
             if cost > attempt_cost:
                 note = f"{note} {cost:.1f} us/attempt".strip()
+        if family == "draw" and "mean_children" in h["details"]:
+            note = (
+                f"{note} children/draw v3 "
+                f"{b['details'].get('mean_children', 0):.1f}, "
+                f"HEAD {h['details']['mean_children']:.1f}"
+            ).strip()
         lines.append(
             f"| {name} | {h['metric']} | {_fmt(b['value'], b['metric'])} | "
             f"{_fmt(h['value'], h['metric'])} | {ratio:.2f} | {note} |"
