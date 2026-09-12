@@ -143,10 +143,11 @@ execution.
 
 ## CI
 
-CI runs: `ruff format --check`, `ruff check` (including import sorting),
-coverage with 60% minimum, and distribution build/install check. Scope
-includes `minigun`, `tests` and `scripts` directories. mypy runs as a
-pre-push hook locally.
+CI runs on Python 3.12, 3.13 and 3.14: `ruff format --check`,
+`ruff check` (including import sorting), coverage with 60% minimum, and
+distribution build/install check. Scope includes `minigun`, `tests` and
+`scripts` directories. Locally, pre-commit validates conventional commit
+messages at commit-msg and runs mypy at pre-push.
 
 ## Project Configuration
 

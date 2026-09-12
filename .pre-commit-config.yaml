@@ -77,6 +77,13 @@ repos:
         args: [minigun, tests, scripts]
         pass_filenames: false
 
+      # Conventional commit message validation (commit-msg stage)
+      - id: conventional-commit-msg
+        name: Conventional Commit Message
+        entry: uv run python scripts/commit_msg_hook.py
+        language: system
+        stages: [commit-msg]
+
       # Type checking (pre-push stage - more comprehensive)
       - id: type-check-local
         name: Type Check (MyPy)

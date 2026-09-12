@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
 Git commit message validator for conventional commits.
-Install as a commit-msg hook to validate commit messages locally.
 
-To install:
-    ln -s ../../scripts/commit_msg_hook.py .git/hooks/commit-msg
-    chmod +x .git/hooks/commit-msg
+Runs as the commit-msg stage of pre-commit; install the hooks with
+``uv run pre-commit install``.
 """
 
 import re
