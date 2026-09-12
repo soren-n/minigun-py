@@ -101,7 +101,8 @@ Minigun is a property-based testing library organized in layers:
   the run seed and its description, and emits structured `Outcome` values.
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
-  one forked source per attempt, discards counted, optional deadline.
+  attempts drawn in sequence from the property's source, discards
+  counted, optional deadline.
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
   the time-sliced `TimeBudget`: no calibration; each property gets a share
   of the remaining time weighted by its attempt limit, unspent time flows
@@ -136,10 +137,12 @@ generators) and composed with `conj()` and `neg()`. `neg` distributes over
 
 ### Seeded Reproducibility
 Every run has a concrete integer seed, printed in the run header and on
-failure. Each property draws from `property_rng(seed, desc)`, and each
-attempt from a fork of that, so a property's samples depend only on the
-seed and its description; `--seed` replays a run exactly and the reported
-attempt index identifies the failing draw.
+failure. Each property draws from `property_rng(seed, desc)`, and its
+attempts draw in sequence from that source, so a property's samples depend
+only on the seed and its description; `--seed` replays a run exactly and
+the reported attempt index identifies the failing draw. Attempts are not
+forked individually: a fresh `random.Random` costs about 6 microseconds,
+more than a cheap attempt.
 
 ### Time Budget
 There is no calibration. `TimeBudget` hands each starting property an

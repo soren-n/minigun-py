@@ -6,8 +6,12 @@ locally minimal counterexample: one none of whose immediate alternatives
 fails. Every candidate is evaluated exactly once. An exception raised by
 the law counts as a failure and is reported with the counterexample.
 
-Each attempt draws from a fresh child of the property's random source, so
-an attempt is reproducible from the property's seed and its index alone.
+Attempts draw in sequence from the property's random source, so the whole
+sequence of draws is a function of the property's seed and the reported
+attempt index identifies the failing draw within it. Forking a child per
+attempt would make each attempt independent of the ones before it, but a
+fresh ``random.Random`` costs several microseconds to initialise, more than
+a cheap attempt itself.
 """
 
 from __future__ import annotations
@@ -111,8 +115,7 @@ def find_counter_example(
 ) -> Search:
     """Search for a counterexample to a law.
 
-    :param rng: The property's random source; one child is forked per
-        attempt.
+    :param rng: The property's random source, advanced by every attempt.
     :param law: The law under test.
     :param generators: Generators for the law's parameters by name.
     :param max_attempts: The maximum number of attempts.
@@ -131,7 +134,7 @@ def find_counter_example(
             and time.perf_counter() >= deadline
         ):
             return Search(attempt, discards, None)
-        dissection = arguments.sample(a.fork(rng))
+        dissection = arguments.sample(rng)
         if dissection is None:
             discards += 1
             continue
