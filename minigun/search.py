@@ -107,14 +107,19 @@ def find_counter_example(
     :param generators: Generators for the law's parameters by name.
     :param max_attempts: The maximum number of attempts.
     :param deadline: A ``time.perf_counter`` instant after which no further
-        attempt starts, or None for no deadline.
+        attempt starts, or None for no deadline. The first attempt always
+        runs.
 
     :return: The search outcome.
     """
     arguments = g.argument_pack(generators)
     discards = 0
     for attempt in range(max_attempts):
-        if deadline is not None and time.perf_counter() >= deadline:
+        if (
+            attempt > 0
+            and deadline is not None
+            and time.perf_counter() >= deadline
+        ):
             return Search(attempt, discards, None)
         dissection = arguments.sample(a.fork(rng))
         if dissection is None:

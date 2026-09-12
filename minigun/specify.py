@@ -252,7 +252,7 @@ class Allowance:
 
     :param max_attempts: The maximum number of attempts.
     :param deadline: A ``time.perf_counter`` instant after which no further
-        attempt starts, or None.
+        attempt starts, or None. The first attempt always runs.
     """
 
     max_attempts: int

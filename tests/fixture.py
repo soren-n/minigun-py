@@ -24,14 +24,23 @@ def _copies(files: dict[str, str]) -> bool:
     return {p.name: p.read_text() for p in copy.iterdir()} == files
 
 
-@prop("cleanup removes temporary paths and keeps permanent ones")
-def _cleanup(seed: int) -> bool:
-    temporary = f.temporary_path()
-    permanent = f.permanent_path()
-    f.cleanup_temporary()
+@prop("a scope removes its own temporary paths and keeps permanent ones")
+def _scope(seed: int) -> bool:
+    outer = f.temporary_path()
+    with f.scope():
+        inner = f.temporary_path()
+        permanent = f.permanent_path()
+        inner_existed = inner.is_dir()
     kept = permanent.is_dir()
     permanent.rmdir()
-    return not temporary.exists() and kept
+    return inner_existed and not inner.exists() and outer.is_dir() and kept
+
+
+@prop("cleanup removes every temporary path")
+def _cleanup(seed: int) -> bool:
+    temporary = f.temporary_path()
+    f.cleanup_temporary()
+    return not temporary.exists()
 
 
 @prop("a missing source is an error")
@@ -43,7 +52,7 @@ def _missing_source(seed: int) -> bool:
     return False
 
 
-spec = conj(_distinct, _copies, _cleanup, _missing_source)
+spec = conj(_distinct, _copies, _scope, _cleanup, _missing_source)
 
 
 if __name__ == "__main__":

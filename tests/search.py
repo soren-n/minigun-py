@@ -78,12 +78,12 @@ def _discards(attempts: int, rng: random.Random) -> bool:
     )
 
 
-@prop("an expired deadline stops the search before any attempt")
+@prop("an expired deadline stops the search after one attempt")
 def _deadline(rng: random.Random) -> bool:
     search = s.find_counter_example(
         rng, lambda x: True, {"x": g.ints()}, 100, deadline=time.perf_counter()
     )
-    return search.attempts == 0 and search.counter_example is None
+    return search.attempts == 1 and search.counter_example is None
 
 
 @prop("exceptions are counterexamples and are reported with the arguments")
