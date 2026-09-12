@@ -98,8 +98,9 @@ Minigun is a property-based testing library organized in layers:
 ### Core Data Structures
 - `shrink.py` - `Dissection[T]` (a value plus a lazy stream of shrunk
   alternatives, a rose tree), `unfold` from trimmers, and shrinkers for
-  primitives. Alternatives are ordered most aggressive first (QuickCheck
-  order), so a first-failing-child walk is a binary search.
+  primitives. Alternatives are ordered most aggressive first, and the
+  numeric shrinkers offer each alternative knowing the one before it held,
+  so a first-failing-child walk is a bisection to the exact boundary.
 - `cardinality.py` - Domain sizes as a saturating non-negative float
   (math.inf for unbounded), with `+`, `*`, `**`.
 
@@ -122,7 +123,9 @@ Minigun is a property-based testing library organized in layers:
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
-  counted, optional deadline.
+  counted, optional deadline. Shrinking keeps the kind of failure found:
+  a False result only shrinks to False results, an exception only to the
+  same exception type.
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
   the time-sliced `TimeBudget`: no calibration; each property gets a share
   of the remaining time weighted by its attempt limit, unspent time flows

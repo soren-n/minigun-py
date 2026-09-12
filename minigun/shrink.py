@@ -186,79 +186,101 @@ def boolean() -> Shrinker[bool]:
 ###############################################################################
 # Numbers
 ###############################################################################
+def _halve(distance: int) -> int:
+    """Half of a signed distance, truncated toward zero."""
+    return distance // 2 if distance >= 0 else -(-distance // 2)
+
+
 def integer(target: int) -> Shrinker[int]:
     """A shrinker for integers, shrinking toward a target.
 
-    Alternatives are the target, then values halving the distance toward
-    the target from the far side: ``target, v - d/2, v - d/4, ...`` where
-    ``d = v - target``. A first-failing-child search over this order finds
-    the exact boundary of a monotone failing region.
+    The alternatives of a value are the target, then the midpoints between
+    the target and the value, each closer to the value than the last. An
+    alternative is offered knowing that the one before it did not fail,
+    so its own alternatives lie between that one and itself. A
+    first-failing-child search over the tree is therefore a bisection: it
+    finds the exact boundary of a monotone failing region in a
+    logarithmic number of evaluations.
     """
 
-    def _trim(value: int) -> fs.Stream[int]:
-        def _iterate() -> Iterator[int]:
-            if value == target:
-                return
-            yield target
-            step = int((value - target) / 2)
-            while step != 0:
-                yield value - step
-                step = int(step / 2)
+    def _node(bound: int, value: int, from_target: bool) -> Dissection[int]:
+        # ``bound`` is the alternative offered before ``value``, or the
+        # target at the root; the alternatives of ``value`` lie strictly
+        # between the two.
+        def _iterate() -> Iterator[Dissection[int]]:
+            if from_target and value != target:
+                yield singleton(target)
+            previous = bound
+            while True:
+                candidate = previous + _halve(value - previous)
+                if candidate == previous:
+                    return
+                yield _node(previous, candidate, False)
+                previous = candidate
 
-        return _iterate
+        return Dissection(value, _iterate)
 
     def _impl(value: int) -> Dissection[int]:
-        return unfold(value, _trim)
+        return _node(target, value, True)
 
     return _impl
+
+
+#: Relative difference below which float alternatives stop being offered.
+_FLOAT_RESOLUTION = 1e-9
 
 
 def floating(target: float) -> Shrinker[float]:
     """A shrinker for floats, shrinking toward a target.
 
-    Alternatives are the target, the value truncated to an integer, then
-    values halving the distance toward the target. Non-finite values shrink
-    directly to the target.
+    The alternatives of a finite value are the target, the value truncated
+    to an integer when that is closer to the target, then the midpoints
+    between the target and the value as for integers, each offered knowing
+    the one before it did not fail. Halving stops once an alternative
+    differs from the value by less than one part in a billion, so a
+    search ends after a bounded number of evaluations instead of walking
+    the full precision of floats. Non-finite values shrink directly to the
+    target.
     """
 
-    def _to_target(value: float) -> fs.Stream[float]:
-        def _iterate() -> Iterator[float]:
-            if value != target:
-                yield target
+    def _closer(candidate: float, value: float) -> bool:
+        return abs(candidate - target) < abs(value - target)
 
-        return _iterate
-
-    def _truncate(value: float) -> fs.Stream[float]:
-        def _iterate() -> Iterator[float]:
-            if not math.isfinite(value):
+    def _node(
+        bound: float, value: float, from_target: bool
+    ) -> Dissection[float]:
+        def _iterate() -> Iterator[Dissection[float]]:
+            if value == target:
                 return
+            if not math.isfinite(value):
+                yield singleton(target)
+                return
+            if from_target:
+                yield singleton(target)
+            previous = bound
             truncated = float(math.trunc(value))
-            if truncated != value and abs(truncated - target) < abs(
-                value - target
+            if (
+                truncated != value
+                and _closer(truncated, value)
+                and _closer(bound, truncated)
             ):
-                yield truncated
-
-        return _iterate
-
-    def _halve(value: float) -> fs.Stream[float]:
-        def _iterate() -> Iterator[float]:
-            if not math.isfinite(value):
-                return
-            distance = abs(value - target)
-            step = (value - target) / 2
+                yield _node(bound, truncated, False)
+                previous = truncated
             while True:
-                candidate = value - step
-                # Stop once float arithmetic no longer makes progress: the
-                # candidate must be strictly closer to the target.
-                if candidate == target or abs(candidate - target) >= distance:
+                candidate = previous + (value - previous) / 2
+                if (
+                    candidate == previous
+                    or not _closer(candidate, value)
+                    or math.isclose(candidate, value, rel_tol=_FLOAT_RESOLUTION)
+                ):
                     return
-                yield candidate
-                step /= 2
+                yield _node(previous, candidate, False)
+                previous = candidate
 
-        return _iterate
+        return Dissection(value, _iterate)
 
     def _impl(value: float) -> Dissection[float]:
-        return unfold(value, _to_target, _truncate, _halve)
+        return _node(target, value, True)
 
     return _impl
 

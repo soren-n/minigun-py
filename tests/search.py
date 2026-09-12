@@ -37,8 +37,10 @@ def _evaluation_count(threshold: int, upper: int, rng: random.Random) -> bool:
     )
     if search.counter_example is None:
         return False
+    # A bisection halves the interval per evaluation; the final node's
+    # alternatives are walked once more to confirm the minimum.
     depth = math.log2(upper) + 2
-    return calls <= search.evaluations + depth * depth
+    return calls <= search.evaluations + 2 * depth
 
 
 @context(g.int_range(1, 4))
