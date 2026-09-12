@@ -4,7 +4,8 @@ import random
 
 import minigun.arbitrary as a
 import minigun.generate as g
-from minigun.specify import check, conj, context, prop
+from minigun import check
+from minigun.specify import conj, context, prop
 
 
 def _ordered(a_: int, b_: int) -> tuple[int, int]:

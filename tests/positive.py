@@ -4,7 +4,8 @@ from collections.abc import Callable
 import minigun.generate as g
 
 # Internal imports
-from minigun.specify import Spec, check, conj, context, prop
+from minigun import check
+from minigun.specify import Spec, conj, context, prop
 
 # The testing strategy for minigun is to exercise the bundled generators.
 # This will cover the following four areas of testing for each generator:

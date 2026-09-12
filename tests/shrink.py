@@ -6,7 +6,8 @@ import random
 import minigun.generate as g
 import minigun.shrink as s
 import minigun.stream as fs
-from minigun.specify import check, conj, context, prop
+from minigun import check
+from minigun.specify import conj, context, prop
 from tests._support import breadth_first
 
 

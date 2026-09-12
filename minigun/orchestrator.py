@@ -1,5 +1,5 @@
 """
-Test Orchestration
+Test orchestration
 
 Coordinates the two-phase, time-budgeted test run over a set of test
 modules:
@@ -11,18 +11,16 @@ modules:
 
 The orchestrator owns the run: it drives the evaluator in minigun.specify
 and pushes results into a reporter. Reporters never influence execution.
+``check`` is the standalone entry point without a time budget.
 """
 
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any
 
-from minigun import arbitrary as a
-from minigun import generate as g
-from minigun import specify
-from minigun.budget import BudgetAllocator
-from minigun.cardinality import Cardinality
+from minigun import fixture, specify
+from minigun import search as s
+from minigun.budget import BudgetAllocator, baseline_attempts
 from minigun.reporter import (
     CardinalityInfo,
     JSONReporter,
@@ -30,8 +28,10 @@ from minigun.reporter import (
     Reporter,
     RichReporter,
     TestResult,
+    format_arguments,
 )
-from minigun.specify import Spec
+from minigun.specify import Allowance, Outcome, Resolved, Spec
+from minigun.util import relax_stdout_errors
 
 ###############################################################################
 # Configuration
@@ -76,6 +76,31 @@ class OrchestrationConfig:
 
 
 ###############################################################################
+# Outcome rendering
+###############################################################################
+def _describe(outcome: Outcome) -> tuple[str | None, str | None]:
+    """The counterexample text and error message of an outcome."""
+    if outcome.holds:
+        return None, None
+    if outcome.error is not None:
+        return None, outcome.error
+    example = outcome.counter_example
+    if example is None:
+        return None, None
+    if example.exception is not None:
+        message = (
+            f'A test case of "{outcome.desc}" raised an exception:\n'
+            f"{type(example.exception).__name__}: {example.exception}"
+        )
+    else:
+        message = (
+            f'A test case of "{outcome.desc}" failed with the following '
+            "counter example:"
+        )
+    return format_arguments(example.args), message
+
+
+###############################################################################
 # Calibration
 ###############################################################################
 
@@ -86,11 +111,7 @@ _STABILITY_EPSILON = 0.15
 _STABILITY_WINDOW = 5
 
 
-def _calibrate_property(
-    prop: "specify._Prop[Any]",
-    generators: dict[str, g.Generator[Any]],
-    seed: int,
-) -> tuple[float, int]:
+def _calibrate_property(resolved: Resolved, seed: int) -> tuple[float, int]:
     """Measure a property's execution time per attempt.
 
     Runs single attempts until the timing coefficient of variation drops
@@ -98,25 +119,20 @@ def _calibrate_property(
     Failures found during calibration are ignored; calibration measures
     time, the execution phase judges the property.
     """
-    from minigun import search as s
-
     attempt_times: list[float] = []
-    rng = a.seed(seed)
-    start_time = time.time()
+    rng = specify.property_rng(seed, resolved.prop.desc)
+    start_time = time.perf_counter()
     total_attempts = 0
 
     for total_attempts in range(1, _MAX_CALIBRATION_ATTEMPTS + 1):
-        attempt_start = time.time()
-        s.find_counter_example(rng, prop.law, generators, 1)
-        attempt_times.append(time.time() - attempt_start)
+        attempt_start = time.perf_counter()
+        s.find_counter_example(rng, resolved.prop.law, resolved.generators, 1)
+        attempt_times.append(time.perf_counter() - attempt_start)
 
         if total_attempts < _MIN_CALIBRATION_ATTEMPTS:
             continue
 
         recent_times = attempt_times[-_STABILITY_WINDOW:]
-        if len(recent_times) < _STABILITY_WINDOW:
-            continue
-
         mean_time = sum(recent_times) / len(recent_times)
         if mean_time <= 0:
             continue
@@ -128,7 +144,7 @@ def _calibrate_property(
         if coefficient_of_variation < _STABILITY_EPSILON:
             break
 
-    return time.time() - start_time, total_attempts
+    return time.perf_counter() - start_time, total_attempts
 
 
 ###############################################################################
@@ -146,6 +162,9 @@ class TestOrchestrator:
         :param modules: The test modules to run.
 
         :return: Whether all properties held.
+
+        :raises SpecificationError: When a module's specification cannot
+            be resolved; raised before any property runs.
         """
         seed = (
             self.config.seed
@@ -155,40 +174,30 @@ class TestOrchestrator:
         reporter = _REPORTERS[self.config.output](self.config.time_budget, seed)
         allocator = BudgetAllocator(self.config.time_budget)
 
+        resolved_modules = [
+            (module, specify.resolve_all(module.spec)) for module in modules
+        ]
+
         reporter.start_run([module.name for module in modules])
 
-        # Calibration phase: time every resolvable property. Properties
-        # with missing generators are left unregistered; the execution
-        # phase reports them as failures.
-        for module in modules:
-            for prop in specify.collect_properties(module.spec):
-                resolution = specify.resolved_generators(prop)
-                if isinstance(resolution, str):
-                    continue
-                generators, total_cardinality = resolution
-                allocator.add_property(prop.desc, total_cardinality)
-                total_time, attempts = _calibrate_property(
-                    prop, generators, seed
+        for _, resolved_props in resolved_modules:
+            for resolved in resolved_props:
+                allocator.add_property(resolved.prop.desc, resolved.cardinality)
+                total_time, attempts = _calibrate_property(resolved, seed)
+                allocator.record_calibration(
+                    resolved.prop.desc, total_time, attempts
                 )
-                allocator.record_calibration(prop.desc, total_time, attempts)
 
         allocator.finalize_allocation()
         reporter.show_plan(allocator)
 
-        # Execution phase: evaluate every module's spec once.
-        def _attempts_for(
-            prop: "specify._Prop[Any]", total_cardinality: Cardinality
-        ) -> int:
-            return allocator.get_allocated_attempts(prop.desc)
+        def _allowance_for(resolved: Resolved) -> Allowance:
+            return Allowance(
+                allocator.get_allocated_attempts(resolved.prop.desc)
+            )
 
-        def _on_result(
-            desc: str,
-            success: bool,
-            duration: float,
-            counter_example: str | None,
-            error_message: str | None,
-        ) -> None:
-            budget = allocator.get_property_budget(desc)
+        def _on_outcome(outcome: Outcome) -> None:
+            budget = allocator.get_property_budget(outcome.desc)
             info = (
                 CardinalityInfo(
                     domain_size=budget.cardinality,
@@ -199,29 +208,71 @@ class TestOrchestrator:
                 if budget
                 else None
             )
+            counter_example, error_message = _describe(outcome)
             reporter.end_test(
                 TestResult(
-                    name=desc,
-                    success=success,
-                    duration=duration,
+                    name=outcome.desc,
+                    success=outcome.holds,
+                    duration=outcome.duration,
                     counter_example=counter_example,
                     error_message=error_message,
                     cardinality_info=info,
                 )
             )
 
-        rng = a.seed(seed)
         for module in modules:
             reporter.start_module(module.name)
             specify.evaluate(
-                rng,
+                seed,
                 module.spec,
-                _attempts_for,
-                reporter.start_test,
-                _on_result,
+                _allowance_for,
+                lambda prop: reporter.start_test(prop.desc),
+                _on_outcome,
             )
             reporter.end_module()
 
-        specify.cleanup_temporary()
+        fixture.cleanup_temporary()
         reporter.finish()
         return reporter.overall_success
+
+
+###############################################################################
+# Standalone check
+###############################################################################
+def check(spec: Spec, seed: int | None = None) -> bool:
+    """Check a specification, printing failures to stdout.
+
+    The standalone entry point without a time budget: every property gets
+    a baseline number of attempts derived from its input domain size.
+
+    :param spec: The specification to check.
+    :param seed: The run seed; when None a fresh seed is drawn and printed
+        on failure so the run can be reproduced.
+
+    :return: Whether the specification holds.
+
+    :raises SpecificationError: When the specification cannot be resolved.
+    """
+    relax_stdout_errors()
+    seed_value = seed if seed is not None else secrets.randbits(64)
+
+    def _allowance_for(resolved: Resolved) -> Allowance:
+        return Allowance(baseline_attempts(resolved.cardinality))
+
+    def _on_outcome(outcome: Outcome) -> None:
+        if outcome.holds:
+            return
+        counter_example, error_message = _describe(outcome)
+        print(f"FAIL: {outcome.desc}")
+        if error_message:
+            print(error_message)
+        if counter_example:
+            print(counter_example)
+
+    success = specify.evaluate(
+        seed_value, spec, _allowance_for, lambda prop: None, _on_outcome
+    )
+    if not success:
+        print(f"Reproduce with: check(spec, seed={seed_value})")
+    fixture.cleanup_temporary()
+    return success

@@ -8,7 +8,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from minigun.specify import Spec
+from minigun.specify import Spec, is_spec
+
+#: Package name under which discovered test modules are registered.
+_DISCOVERY_NAMESPACE = "minigun_discovered"
 
 
 def discover_test_modules(
@@ -40,14 +43,23 @@ def discover_test_modules(
         module_name = py_file.stem
 
         try:
-            # Dynamically import the module
-            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            # Import under a private namespace so discovered modules never
+            # shadow installed packages. Registering in sys.modules before
+            # execution is required for dataclasses with string
+            # annotations, which resolve them through sys.modules.
+            qualified = f"{_DISCOVERY_NAMESPACE}.{module_name}"
+            spec = importlib.util.spec_from_file_location(qualified, py_file)
             if not spec or not spec.loader:
                 broken_modules[module_name] = "could not create import spec"
                 continue
 
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            sys.modules[qualified] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                del sys.modules[qualified]
+                raise
         except Exception as error:
             broken_modules[module_name] = f"{type(error).__name__}: {error}"
             continue
@@ -64,7 +76,7 @@ def discover_test_modules(
             continue
 
         module_spec = module.spec
-        if not isinstance(module_spec, Spec):
+        if not is_spec(module_spec):
             broken_modules[module_name] = (
                 "'spec' attribute is not a minigun Spec"
             )

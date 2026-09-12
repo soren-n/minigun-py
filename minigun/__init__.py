@@ -1,10 +1,25 @@
 from minigun import generate
-from minigun.specify import Spec, check, conj, context, neg, prop
+from minigun.orchestrator import check
+from minigun.specify import (
+    Conj,
+    Neg,
+    Prop,
+    Spec,
+    SpecificationError,
+    conj,
+    context,
+    neg,
+    prop,
+)
 
 __version__ = "3.0.1"
 
 __all__ = [
+    "Conj",
+    "Neg",
+    "Prop",
     "Spec",
+    "SpecificationError",
     "__version__",
     "check",
     "conj",

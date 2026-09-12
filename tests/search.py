@@ -7,7 +7,8 @@ import time
 import minigun.arbitrary as a
 import minigun.generate as g
 import minigun.search as s
-from minigun.specify import check, conj, context, prop
+from minigun import check
+from minigun.specify import conj, context, prop
 
 
 @context(g.int_range(1, 500), g.int_range(500, 10000))

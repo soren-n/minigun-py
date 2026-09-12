@@ -7,7 +7,8 @@ from typing import Any
 import minigun.arbitrary as a
 import minigun.cardinality as c
 import minigun.generate as g
-from minigun.specify import check, conj, context, prop
+from minigun import check
+from minigun.specify import conj, context, prop
 from tests._support import (
     Choice,
     Lists,

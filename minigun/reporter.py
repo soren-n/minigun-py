@@ -11,6 +11,8 @@ renderings are provided:
 """
 
 import json
+import pprint
+import textwrap
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -24,6 +26,21 @@ from rich.table import Table
 from minigun.budget import BudgetAllocator
 from minigun.cardinality import Cardinality
 from minigun.util import relax_stdout_errors
+
+
+###############################################################################
+# Formatting
+###############################################################################
+def format_arguments(args: dict[str, Any]) -> str:
+    """Render counterexample arguments as ``name = value`` lines."""
+    lines: list[str] = []
+    for name, value in args.items():
+        rendered = pprint.pformat(value, width=72, sort_dicts=False)
+        if "\n" in rendered:
+            lines.append(f"{name} =\n{textwrap.indent(rendered, '  ')}")
+        else:
+            lines.append(f"{name} = {rendered}")
+    return "\n".join(lines)
 
 
 ###############################################################################

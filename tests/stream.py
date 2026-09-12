@@ -2,7 +2,8 @@
 
 import minigun.generate as g
 import minigun.stream as fs
-from minigun.specify import check, conj, context, prop
+from minigun import check
+from minigun.specify import conj, context, prop
 
 
 @prop("from_list round-trips through to_list")

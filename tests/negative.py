@@ -1,5 +1,6 @@
 # Internal imports
-from minigun.specify import check, conj, neg, prop
+from minigun import check
+from minigun.specify import conj, neg, prop
 
 
 ###############################################################################
