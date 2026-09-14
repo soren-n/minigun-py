@@ -377,7 +377,7 @@ Notice how the property is expressed at a high level: we simply state that runni
 
     If you would like to see an example of modeling in the real world, we would like to plug Typeset (one of our other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler.
 
-    `Typeset - An embedded DSL for defining source code pretty printers implemented in OCaml <https://github.com/soren-n/typeset-ocaml>`_
+    `Typeset - An embedded DSL for defining source code pretty printers <https://github.com/soren-n/typeset-py>`_
 
 Nondeterminism
 ^^^^^^^^^^^^^^
