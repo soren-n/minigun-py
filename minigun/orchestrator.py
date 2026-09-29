@@ -161,8 +161,8 @@ def run(config: RunConfig, modules: list[TestModule]) -> bool:
 def check(spec: Spec, seed: int | None = None) -> bool:
     """Check a specification without a time budget, printing failures.
 
-    Every property gets a baseline number of attempts derived from the
-    size of its argument domain.
+    Every property gets the number of attempts it declares, or else a
+    baseline number derived from the size of its argument domain.
 
     :return: Whether the specification holds.
 
@@ -172,7 +172,10 @@ def check(spec: Spec, seed: int | None = None) -> bool:
     resolved = specify.resolve_all(spec)
 
     def _allowance_for(r: Resolved) -> Allowance:
-        return Allowance(baseline_attempts(r.cardinality))
+        attempts = r.prop.attempts
+        if attempts is None:
+            return Allowance(baseline_attempts(r.cardinality))
+        return Allowance(attempts)
 
     return _evaluate_modules(
         seed_value,

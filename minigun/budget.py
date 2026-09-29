@@ -110,11 +110,19 @@ class PropertyPlan:
     attempt_limit: int
 
 
+def _limit(resolved: Resolved) -> int:
+    attempts = resolved.prop.attempts
+    return attempt_limit(resolved.cardinality) if attempts is None else attempts
+
+
 def plan(resolved: list[Resolved]) -> list[PropertyPlan]:
-    """The plan for a list of resolved properties."""
+    """The plan for a list of resolved properties.
+
+    A property's attempt limit is the number of attempts it declares, or
+    else the limit of its domain.
+    """
     return [
-        PropertyPlan(r.prop.desc, r.cardinality, attempt_limit(r.cardinality))
-        for r in resolved
+        PropertyPlan(r.prop.desc, r.cardinality, _limit(r)) for r in resolved
     ]
 
 

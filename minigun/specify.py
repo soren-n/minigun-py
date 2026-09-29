@@ -26,10 +26,15 @@ Example::
             return len(xs) <= 10
 
         spec = conj(_length, _bounded)
+
+A law whose precondition involves several parameters rejects arguments
+outside it with ``assume``; a property that is expensive or statistical
+says how many attempts it is worth with ``@prop(desc, attempts=n)``.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import time
 from collections.abc import Callable
@@ -88,11 +93,14 @@ class Prop:
     :param law: The law under test, called with keyword arguments.
     :param generators: A generator per parameter in signature order, None
         where none was inferred or supplied.
+    :param attempts: The number of attempts the property is worth, or None
+        to derive it from the size of its argument domain.
     """
 
     desc: str
     law: Callable[..., bool]
     generators: dict[str, g.Generator[Any] | None]
+    attempts: int | None = None
 
     @property
     def parameters(self) -> list[str]:
@@ -123,7 +131,9 @@ def is_spec(value: object) -> TypeGuard[Spec]:
     return isinstance(value, Prop | Neg | Conj)
 
 
-def prop(desc: str) -> Callable[[Callable[..., bool]], Prop]:
+def prop(
+    desc: str, attempts: int | None = None
+) -> Callable[[Callable[..., bool]], Prop]:
     """Decorate a law as a property.
 
     Generators are inferred from the law's parameter annotations; a
@@ -131,10 +141,20 @@ def prop(desc: str) -> Callable[[Callable[..., bool]], Prop]:
     until ``@context`` supplies one.
 
     :param desc: A description of the law.
+    :param attempts: The number of attempts the property is worth. By
+        default it is derived from the size of the argument domain, which
+        gives every property over an unbounded domain the same number; set
+        it for properties whose attempts are expensive or statistical. It
+        is the attempt count of ``check`` and the attempt limit of a
+        budgeted run, where the property's share of the time is
+        proportional to it.
 
+    :raises ValueError: When ``attempts`` is not positive.
     :raises SpecificationError: When the law's annotations cannot be
         resolved.
     """
+    if attempts is not None and attempts < 1:
+        raise ValueError(f"prop requires attempts >= 1, got {attempts}")
 
     def _decorate(law: Callable[..., bool]) -> Prop:
         try:
@@ -147,7 +167,7 @@ def prop(desc: str) -> Callable[[Callable[..., bool]], Prop]:
         generators: dict[str, g.Generator[Any] | None] = {}
         for name in inspect.signature(law).parameters:
             generators[name] = g.infer(hints[name]) if name in hints else None
-        return Prop(desc, law, generators)
+        return Prop(desc, law, generators, attempts)
 
     return _decorate
 
@@ -188,7 +208,7 @@ def context(
         for name, generator in zip(parameters, positional, strict=False):
             generators[name] = generator
         generators.update(named)
-        return Prop(spec.desc, spec.law, generators)
+        return dataclasses.replace(spec, generators=generators)
 
     return _decorate
 
