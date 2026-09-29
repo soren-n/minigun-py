@@ -22,6 +22,7 @@ Example::
 
 from __future__ import annotations
 
+import datetime
 import math
 import random
 import string
@@ -56,6 +57,9 @@ __all__ = [
     "big_ints",
     "int_range",
     "floats",
+    "float_range",
+    "dates",
+    "datetimes",
     "bounded_strings",
     "strings",
     "words",
@@ -414,6 +418,146 @@ def floats() -> Generator[float]:
     return Generator(_impl, c.INFINITE)
 
 
+#: Chance of drawing each bound of a float range.
+_BOUND_CHANCE = 0.05
+
+#: Chance of drawing zero or a tiny magnitude from a range holding zero.
+_TINY_CHANCE = 0.10
+
+#: Binary exponents between which tiny magnitudes are spread, from the
+#: smallest subnormal float up.
+_TINY_EXPONENTS = (-1074.0, -20.0)
+
+
+def _draw_tiny(rng: a.Rng, lower_bound: float, upper_bound: float) -> float:
+    """Draw zero, the smallest subnormal, or a tiny magnitude spread
+    log-uniformly above it, with a sign the range allows.
+
+    The range holds zero and is more than one point, so it extends to at
+    least one side of zero.
+    """
+    signs = [
+        sign
+        for sign, side in ((-1.0, lower_bound), (1.0, upper_bound))
+        if sign * side > 0
+    ]
+    sign = a.choice(rng, signs)
+    kind = a.draw_int(rng, 0, 2)
+    if kind == 0:
+        return sign * 0.0
+    if kind == 1:
+        magnitude = math.ulp(0.0)
+    else:
+        magnitude = 2.0 ** a.draw_float(rng, *_TINY_EXPONENTS)
+    limit = upper_bound if sign > 0 else -lower_bound
+    return sign * min(magnitude, limit)
+
+
+def float_range(
+    lower_bound: float, upper_bound: float, edges: bool = True
+) -> Generator[float]:
+    """A generator of floats ``x`` with ``lower_bound <= x <= upper_bound``.
+
+    Numerical code tends to fail at the limits of its parameters and near
+    zero, where products underflow and special functions lose precision.
+    With ``edges`` a draw is therefore each bound with probability 5%, and,
+    when the range holds zero, zero or a tiny magnitude with probability
+    10%: zero, the smallest subnormal float (``5e-324``), or a magnitude
+    spread log-uniformly between it and ``2^-20``. Every other draw is
+    uniform over the range. Without ``edges`` every draw is uniform.
+
+    Values shrink toward zero, or toward the bound nearest zero when zero
+    is outside the range, and never leave the range.
+
+    :raises ValueError: When a bound is NaN or infinite, or when
+        ``lower_bound > upper_bound``.
+    """
+    if not (math.isfinite(lower_bound) and math.isfinite(upper_bound)):
+        raise ValueError(
+            f"float_range requires finite bounds, got {lower_bound} and "
+            f"{upper_bound}"
+        )
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"float_range requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+    if lower_bound == upper_bound:
+        # Drawn as is, so a range of one signed zero keeps its sign.
+        return constant(lower_bound)
+    shrink = s.floating(max(lower_bound, min(0.0, upper_bound)))
+    holds_zero = lower_bound <= 0.0 <= upper_bound
+
+    def _impl(rng: a.Rng) -> s.Dissection[float] | None:
+        if edges:
+            roll = a.probability(rng)
+            if roll < _BOUND_CHANCE:
+                return shrink(lower_bound)
+            if roll < 2 * _BOUND_CHANCE:
+                return shrink(upper_bound)
+            if holds_zero and roll < 2 * _BOUND_CHANCE + _TINY_CHANCE:
+                return shrink(_draw_tiny(rng, lower_bound, upper_bound))
+        return shrink(a.draw_float(rng, lower_bound, upper_bound))
+
+    return Generator(_impl, c.INFINITE)
+
+
+###############################################################################
+# Dates and times
+###############################################################################
+def dates(
+    first: datetime.date, last: datetime.date
+) -> Generator[datetime.date]:
+    """A generator of dates ``d`` with ``first <= d <= last``, each equally
+    likely, shrinking toward ``first``.
+
+    :raises TypeError: When a bound is a ``datetime``; use ``datetimes``.
+    :raises ValueError: When ``first > last``.
+    """
+    if isinstance(first, datetime.datetime) or isinstance(
+        last, datetime.datetime
+    ):
+        raise TypeError("dates requires date bounds; use datetimes")
+    if first > last:
+        raise ValueError(f"dates requires first <= last, got {first} > {last}")
+
+    def _date(days: int) -> datetime.date:
+        return first + datetime.timedelta(days=days)
+
+    return map(_date, int_range(0, (last - first).days))
+
+
+def datetimes(
+    first: datetime.datetime,
+    last: datetime.datetime,
+    resolution: datetime.timedelta = datetime.timedelta(seconds=1),
+) -> Generator[datetime.datetime]:
+    """A generator of datetimes ``first + k * resolution`` with
+    ``first <= d <= last``, each equally likely, shrinking toward
+    ``first``.
+
+    Both bounds must be naive, or both aware; aware bounds are stepped in
+    their own time zones as ``datetime`` arithmetic does.
+
+    :raises TypeError: When one bound is naive and the other aware.
+    :raises ValueError: When ``first > last`` or ``resolution`` is not
+        positive.
+    """
+    if resolution <= datetime.timedelta(0):
+        raise ValueError(
+            f"datetimes requires a positive resolution, got {resolution}"
+        )
+    if first > last:
+        raise ValueError(
+            f"datetimes requires first <= last, got {first} > {last}"
+        )
+
+    def _datetime(steps: int) -> datetime.datetime:
+        return first + steps * resolution
+
+    return map(_datetime, int_range(0, (last - first) // resolution))
+
+
 ###############################################################################
 # Sequences
 ###############################################################################
@@ -531,17 +675,27 @@ def _draw_string(
     )
 
 
+def _check_alphabet(name: str, alphabet: str) -> None:
+    if len(alphabet) == 0:
+        raise ValueError(f"{name} requires a non-empty alphabet")
+
+
 def bounded_strings(
-    lower_bound: int, upper_bound: int, alphabet: str
+    lower_bound: int, upper_bound: int, alphabet: str = string.printable
 ) -> Generator[str]:
     """A generator of strings over ``alphabet`` with length ``l`` where
     ``lower_bound <= l <= upper_bound``.
 
+    Ticker symbols, for example, are
+    ``bounded_strings(1, 5, string.ascii_uppercase)``.
+
+    :param alphabet: The characters to draw from, each equally likely;
+        the printable ASCII characters by default.
+
     :raises ValueError: When the bounds are invalid or the alphabet is empty.
     """
     _check_bounds("bounded_strings", lower_bound, upper_bound)
-    if len(alphabet) == 0:
-        raise ValueError("bounded_strings requires a non-empty alphabet")
+    _check_alphabet("bounded_strings", alphabet)
 
     def _impl(rng: a.Rng) -> s.Dissection[str] | None:
         return _draw_string(rng, lower_bound, upper_bound, alphabet)
@@ -552,20 +706,24 @@ def bounded_strings(
     )
 
 
-def strings() -> Generator[str]:
-    """A generator of strings over the printable ASCII characters."""
+def strings(alphabet: str = string.printable) -> Generator[str]:
+    """A generator of strings of up to 100 characters, biased short.
+
+    :param alphabet: The characters to draw from, each equally likely;
+        the printable ASCII characters by default.
+
+    :raises ValueError: When the alphabet is empty.
+    """
+    _check_alphabet("strings", alphabet)
     return _unsized(
-        lambda rng, bound: _draw_string(rng, 0, bound, string.printable),
-        c.finite(len(string.printable)),
+        lambda rng, bound: _draw_string(rng, 0, bound, alphabet),
+        c.finite(len(alphabet)),
     )
 
 
 def words() -> Generator[str]:
     """A generator of strings over the ASCII letters."""
-    return _unsized(
-        lambda rng, bound: _draw_string(rng, 0, bound, string.ascii_letters),
-        c.finite(len(string.ascii_letters)),
-    )
+    return strings(string.ascii_letters)
 
 
 ###############################################################################
