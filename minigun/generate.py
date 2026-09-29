@@ -90,7 +90,7 @@ __all__ = [
 type Sampler[T] = Callable[[a.Rng], s.Dissection[T] | None]
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Generator[T]:
     """A generator over a type ``T``.
 
@@ -875,6 +875,13 @@ def argument_pack(
 def choice[T](*generators: Generator[T]) -> Generator[T]:
     """A generator drawing from one of the given generators, each equally
     likely.
+
+    Generators are covariant, so generators of different types combine
+    into a generator of a common supertype, a union or a protocol, when
+    the expected type is annotated::
+
+        def commands() -> g.Generator[Push | Pop]:
+            return g.choice(g.map(Push, g.ints()), g.constant(Pop()))
 
     :raises ValueError: When no generators are given.
     """

@@ -44,7 +44,7 @@ __all__ = [
 ###############################################################################
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Dissection[T]:
     """A value together with a lazy stream of shrunk alternatives.
 
