@@ -6,7 +6,8 @@ reporter's hooks; reporters accumulate outcomes and render them. Four
 renderings are provided:
 
     - PlainReporter: failures only, for the standalone ``check``
-    - QuietReporter: a pass/fail line per run, for CI pipelines
+    - QuietReporter: a pass/fail line per run and the failures, for CI
+      pipelines
     - RichReporter: console tables and progress lines
     - JSONReporter: structured output for tool integration
 """
@@ -232,7 +233,8 @@ class PlainReporter(Reporter):
 # Quiet reporter
 ###############################################################################
 class QuietReporter(Reporter):
-    """A pass/fail line, and on failure the failing properties and seed."""
+    """A pass/fail line, and on failure the failing properties, why each
+    failed, with its counterexample, and the seed."""
 
     def finish(self) -> None:
         print(f"Tests: {'PASS' if self.overall_success else 'FAIL'}")
@@ -242,6 +244,7 @@ class QuietReporter(Reporter):
             for outcome in module.outcomes:
                 if not outcome.holds:
                     print(f"FAIL [{module.name}] {outcome.desc}")
+                    print(textwrap.indent(describe_failure(outcome), "  "))
         print(f"Reproduce with: --seed {self.seed}")
 
 

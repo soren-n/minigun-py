@@ -93,7 +93,7 @@ def _failures(modules: list[tuple[str, list[Outcome]]]) -> list[Outcome]:
 
 
 @context(_modules())
-@prop("the quiet reporter prints one verdict line and one line per failure")
+@prop("the quiet reporter prints a verdict line and explains each failure")
 def _quiet(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     text = _feed(r.QuietReporter(seed, 10.0), modules)
     failures = _failures(modules)
@@ -103,6 +103,10 @@ def _quiet(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     return (
         lines[0] == verdict
         and len(fail_lines) == len(failures)
+        and all(
+            textwrap.indent(r.describe_failure(o), "  ") in text
+            for o in failures
+        )
         and ((f"--seed {seed}" in text) == bool(failures))
     )
 

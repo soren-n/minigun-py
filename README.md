@@ -104,7 +104,7 @@ minigun --time-budget 30 --output json
 minigun --time-budget 30 --seed 42
 ```
 
-The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it.
+The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. Failures are reported with their shrunk counterexample in every output mode.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran.
 
