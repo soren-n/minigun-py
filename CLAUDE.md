@@ -112,7 +112,12 @@ Minigun is a property-based testing library organized in layers:
   discard. Names avoid shadowing builtins: `ints()`, `lists()`,
   `strings()`. `rngs()` gives laws a reproducible random source (inferred
   from a `random.Random` annotation). `bind` and `lazy` report unbounded
-  cardinality; `with_cardinality` overrides it.
+  cardinality; `with_cardinality` overrides it. `float_range` draws its
+  bounds and, when it holds zero, zero and tiny magnitudes down to 5e-324
+  (`edges=False` for uniform only); `nonzero_int_range` excludes zero
+  without discarding; `dates`/`datetimes` map `int_range`;
+  string domains take an `alphabet`. `Generator` and `Dissection` are
+  frozen, so both are covariant in `T`.
 
 ### Testing Framework
 - `specify.py` - The DSL (`@prop`, `@context`, `conj()`, `neg()`) over a
@@ -121,12 +126,16 @@ Minigun is a property-based testing library organized in layers:
   generators or duplicate descriptions before anything runs. `evaluate`
   runs every property (no short-circuit), each from a source derived from
   the run seed and its description, and emits structured `Outcome` values.
+  `@prop(desc, attempts=n)` declares a property's attempts, overriding the
+  domain-derived count in both `check` and budgeted runs.
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
   counted, optional deadline. Shrinking keeps the kind of failure found:
   a False result only shrinks to False results, an exception only to the
-  same exception type.
+  same exception type. A law raising `Discard` (via `assume`/`discard`)
+  rejects its arguments: the attempt counts as a discard and the shrunk
+  alternative is skipped.
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
   the time-sliced `TimeBudget`: no calibration; each property gets a share
   of the remaining time weighted by its attempt limit, unspent time flows
@@ -141,8 +150,11 @@ Minigun is a property-based testing library organized in layers:
 - `orchestrator.py` - `run(RunConfig, modules)` for budgeted runs and
   `check(spec, seed)` for standalone checks; `OutputMode` selects the
   reporter.
-- `cli.py` - Command-line interface and test discovery (modules are
-  registered in `sys.modules` under a private namespace before execution).
+- `cli.py` - Command-line interface and test discovery. Modules are
+  registered in `sys.modules` before execution, as submodules of a package
+  per test directory (`minigun_discovered.d<digest>`, `__path__` the
+  directory) so relative helper imports work; `--modules` imports only the
+  selected modules.
 
 ## Key Patterns
 
@@ -150,7 +162,11 @@ Minigun is a property-based testing library organized in layers:
 Test modules in `tests/` export a module-level `spec: Spec` (typically
 `spec = conj(...)`). The CLI discovers these; a module that fails to
 import, or defines the retired `test()` contract, is reported as broken
-and fails the run. Modules can still be run standalone via
+and fails the run. With `--modules` only the selected modules are
+imported, and a selected module without a `spec` is an error. Files
+starting with an underscore are helpers, imported relatively
+(`from ._support import x`); property descriptions must be unique across
+all modules of a run. Modules can still be run standalone via
 `if __name__ == "__main__": check(spec)`.
 
 ### Property DSL
@@ -158,6 +174,9 @@ Properties are defined with `@prop` (generators inferred from type
 annotations via `get_type_hints`) plus optional `@context` (explicit
 generators) and composed with `conj()` and `neg()`. `neg` distributes over
 `conj` by De Morgan. Every property in a spec is evaluated and reported.
+A law rejects arguments outside a multi-parameter precondition with
+`assume(cond)` (counted as a discard), and `@prop(desc, attempts=n)`
+declares what an expensive or statistical property is worth.
 
 ### Seeded Reproducibility
 Every run has a concrete integer seed, printed in the run header and on
@@ -171,15 +190,16 @@ more than a cheap attempt.
 ### Time Budget
 There is no calibration. `TimeBudget` hands each starting property an
 `Allowance` (attempt limit plus a deadline) from the time remaining; the
-first attempt always runs. `check()` uses `baseline_attempts` and no
-deadline.
+first attempt always runs. `check()` uses a property's declared attempts,
+else `baseline_attempts`, and no deadline.
 
 ### No Silent Fallbacks
 Broken test modules, unknown module names, missing test directories,
-duplicate property descriptions, missing generators and invalid
-arguments are hard errors (`SpecificationError`, `ValueError`,
-`TypeError`). A property most of whose attempts are discarded fails
-loudly. Unreachable match arms use `typing.assert_never`.
+duplicate property descriptions (within a spec and across the modules of
+a run), missing generators and invalid arguments are hard errors
+(`SpecificationError`, `ValueError`, `TypeError`). A property most of
+whose attempts are discarded fails loudly. Unreachable match arms use
+`typing.assert_never`.
 
 ### Self-testing
 `tests/` holds one module per library module plus `algebra` (end-to-end

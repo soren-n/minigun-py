@@ -90,6 +90,8 @@ _NAMES = [
     "refine_bind",
     "refine_choice",
     "custom_generator",
+    "domains",
+    "preconditions",
     "modeling",
     "nondeterminism",
     "fixtures",

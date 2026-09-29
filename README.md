@@ -88,7 +88,7 @@ minigun --time-budget 30
 # Run tests from a different directory
 minigun --time-budget 60 --test-dir my_tests
 
-# Run specific test modules
+# Run specific test modules (only these are imported)
 minigun --time-budget 45 --modules my_tests other_tests
 
 # List available test modules
@@ -104,7 +104,7 @@ minigun --time-budget 30 --output json
 minigun --time-budget 30 --seed 42
 ```
 
-The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it.
+The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran.
 
@@ -152,6 +152,64 @@ from minigun import prop, context, generate as g
 @prop("division reverses multiplication")
 def test_div(x: int, y: int) -> bool:
     return (x * y) // y == x
+```
+
+### Bounded Domains
+
+```python
+import datetime
+import math
+import string
+
+from minigun import prop, context, generate as g
+
+
+@context(
+    g.float_range(0.0, 0.25),
+    g.dates(datetime.date(2000, 1, 1), datetime.date(2040, 12, 31)),
+    g.bounded_strings(1, 5, string.ascii_uppercase),
+)
+@prop("discount factors lie in the unit interval")
+def test_discount(rate: float, day: datetime.date, ticker: str) -> bool:
+    years = (day - datetime.date(2000, 1, 1)).days / 365
+    factor = math.exp(-rate * years)
+    return 0.0 < factor <= 1.0 and ticker.isupper()
+```
+
+`nonzero_int_range(lower, upper)` draws integers other than zero, for divisors and step counts. `float_range` draws its bounds and, when the range holds zero, zero and tiny magnitudes down to the smallest subnormal float more often than a uniform draw would; pass `edges=False` for uniform draws only. `datetimes(first, last, resolution)` draws datetimes on a grid.
+
+### Preconditions
+
+When a precondition relates several parameters, reject the arguments inside the law with `assume` (or `discard()`) instead of generating the parameters together:
+
+```python
+from minigun import prop, context, assume, generate as g
+
+side = g.int_range(1, 20)
+
+
+@context(side, side, side)
+@prop("proper triangles have a positive area")
+def test_heron(a: int, b: int, c: int) -> bool:
+    assume(a < b + c and b < a + c and c < a + b)
+    return (a + b + c) * (-a + b + c) * (a - b + c) * (a + b - c) > 0
+```
+
+Rejected attempts count as discards, and shrunk counterexamples always satisfy the precondition.
+
+### Declaring Effort
+
+A property whose attempts are expensive, or statistical, can declare how many attempts it is worth. `check` makes exactly that many, and under a time budget it is the property's attempt limit:
+
+```python
+import random
+from minigun import prop
+
+
+@prop("the mean of uniform samples is close to one half", attempts=50)
+def test_mean(rng: random.Random) -> bool:
+    mean = sum(rng.random() for _ in range(1000)) / 1000
+    return abs(mean - 0.5) < 0.1
 ```
 
 ### Combining Properties
@@ -204,13 +262,29 @@ A: Increase the time budget. Properties over unbounded domains absorb the extra 
 
 A: Yes, use the `@context` decorator with generators from `minigun.generate`, or write your own generator and shrinker. See the tutorial for details.
 
+**Q: Some properties are much more expensive than others. How do I balance them?**
+
+A: Declare their attempts with `@prop("...", attempts=n)`. The time budget is shared in proportion to attempt limits, and time a property leaves unspent flows to the properties after it.
+
+**Q: How do I measure coverage?**
+
+A: Run the CLI under coverage: `coverage run --source=mylib -m minigun --time-budget 60`, then `coverage report`. To combine with a pytest suite, run both with `coverage run -p` and then `coverage combine`.
+
+**Q: How do I share helpers between test modules?**
+
+A: Put them in files whose names start with an underscore, or in a subdirectory, and import them relatively: `from ._models import levy_models`. Test modules are imported as a package of their directory.
+
+**Q: One test module is broken. Can I still run the others?**
+
+A: Yes: `minigun --modules name ...` imports only the selected modules.
+
 **Q: How do I reproduce a failing run?**
 
 A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation.
 
 **Q: My property passed but was it tested?**
 
-A: A property whose generators discard most of their draws (for example an over-restrictive `g.filter`) fails with a message saying how many attempts were discarded, rather than passing silently.
+A: A property whose generators or assumptions discard most of its attempts (for example an over-restrictive `g.filter` or `assume`) fails with a message saying how many attempts were discarded, rather than passing silently.
 
 # Real-World Usage
 

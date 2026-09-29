@@ -143,7 +143,7 @@ If you have a :code:`tests/` directory with such test modules, you can run:
 
     $ minigun --time-budget 30
 
-This will discover all test modules and evaluate every property in every module. There is no calibration phase: the time budget is shared between the properties in proportion to how many attempts their input domains are worth, each property runs until it has spent its share or reached its attempt limit, and time a property leaves unspent flows to the properties after it. The output ends with a summary like:
+This will discover all test modules and evaluate every property in every module. A property's description is its identity in the run: the time budget, the report and the property's random source are all keyed by it, so descriptions must be unique across all modules of a run, not only within one. A description used twice is reported as an error naming both modules before anything runs. There is no calibration phase: the time budget is shared between the properties in proportion to how many attempts their input domains are worth, each property runs until it has spent its share or reached its attempt limit, and time a property leaves unspent flows to the properties after it. The output ends with a summary like:
 
 .. code-block:: text
 
@@ -162,11 +162,36 @@ Every run is seeded, and the seed is printed in the run header and again when a 
 
     $ minigun --time-budget 30 --seed 5015299433215186410
 
-See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules and :code:`--output quiet` or :code:`--output json` for CI and tool integration.
+See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules and :code:`--output quiet` or :code:`--output json` for CI and tool integration. With :code:`--modules`, only the selected modules are imported, so a module that fails to load does not stop the others from running on their own.
+
+Files whose names start with an underscore are not test modules; use them for helpers shared between test modules. Test modules are imported as a package of their directory, so they import helpers with relative imports, including from subdirectories:
+
+.. code-block:: python
+
+    from ._models import levy_models
+    from .support.market import quotes
+
+Measuring coverage
+^^^^^^^^^^^^^^^^^^
+The CLI is an ordinary Python module, so :code:`coverage` can run it like any other program. Start it under :code:`coverage run -m minigun` so that measurement begins before your test modules import the code under test, and name your package with :code:`--source`:
+
+.. code-block:: shell
+
+    $ coverage run --source=mylib -m minigun --time-budget 60
+    $ coverage report --show-missing
+
+To measure a project that also has a pytest suite in one report, run both in parallel mode and combine the data:
+
+.. code-block:: shell
+
+    $ coverage run -p --source=mylib -m pytest
+    $ coverage run -p --source=mylib -m minigun --time-budget 60
+    $ coverage combine
+    $ coverage report --show-missing
 
 .. note::
 
-    A property is only as good as the values it is tested on. When a generator discards most of its draws, for example because a :code:`g.filter` predicate is too restrictive, the property fails with a message saying how many attempts were discarded, rather than passing untested.
+    A property is only as good as the values it is tested on. When a generator discards most of its draws, for example because a :code:`g.filter` predicate is too restrictive, the property fails with a message saying how many attempts were discarded, rather than passing untested. A discard propagates to everything built from the discarded value: a list with one rejected element is discarded whole, so filtering elements multiplies the rate. For elements, prefer a generator of exactly the wanted values, such as :code:`g.nonzero_int_range` instead of :code:`g.filter(bool, g.ints())`.
 
 Composing specifications
 ------------------------
@@ -268,7 +293,7 @@ Lets consider an AST for arithmetic expressions:
    :start-after: # -- start: ast --
    :end-before: # -- end: ast --
 
-Now lets define a generator for this abstract datatype :code:`Arith`:
+Now lets define a generator for this abstract datatype :code:`Arith`. Generators are covariant in the type of their values, so generators of the individual node types combine into a generator of the union :code:`Arith` without any conversion, as long as the expected type is annotated, here by the return type of :code:`sized_arith`. The same holds for a protocol that several classes implement. Without an annotation, a type checker infers the nearest common supertype, often :code:`object`:
 
 .. literalinclude:: ../../examples/refine_choice.py
    :language: python
@@ -318,6 +343,56 @@ A generator is a sampler paired with the cardinality of its domain. A sampler ta
 Use :code:`minigun.cardinality.finite(n)` when the domain has :code:`n` values and :code:`minigun.cardinality.INFINITE` when it is unbounded for practical purposes.
 
 The bundled shrinkers cover the primitive types: :code:`s.boolean()` shrinks :code:`True` to :code:`False`; :code:`s.integer(target)` and :code:`s.floating(target)` shrink toward a target; :code:`s.string()` removes chunks of characters, largest first. :code:`s.map` combines dissections with a function, shrinking one argument at a time, and :code:`s.filter` restricts a dissection to values satisfying a predicate. Please also check out the implementation of Minigun, where there are generators and shrinkers for all of Python's built-in types.
+
+Bounded domains
+---------------
+Numerical code is usually specified over ranges of its parameters, and it tends to fail at the edges of those ranges: at the limits themselves, and near zero, where products underflow and special functions lose precision. :code:`minigun.generate.float_range(lower, upper)` draws floats in a closed range with those edges in mind. Each bound is drawn with probability 5%; when the range holds zero, zero and tiny magnitudes down to the smallest subnormal float, :code:`5e-324`, are drawn with probability 10% together; every other draw is uniform over the range. Pass :code:`edges=False` for uniform draws only. Values shrink toward zero, or toward the bound nearest zero, and never leave the range:
+
+.. literalinclude:: ../../examples/domains.py
+   :language: python
+   :start-after: # -- start: floats --
+   :end-before: # -- end: floats --
+
+:code:`nonzero_int_range(lower, upper)` draws the integers of a closed range other than zero, each equally likely, for divisors, step counts and similar parameters. A value shrinks toward the non-zero value nearest zero on its own side, so it never shrinks to zero:
+
+.. literalinclude:: ../../examples/domains.py
+   :language: python
+   :start-after: # -- start: nonzero --
+   :end-before: # -- end: nonzero --
+
+:code:`dates(first, last)` draws dates in a closed range, and :code:`datetimes(first, last, resolution)` draws the datetimes :code:`first + k * resolution` up to :code:`last`. Both shrink toward :code:`first`:
+
+.. literalinclude:: ../../examples/domains.py
+   :language: python
+   :start-after: # -- start: dates --
+   :end-before: # -- end: dates --
+
+:code:`strings(alphabet)` and :code:`bounded_strings(lower, upper, alphabet)` draw strings over an alphabet of your choosing, for example ticker symbols of one to five capital letters:
+
+.. literalinclude:: ../../examples/domains.py
+   :language: python
+   :start-after: # -- start: strings --
+   :end-before: # -- end: strings --
+
+Preconditions and effort
+------------------------
+A generator decides which values a single parameter takes. When a precondition relates several parameters, filtering would mean generating them together as one value; instead, the law can reject its arguments with :code:`minigun.assume(condition)`, or unconditionally with :code:`minigun.discard()`:
+
+.. literalinclude:: ../../examples/preconditions.py
+   :language: python
+   :start-after: # -- start: assume --
+   :end-before: # -- end: assume --
+
+A rejected attempt counts as a discard, just like a draw a filtered generator rejected, and a shrunk counterexample always satisfies the precondition. A property most of whose attempts are discarded fails, so a precondition that is rarely met is reported rather than silently leaving the law untested.
+
+By default the number of attempts a property gets follows the size of its argument domain, and every property over floats, or any other unbounded domain, gets the same number. A property whose attempts are expensive, or which is statistical so that each attempt is a whole experiment, can say how many attempts it is worth:
+
+.. literalinclude:: ../../examples/preconditions.py
+   :language: python
+   :start-after: # -- start: attempts --
+   :end-before: # -- end: attempts --
+
+:code:`check` makes exactly that many attempts. Under a time budget it is the property's attempt limit, and the property's share of the time is proportional to it: a property declaring 20 attempts receives a small share next to properties worth 10000, and only the time that earlier properties leave unspent flows on to it. The first attempt always runs.
 
 Modeling
 --------
@@ -463,6 +538,7 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to compose specifications.
 * Learned how to abstract over specifications.
 * Learned how to make user defined generators and shrinkers.
+* Learned about bounded domains, preconditions and declaring effort.
 * Learned about modeling.
 * Learned about testing nondeterministic systems by generating random operation orderings.
 * Learned about filesystem fixtures and running specifications from your own tools.
