@@ -40,6 +40,7 @@ from minigun import arbitrary as a
 from minigun import cardinality as c
 from minigun import generate as g
 from minigun import search as s
+from minigun.search import Discard, assume, discard
 
 
 class SpecificationError(Exception):
@@ -48,6 +49,9 @@ class SpecificationError(Exception):
 
 __all__ = [
     "SpecificationError",
+    "Discard",
+    "assume",
+    "discard",
     "Prop",
     "Neg",
     "Conj",
@@ -297,7 +301,8 @@ class Outcome:
     :param holds: Whether the property held, negation applied.
     :param duration: Wall-clock seconds spent.
     :param attempts: Attempts performed, including discards.
-    :param discards: Attempts whose arguments were rejected by a filter.
+    :param discards: Attempts whose arguments were rejected, by a filtered
+        generator or by the law through ``assume``.
     :param counter_example: The counterexample found, if any.
     :param error: Why the property did not hold when the reason is not a
         counterexample: no counterexample where one was expected, or too
@@ -343,7 +348,8 @@ def _judge(
     ):
         return False, (
             f'Property "{desc}" was not tested: {search.discards} of '
-            f"{search.attempts} attempts were discarded by its generators"
+            f"{search.attempts} attempts were discarded by its generators "
+            "or assumptions"
         )
     if search.counter_example is None:
         if negated:

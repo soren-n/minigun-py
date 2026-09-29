@@ -26,7 +26,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from minigun import arbitrary as a
 from minigun import generate as g
@@ -38,10 +38,48 @@ type Law = Callable[..., bool]
 
 __all__ = [
     "Law",
+    "Discard",
+    "assume",
+    "discard",
     "CounterExample",
     "Search",
     "find_counter_example",
 ]
+
+
+###############################################################################
+# Preconditions
+###############################################################################
+class Discard(Exception):
+    """Raised by a law to reject its arguments as outside its precondition."""
+
+
+def assume(condition: bool) -> None:
+    """Reject the law's arguments unless ``condition`` holds.
+
+    For preconditions that involve several parameters, where a filtered
+    generator would have to generate the parameters together::
+
+        @prop("the increment law can be tabulated at the step size")
+        def _tabulated(model: Model, dt: float) -> bool:
+            assume(model.tabulable(dt))
+            return check_table(model, dt)
+
+    Rejected attempts count as discards, and a property most of whose
+    attempts are discarded fails.
+
+    :raises Discard: When ``condition`` is false.
+    """
+    if not condition:
+        raise Discard()
+
+
+def discard() -> NoReturn:
+    """Reject the law's arguments unconditionally.
+
+    :raises Discard: Always.
+    """
+    raise Discard()
 
 
 ###############################################################################
@@ -67,7 +105,8 @@ class Search:
     """The outcome of a counterexample search.
 
     :param attempts: Attempts performed, including discarded ones.
-    :param discards: Attempts whose argument generation was rejected.
+    :param discards: Attempts whose arguments were rejected, by a filtered
+        generator or by the law.
     :param counter_example: The counterexample found, if any.
     """
 
@@ -84,10 +123,18 @@ class Search:
 ###############################################################################
 # Evaluation and trimming
 ###############################################################################
-def _evaluate(law: Law, args: dict[str, Any]) -> tuple[bool, Exception | None]:
-    """Evaluate a law once; an exception is a failed evaluation."""
+def _evaluate(
+    law: Law, args: dict[str, Any]
+) -> tuple[bool, Exception | None] | None:
+    """Evaluate a law once; an exception is a failed evaluation.
+
+    :return: Whether the law held and the exception it raised, or None
+        when the law discarded the arguments.
+    """
     try:
         return law(**args), None
+    except Discard:
+        return None
     except Exception as exception:
         return False, exception
 
@@ -112,7 +159,10 @@ def _trim(
     """
     while True:
         for child in dissection.shrinks():
-            holds, child_exception = _evaluate(law, child.head)
+            result = _evaluate(law, child.head)
+            if result is None:
+                continue
+            holds, child_exception = result
             if holds or not _same_failure(exception, child_exception):
                 continue
             dissection, exception = child, child_exception
@@ -150,10 +200,11 @@ def find_counter_example(
         ):
             return Search(attempt, discards, None)
         dissection = arguments.sample(rng)
-        if dissection is None:
+        result = None if dissection is None else _evaluate(law, dissection.head)
+        if dissection is None or result is None:
             discards += 1
             continue
-        holds, exception = _evaluate(law, dissection.head)
+        holds, exception = result
         if holds:
             continue
         args, exception = _trim(law, dissection, exception)
