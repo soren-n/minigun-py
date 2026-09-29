@@ -56,6 +56,7 @@ __all__ = [
     "ints",
     "big_ints",
     "int_range",
+    "nonzero_int_range",
     "floats",
     "float_range",
     "dates",
@@ -217,6 +218,12 @@ def filter[T](
 
     Draws failing the predicate are discarded; shrunk alternatives failing
     it are pruned. The cardinality is the inner generator's, an upper bound.
+
+    A discard propagates: a collection, tuple or mapped value with a
+    discarded part is discarded whole, so a predicate that rejects one
+    element in fifty discards a list of twenty elements a third of the
+    time. Prefer a generator of exactly the wanted values, such as
+    ``nonzero_int_range`` or a ``map`` onto the domain, for elements.
     """
 
     def _impl(rng: a.Rng) -> s.Dissection[T] | None:
@@ -392,6 +399,43 @@ def int_range(lower_bound: int, upper_bound: int) -> Generator[int]:
         return shrink(a.draw_int(rng, lower_bound, upper_bound))
 
     return Generator(_impl, c.finite(upper_bound - lower_bound + 1))
+
+
+def nonzero_int_range(lower_bound: int, upper_bound: int) -> Generator[int]:
+    """A generator of integers ``n`` with ``lower_bound <= n <= upper_bound``
+    and ``n != 0``, each equally likely.
+
+    For divisors, step counts and other parameters where zero is outside
+    the domain. Unlike filtering zero out of ``int_range``, nothing is
+    discarded, so a collection of such values is never discarded either.
+    A value shrinks toward the non-zero value nearest zero on its own side
+    of zero, and so never shrinks to zero or across it.
+
+    :raises ValueError: When ``lower_bound > upper_bound`` or the range
+        holds no value other than zero.
+    """
+    if lower_bound > upper_bound:
+        raise ValueError(
+            f"nonzero_int_range requires lower_bound <= upper_bound, got "
+            f"{lower_bound} > {upper_bound}"
+        )
+    if lower_bound == upper_bound == 0:
+        raise ValueError("nonzero_int_range requires a non-zero value in range")
+    holds_zero = lower_bound <= 0 <= upper_bound
+    shrink_positive = s.integer(max(1, lower_bound))
+    shrink_negative = s.integer(min(-1, upper_bound))
+
+    def _impl(rng: a.Rng) -> s.Dissection[int] | None:
+        # Drawn from a range one shorter, skipping over zero, so every
+        # non-zero value is equally likely.
+        value = a.draw_int(rng, lower_bound, upper_bound - holds_zero)
+        if holds_zero and value >= 0:
+            value += 1
+        return shrink_positive(value) if value > 0 else shrink_negative(value)
+
+    return Generator(
+        _impl, c.finite(upper_bound - lower_bound + 1 - holds_zero)
+    )
 
 
 ###############################################################################
