@@ -146,9 +146,10 @@ def prop(
         default it is derived from the size of the argument domain, which
         gives every property over an unbounded domain the same number; set
         it for properties whose attempts are expensive or statistical. It
-        is the attempt count of ``check`` and the attempt limit of a
-        budgeted run, where the property's share of the time is
-        proportional to it.
+        is the attempt count of ``check`` and of a budgeted run, where the
+        property makes every attempt even past its share of the time, and
+        the shares of the other properties leave it room in proportion to
+        it.
 
     :raises ValueError: When ``attempts`` is not positive.
     :raises SpecificationError: When the law's annotations cannot be

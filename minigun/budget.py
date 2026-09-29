@@ -5,8 +5,15 @@ A run has a fixed time budget and no calibration phase. Every property
 receives a share of the time remaining when it starts, weighted by its
 attempt limit, and runs until it has spent that share or reached the
 limit. Time a property leaves unspent flows to the properties after it, so
-the budget is held strictly while cheap properties never starve expensive
-ones.
+cheap properties never starve expensive ones.
+
+A property that declares its attempts always makes all of them: the count
+is a statement of what the property needs, such as the sample size of a
+statistical test, and a truncated run of it would pass without having
+tested what it claims. Its limit still weighs in the shares of the others,
+so they leave it room, but it has no deadline, and a run whose declared
+properties take longer than their share overruns its budget. The budget
+is held strictly for every other property.
 """
 
 from __future__ import annotations
@@ -103,11 +110,14 @@ class PropertyPlan:
     :param desc: The property's description.
     :param cardinality: The cardinality of its argument domain.
     :param attempt_limit: Its attempt limit.
+    :param declared: Whether the property declares its attempts, making
+        the limit a number of attempts it always makes.
     """
 
     desc: str
     cardinality: Cardinality
     attempt_limit: int
+    declared: bool = False
 
 
 def _limit(resolved: Resolved) -> int:
@@ -122,7 +132,10 @@ def plan(resolved: list[Resolved]) -> list[PropertyPlan]:
     else the limit of its domain.
     """
     return [
-        PropertyPlan(r.prop.desc, r.cardinality, _limit(r)) for r in resolved
+        PropertyPlan(
+            r.prop.desc, r.cardinality, _limit(r), r.prop.attempts is not None
+        )
+        for r in resolved
     ]
 
 
@@ -143,12 +156,16 @@ class TimeBudget:
         self._limits = {p.desc: p.attempt_limit for p in plans}
         if len(self._limits) != len(plans):
             raise ValueError("Property plans must have unique descriptions")
+        self._declared = {p.desc for p in plans if p.declared}
         self.total = total
         self.end = time.perf_counter() + total
         self._pending = set(self._limits)
 
     def allowance(self, desc: str) -> Allowance:
         """The allowance of a property that is starting now.
+
+        A property that declares its attempts gets them all, with no
+        deadline; any other gets a deadline at the end of its share.
 
         :raises KeyError: When the property is not in the plan or has
             already started.
@@ -158,6 +175,8 @@ class TimeBudget:
         self._pending.remove(desc)
         now = time.perf_counter()
         limit = self._limits[desc]
+        if desc in self._declared:
+            return Allowance(limit)
         remaining_limits = limit + sum(
             self._limits[pending] for pending in self._pending
         )

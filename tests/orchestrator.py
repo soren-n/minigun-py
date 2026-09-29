@@ -99,6 +99,25 @@ def _cross_module(seed: int) -> bool:
     return False
 
 
+@context(g.int_range(2, 5))
+@prop("a run makes every declared attempt, past the end of its budget")
+def _declared_floor(attempts: int, seed: int) -> bool:
+    calls = 0
+
+    @prop("slow", attempts=attempts)
+    def _slow(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        time.sleep(0.01)
+        return True
+
+    success, _ = _quiet_run(
+        o.RunConfig(0.005, seed=seed, output=o.OutputMode.QUIET),
+        [o.TestModule("m", conj(_threshold("fast", 10**9), _slow))],
+    )
+    return success and calls == attempts
+
+
 @prop("check prints failures with the seed and is silent on success")
 def _check(seed: int) -> bool:
     buffer = io.StringIO()
@@ -125,7 +144,15 @@ def _config(budget: float) -> bool:
     return budget > 0
 
 
-spec = conj(_holds_budget, _succeeds, _rejects, _cross_module, _check, _config)
+spec = conj(
+    _holds_budget,
+    _succeeds,
+    _rejects,
+    _cross_module,
+    _declared_floor,
+    _check,
+    _config,
+)
 
 
 if __name__ == "__main__":

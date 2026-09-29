@@ -159,7 +159,8 @@ Minigun is a property-based testing library organized in layers:
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
   the time-sliced `TimeBudget`: no calibration; each property gets a share
   of the remaining time weighted by its attempt limit, unspent time flows
-  on, and the budget is held strictly.
+  on, and the budget is held strictly, except that a property declaring
+  `attempts=n` always makes all n (no deadline; the run may overrun).
 - `reporter.py` - Passive sinks over `Outcome`: `PlainReporter` (for
   `check`), `QuietReporter`, `RichReporter`, `JSONReporter`. Also the
   stdout encoding guard and counterexample formatting.
@@ -211,8 +212,10 @@ more than a cheap attempt.
 ### Time Budget
 There is no calibration. `TimeBudget` hands each starting property an
 `Allowance` (attempt limit plus a deadline) from the time remaining; the
-first attempt always runs. `check()` uses a property's declared attempts,
-else `baseline_attempts`, and no deadline.
+first attempt always runs. A property that declares its attempts gets
+no deadline and makes all of them; its count still weighs in the others'
+shares. `check()` uses a property's declared attempts, else
+`baseline_attempts`, and no deadline.
 
 ### No Silent Fallbacks
 Broken test modules, unknown module names, `--select` patterns matching

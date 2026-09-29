@@ -143,7 +143,7 @@ If you have a :code:`tests/` directory with such test modules, you can run:
 
     $ minigun --time-budget 30
 
-This will discover all test modules and evaluate every property in every module. A property's description is its identity in the run: the time budget, the report and the property's random source are all keyed by it, so descriptions must be unique across all modules of a run, not only within one. A description used twice is reported as an error naming both modules before anything runs. There is no calibration phase: the time budget is shared between the properties in proportion to how many attempts their input domains are worth, each property runs until it has spent its share or reached its attempt limit, and time a property leaves unspent flows to the properties after it. The output ends with a summary like:
+This will discover all test modules and evaluate every property in every module. A property's description is its identity in the run: the time budget, the report and the property's random source are all keyed by it, so descriptions must be unique across all modules of a run, not only within one. A description used twice is reported as an error naming both modules before anything runs. There is no calibration phase: the time budget is shared between the properties in proportion to how many attempts their input domains are worth, each property runs until it has spent its share or reached its attempt limit, and time a property leaves unspent flows to the properties after it. A property that declares its attempts is the exception: it always makes all of them (see below). The output ends with a summary like:
 
 .. code-block:: text
 
@@ -398,7 +398,7 @@ By default the number of attempts a property gets follows the size of its argume
    :start-after: # -- start: attempts --
    :end-before: # -- end: attempts --
 
-:code:`check` makes exactly that many attempts. Under a time budget it is the property's attempt limit, and the property's share of the time is proportional to it: a property declaring 20 attempts receives a small share next to properties worth 10000, and only the time that earlier properties leave unspent flows on to it. The first attempt always runs.
+:code:`check` makes exactly that many attempts, and so does a budgeted run. A declared count is what the property needs, such as the sample size of a statistical test, so the time budget never cuts it short: the property has no deadline and runs until it has made every attempt. Its count still weighs in the time shares of the other properties, in proportion to it, so they leave it room; when its attempts take longer than that room, the run takes longer than its budget, and the summary shows the time used against the budget. Every other property is held to its share.
 
 Modeling
 --------

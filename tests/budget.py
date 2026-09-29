@@ -93,12 +93,17 @@ def _exhausted(limit: int, others: int) -> bool:
     return b.share(0.0, abs(limit), abs(limit) + abs(others)) == 0.0
 
 
-@context(g.bounded_lists(1, 12, g.int_range(1, 10000)), g.int_range(50, 2000))
-@prop("allowances never reach past the end of the budget")
-def _deadlines(limits: list[int], budget_ms: int, rng: random.Random) -> bool:
+@context(
+    g.bounded_lists(1, 12, g.tuples(g.int_range(1, 10000), g.bools())),
+    g.int_range(50, 2000),
+)
+@prop("only declared attempts outlast the budget, and are made in full")
+def _deadlines(
+    limits: list[tuple[int, bool]], budget_ms: int, rng: random.Random
+) -> bool:
     plans = [
-        b.PropertyPlan(f"p{i}", c.INFINITE, limit)
-        for i, limit in enumerate(limits)
+        b.PropertyPlan(f"p{i}", c.INFINITE, limit, declared)
+        for i, (limit, declared) in enumerate(limits)
     ]
     budget = b.TimeBudget(budget_ms / 1000, plans)
     order = list(plans)
@@ -107,6 +112,10 @@ def _deadlines(limits: list[int], budget_ms: int, rng: random.Random) -> bool:
         allowance = budget.allowance(plan.desc)
         if allowance.max_attempts != plan.attempt_limit:
             return False
+        if plan.declared:
+            if allowance.deadline is not None:
+                return False
+            continue
         if allowance.deadline is None or allowance.deadline > budget.end + 1e-9:
             return False
         if allowance.deadline < time.perf_counter() - 1e-3:
@@ -124,6 +133,22 @@ def _last_gets_rest(seed: int) -> bool:
     budget.allowance("a")
     last = budget.allowance("b")
     return last.deadline is not None and abs(last.deadline - budget.end) < 1e-3
+
+
+@context(g.int_range(1, 100), g.int_range(1, 100))
+@prop("a declared property leaves room in the shares of the others")
+def _declared_room(limit: int, declared: int) -> bool:
+    plans = [
+        b.PropertyPlan("a", c.INFINITE, limit),
+        b.PropertyPlan("d", c.INFINITE, declared, True),
+    ]
+    budget = b.TimeBudget(1.0, plans)
+    started = time.perf_counter()
+    first = budget.allowance("a")
+    if first.deadline is None:
+        return False
+    expected = (budget.end - started) * limit / (limit + declared)
+    return abs(first.deadline - started - expected) < 1e-3
 
 
 @prop("a property can start at most once and must be planned")
@@ -172,6 +197,7 @@ spec = conj(
     _exhausted,
     _deadlines,
     _last_gets_rest,
+    _declared_room,
     _once,
     _duplicate_plans,
     _rejects,

@@ -351,8 +351,17 @@ def _declared_limit(attempts: int) -> bool:
     def _declared(x: int) -> bool:
         return True
 
-    plans = b.plan(sp.resolve_all(_declared))
-    return _declared.attempts == attempts and plans[0].attempt_limit == attempts
+    @prop("derived")
+    def _derived(x: int) -> bool:
+        return True
+
+    plans = b.plan(sp.resolve_all(conj(_declared, _derived)))
+    return (
+        _declared.attempts == attempts
+        and plans[0].attempt_limit == attempts
+        and plans[0].declared
+        and not plans[1].declared
+    )
 
 
 @context(g.choice(g.int_range(0, 1), g.int_range(-10, 10)))
