@@ -1,10 +1,11 @@
 """Properties of the random source: draws, bounds, forking."""
 
 import random
+import sys
 
 import minigun.arbitrary as a
 import minigun.generate as g
-from minigun import check
+from minigun import assume, check
 from minigun.specify import conj, context, prop
 
 
@@ -37,6 +38,75 @@ def _draw_int_rejects(bounds: tuple[int, int], rng: random.Random) -> bool:
 def _draw_float_bounds(bounds: tuple[int, int], rng: random.Random) -> bool:
     lower, upper = bounds
     return lower <= a.draw_float(rng, float(lower), float(upper)) <= upper
+
+
+@context(
+    g.float_range(-sys.float_info.max, sys.float_info.max),
+    g.float_range(-sys.float_info.max, sys.float_info.max),
+)
+@prop("draw_float stays within bounds wider than the float span")
+def _draw_float_wide(x: float, y: float, rng: random.Random) -> bool:
+    lower, upper = min(x, y), max(x, y)
+    return lower <= a.draw_float(rng, lower, upper) <= upper
+
+
+@context(
+    g.float_range(-sys.float_info.max, -sys.float_info.max / 2),
+    g.float_range(sys.float_info.max / 2, sys.float_info.max),
+)
+@prop(
+    "draws over ranges wider than the float span spread across them",
+    attempts=20,
+)
+def _draw_float_spread(lower: float, upper: float, rng: random.Random) -> bool:
+    # Uniform over the range: each sign has probability at least a third
+    # and a bound is hit with probability 2^-53 per draw, so 200 draws see
+    # both signs and stay off the bounds but for a 1e-13 chance.
+    draws = [a.draw_float(rng, lower, upper) for _ in range(200)]
+    return (
+        any(x < 0 for x in draws)
+        and any(x > 0 for x in draws)
+        and not any(x in (lower, upper) for x in draws)
+    )
+
+
+@prop("draw_float rejects inverted bounds")
+def _draw_float_rejects(lower: float, upper: float, rng: random.Random) -> bool:
+    assume(lower > upper)
+    try:
+        a.draw_float(rng, lower, upper)
+    except ValueError:
+        return True
+    return False
+
+
+@context(
+    g.bounded_lists(0, 4, g.int_range(-3, 3)), g.bounded_lists(0, 4, g.ints())
+)
+@prop("weighted_choice rejects empty, mismatched or invalid weights")
+def _weighted_rejects(
+    weights: list[int], items: list[int], rng: random.Random
+) -> bool:
+    assume(
+        not items
+        or len(weights) != len(items)
+        or min(weights) < 0
+        or sum(weights) == 0
+    )
+    try:
+        a.weighted_choice(rng, weights, items)
+    except ValueError:
+        return True
+    return False
+
+
+@prop("choice rejects an empty sequence")
+def _choice_rejects(rng: random.Random) -> bool:
+    try:
+        a.choice(rng, [])
+    except ValueError:
+        return True
+    return False
 
 
 @prop("probability lies in the unit interval")
@@ -95,6 +165,11 @@ spec = conj(
     _draw_int_bounds,
     _draw_int_rejects,
     _draw_float_bounds,
+    _draw_float_wide,
+    _draw_float_spread,
+    _draw_float_rejects,
+    _weighted_rejects,
+    _choice_rejects,
     _probability_unit,
     _choice_member,
     _weighted_choice_zero,

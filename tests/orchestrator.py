@@ -76,6 +76,29 @@ def _rejects(seed: int) -> bool:
     return False
 
 
+@prop("descriptions shared across modules are rejected before anything runs")
+def _cross_module(seed: int) -> bool:
+    modules = [
+        o.TestModule("first", _threshold("shared", 1)),
+        o.TestModule("second", _threshold("shared", 2)),
+    ]
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            o.run(
+                o.RunConfig(0.3, seed=seed, output=o.OutputMode.QUIET), modules
+            )
+    except SpecificationError as error:
+        message = str(error)
+        return (
+            buffer.getvalue() == ""
+            and '"shared"' in message
+            and '"first"' in message
+            and '"second"' in message
+        )
+    return False
+
+
 @prop("check prints failures with the seed and is silent on success")
 def _check(seed: int) -> bool:
     buffer = io.StringIO()
@@ -92,17 +115,17 @@ def _check(seed: int) -> bool:
     )
 
 
-@context(g.int_range(-10, 0))
-@prop("a non-positive budget is rejected by the configuration")
-def _config(budget: int) -> bool:
+@context(g.float_range(-1.0, 1.0))
+@prop("the configuration rejects exactly the non-positive budgets")
+def _config(budget: float) -> bool:
     try:
-        o.RunConfig(float(budget))
+        o.RunConfig(budget)
     except ValueError:
-        return True
-    return False
+        return budget <= 0
+    return budget > 0
 
 
-spec = conj(_holds_budget, _succeeds, _rejects, _check, _config)
+spec = conj(_holds_budget, _succeeds, _rejects, _cross_module, _check, _config)
 
 
 if __name__ == "__main__":

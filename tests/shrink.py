@@ -57,6 +57,59 @@ def _floating(target: float, value: float) -> bool:
     )
 
 
+@prop("every node of a float shrink tree lies between target and root")
+def _floating_tree(target: float, value: float) -> bool:
+    low, high = min(target, value), max(target, value)
+    return all(
+        low <= node.head <= high
+        for node in breadth_first(s.floating(target)(value), 40)
+    )
+
+
+@context(flag=g.int_range(0, 1))
+@prop("every shrinker's dissection has the value itself as its head")
+def _heads(
+    flag: int, target: int, number: int, point: float, real: float, text: str
+) -> bool:
+    # The flag is drawn as an integer: g.bools() is built on the boolean
+    # shrinker under test, and a broken shrinker would draw only the
+    # values it gets right.
+    return (
+        s.boolean()(bool(flag)).head is bool(flag)
+        and s.integer(target)(number).head == number
+        and s.floating(point)(real).head == real
+        and s.string()(text).head == text
+    )
+
+
+@prop("below the root, numeric alternatives never repeat the target")
+def _target_once(target: int, value: int, point: float, real: float) -> bool:
+    # The root offers the target first; every node below it is known to
+    # lie between a passing bound and itself, so offering the target again
+    # would only spend an evaluation.
+    def _repeats[T](dissection: s.Dissection[T], goal: T) -> bool:
+        return any(
+            child.head == goal
+            for node in breadth_first(dissection, 40)
+            if node is not dissection
+            for child in node.shrinks()
+        )
+
+    return not _repeats(s.integer(target)(value), target) and not _repeats(
+        s.floating(point)(real), point
+    )
+
+
+@prop("a float's integer truncation follows the target when it lies between")
+def _truncation(target: float, value: float) -> bool:
+    truncated = float(math.trunc(value))
+    between = min(target, value) < truncated < max(target, value)
+    if value == target or truncated == value or not between:
+        return True
+    candidates = [node.head for node in s.floating(target)(value).shrinks()]
+    return candidates[:2] == [target, truncated]
+
+
 @prop("string alternatives are strictly shorter, emptiest first")
 def _string(value: str) -> bool:
     candidates = [node.head for node in s.string()(value).shrinks()]
@@ -148,6 +201,10 @@ spec = conj(
     _integer_tree,
     _boolean,
     _floating,
+    _floating_tree,
+    _heads,
+    _target_once,
+    _truncation,
     _string,
     _chunks,
     _unfold_lazy,

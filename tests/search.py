@@ -11,7 +11,9 @@ from minigun import check
 from minigun.specify import conj, context, prop
 
 
-@context(g.int_range(1, 500), g.int_range(500, 10000))
+# With upper at least twice the threshold, half the draws fail the law,
+# so 200 attempts find a counterexample but for a 2^-200 chance.
+@context(g.int_range(1, 500), g.int_range(1000, 10000))
 @prop("integer counterexamples shrink to the exact boundary")
 def _integer_boundary(threshold: int, upper: int, rng: random.Random) -> bool:
     search = s.find_counter_example(
@@ -22,7 +24,7 @@ def _integer_boundary(threshold: int, upper: int, rng: random.Random) -> bool:
     return search.counter_example.args == {"x": threshold}
 
 
-@context(g.int_range(1, 500), g.int_range(500, 10000))
+@context(g.int_range(1, 500), g.int_range(1000, 10000))
 @prop("shrinking evaluates the law a logarithmic number of times")
 def _evaluation_count(threshold: int, upper: int, rng: random.Random) -> bool:
     calls = 0
@@ -41,6 +43,44 @@ def _evaluation_count(threshold: int, upper: int, rng: random.Random) -> bool:
     # alternatives are walked once more to confirm the minimum.
     depth = math.log2(upper) + 2
     return calls <= search.evaluations + 2 * depth
+
+
+@context(g.float_range(1.0, 1000.0), g.float_range(2.0, 10.0))
+@prop("float counterexamples shrink to the boundary")
+def _float_boundary(
+    threshold: float, spread: float, rng: random.Random
+) -> bool:
+    # At least half of the range fails, as for integers; halving stops one
+    # part in a billion from the boundary, well inside the tolerance.
+    search = s.find_counter_example(
+        rng,
+        lambda x: x < threshold,
+        {"x": g.float_range(0.0, threshold * spread)},
+        200,
+    )
+    if search.counter_example is None:
+        return False
+    x = search.counter_example.args["x"]
+    return threshold <= x <= threshold * (1 + 1e-6)
+
+
+@context(g.int_range(1, 50))
+@prop("a search stops at the attempt that finds a counterexample")
+def _stops(failing: int, rng: random.Random) -> bool:
+    calls = 0
+
+    def _law(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        return calls < failing
+
+    search = s.find_counter_example(rng, _law, {"x": g.ints()}, 100)
+    return (
+        search.counter_example is not None
+        and search.counter_example.attempt == failing - 1
+        and search.attempts == failing
+        and search.discards == 0
+    )
 
 
 @context(g.int_range(1, 4))
@@ -77,6 +117,42 @@ def _discards(attempts: int, rng: random.Random) -> bool:
         and search.attempts == attempts
         and search.discards == attempts
         and search.evaluations == 0
+    )
+
+
+@context(g.int_range(1, 50))
+@prop("arguments a law rejects with assume are counted as discards")
+def _assume_discards(attempts: int, rng: random.Random) -> bool:
+    def _law(x: int) -> bool:
+        s.assume(False)
+        return False
+
+    search = s.find_counter_example(rng, _law, {"x": g.ints()}, attempts)
+    return (
+        search.counter_example is None
+        and search.discards == attempts
+        and search.evaluations == 0
+    )
+
+
+@context(g.int_range(1, 500))
+@prop("counterexamples shrink only through arguments the law accepts")
+def _assume_shrinks(threshold: int, rng: random.Random) -> bool:
+    def _law(x: int) -> bool:
+        if x % 2 == 1:
+            s.discard()
+        return x < threshold
+
+    search = s.find_counter_example(
+        rng, _law, {"x": g.int_range(0, 10000)}, 200
+    )
+    if search.counter_example is None:
+        return False
+    x = search.counter_example.args["x"]
+    return (
+        x % 2 == 0
+        and x >= threshold
+        and search.counter_example.exception is None
     )
 
 
@@ -147,9 +223,13 @@ def _reproducible(seed: int) -> bool:
 spec = conj(
     _integer_boundary,
     _evaluation_count,
+    _float_boundary,
+    _stops,
     _list_minimal,
     _always_holds,
     _discards,
+    _assume_discards,
+    _assume_shrinks,
     _deadline,
     _exception,
     _failure_kind,

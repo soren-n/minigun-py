@@ -1,12 +1,13 @@
 """Properties of specifications and their evaluation, modeled as trees."""
 
 import random
+import time
 from dataclasses import dataclass
 from typing import Any, assert_never
 
 import minigun.generate as g
 import minigun.specify as sp
-from minigun import check
+from minigun import assume, check
 from minigun.specify import Spec, conj, context, neg, prop
 
 ###############################################################################
@@ -251,6 +252,102 @@ def _discards(seed: int) -> bool:
     )
 
 
+@prop("a property whose law rejects everything fails loudly")
+def _assumptions(seed: int) -> bool:
+    @prop("never accepted")
+    def _never(x: int) -> bool:
+        sp.assume(False)
+        return True
+
+    holds, outcomes = run(_never, seed)
+    outcome = outcomes[0]
+    return (
+        not holds
+        and outcome.error is not None
+        and "discarded" in outcome.error
+        and outcome.discards == outcome.attempts
+    )
+
+
+@context(g.int_range(1, 50), g.int_range(0, 50))
+@prop("a property fails for discards exactly above the discard ratio")
+def _discard_ratio(attempts: int, discarded: int, seed: int) -> bool:
+    assume(discarded <= attempts)
+    calls = 0
+
+    @prop("partly discarded")
+    def _partly(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        sp.assume(calls > discarded)
+        return True
+
+    holds, outcomes = run(_partly, seed, attempts)
+    tested = discarded < attempts
+    within = discarded <= sp.MAX_DISCARD_RATIO * attempts
+    return holds == (tested and within) and outcomes[0].discards == discarded
+
+
+@context(trees())
+@prop("reported durations lie within the wall time of the evaluation")
+def _durations(tree: Tree, seed: int) -> bool:
+    started = time.perf_counter()
+    _, outcomes = run(build(tree), seed)
+    elapsed = time.perf_counter() - started
+    return all(0.0 <= o.duration <= elapsed for o in outcomes)
+
+
+###############################################################################
+# Declared attempts
+###############################################################################
+
+
+@context(g.int_range(1, 200))
+@prop("check makes exactly the attempts a property declares")
+def _declared_attempts(attempts: int, seed: int) -> bool:
+    import contextlib
+    import io
+
+    calls = 0
+
+    @prop("counted", attempts=attempts)
+    def _counted(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        return True
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        holds = check(_counted, seed=seed)
+    return holds and calls == attempts
+
+
+@context(g.int_range(1, 200))
+@prop("declared attempts survive context and set the budgeted limit")
+def _declared_limit(attempts: int) -> bool:
+    import minigun.budget as b
+
+    @context(g.bools())
+    @prop("declared", attempts=attempts)
+    def _declared(x: int) -> bool:
+        return True
+
+    plans = b.plan(sp.resolve_all(_declared))
+    return _declared.attempts == attempts and plans[0].attempt_limit == attempts
+
+
+@context(g.choice(g.int_range(0, 1), g.int_range(-10, 10)))
+@prop("prop accepts exactly the positive attempt counts")
+def _declared_positive(attempts: int) -> bool:
+    if attempts < 1:
+        return _raises(lambda: prop("bad", attempts=attempts), ValueError)
+
+    @prop("good", attempts=attempts)
+    def _law(x: int) -> bool:
+        return True
+
+    return _law.attempts == attempts
+
+
 ###############################################################################
 # Construction errors
 ###############################################################################
@@ -277,6 +374,14 @@ def _missing_generator(seed: int) -> bool:
         return True
 
     return _raises(lambda: run(_law, seed), sp.SpecificationError)
+
+
+@prop("a law whose annotations cannot be resolved is rejected by prop")
+def _unresolvable(seed: int) -> bool:
+    def _law(x: "NoSuchType") -> bool:  # type: ignore[name-defined]  # noqa: F821
+        return True
+
+    return _raises(lambda: prop("unresolvable")(_law), sp.SpecificationError)
 
 
 @prop("context validates its arguments")
@@ -326,8 +431,15 @@ spec = conj(
     _independent,
     _attempt_index,
     _discards,
+    _assumptions,
+    _discard_ratio,
+    _durations,
+    _declared_attempts,
+    _declared_limit,
+    _declared_positive,
     _duplicates,
     _missing_generator,
+    _unresolvable,
     _context_validation,
     _string_annotations,
     _check_prints,

@@ -25,9 +25,11 @@ def _filter_model(items: list[int]) -> bool:
 
 
 @prop("concat agrees with list concatenation")
-def _concat_model(xs: list[int], ys: list[int]) -> bool:
-    stream = fs.concat(fs.from_list(xs), fs.from_list(ys))
-    return fs.to_list(stream, len(xs) + len(ys)) == xs + ys
+def _concat_model(xss: list[list[int]]) -> bool:
+    stream = fs.concat(*[fs.from_list(xs) for xs in xss])
+    expected = [x for xs in xss for x in xs]
+    # Read to exhaustion, so the stream must end after the last value.
+    return list(stream()) == expected
 
 
 @prop("braid interleaves round-robin")
@@ -39,7 +41,8 @@ def _braid_model(xs: list[int], ys: list[int]) -> bool:
         if index < len(ys):
             expected.append(ys[index])
     stream = fs.braid(fs.from_list(xs), fs.from_list(ys))
-    return fs.to_list(stream, len(expected)) == expected
+    # Read to exhaustion, so the stream must end after the last value.
+    return list(stream()) == expected
 
 
 @prop("prepend and append place values at the ends")

@@ -68,6 +68,31 @@ def _render(a: c.Cardinality) -> bool:
     return text.isascii() and (text == "inf") == (not a.is_finite)
 
 
+@context(
+    g.choice(
+        g.one_of([999, 1000, 999_999, 1_000_000]),
+        g.int_range(0, 2000),
+        g.int_range(990_000, 1_010_000),
+        g.big_nats(),
+    )
+)
+@prop("sizes render plainly below a thousand, grouped below a million")
+def _render_sizes(size: int) -> bool:
+    text = str(c.finite(size))
+    if size < 1000:
+        return text == str(size)
+    if size < 1_000_000:
+        return text == f"{size:,}"
+    return text == f"{float(size):.1e}"
+
+
+@prop("cardinalities are hashable values")
+def _hashable(size: int) -> bool:
+    # Generators are hashed with their cardinality, e.g. by map_set.
+    size = abs(size)
+    return len({c.finite(size), c.finite(size), c.INFINITE}) == 2
+
+
 @context(g.ints())
 @prop("a negative size is rejected")
 def _negative(size: int) -> bool:
@@ -87,6 +112,8 @@ spec = conj(
     _saturates,
     _power,
     _render,
+    _render_sizes,
+    _hashable,
     _negative,
 )
 

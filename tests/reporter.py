@@ -1,8 +1,11 @@
 """Properties of the reporters, fed synthetic outcomes."""
 
+import ast
 import contextlib
 import io
 import json
+import textwrap
+from typing import Any
 
 import minigun.budget as b
 import minigun.cardinality as c
@@ -17,40 +20,44 @@ from minigun.specify import Outcome, conj, context, prop
 ###############################################################################
 
 
-def _outcome(
-    index: int, holds: bool, attempts: int, failing_value: int
-) -> Outcome:
-    example = (
-        None
-        if holds
-        else s.CounterExample(
-            {"x": failing_value, "name": f"v{index}"}, attempts - 1
-        )
-    )
+#: How a synthetic outcome ends: it holds, it has a counterexample found
+#: by a False result or by an exception, or it failed without one (too
+#: many discards, or a negation that found nothing).
+_KINDS = ["holds", "false", "exception", "error"]
+
+
+def _outcome(index: int, kind: str, attempts: int, value: int) -> Outcome:
+    # A list long enough to be rendered over several lines when it is.
+    args = {"x": value, "name": f"v{index}", "xs": list(range(abs(value) % 40))}
+    example = None
+    if kind == "false":
+        example = s.CounterExample(args, attempts - 1)
+    elif kind == "exception":
+        example = s.CounterExample(args, attempts - 1, ValueError(f"e{index}"))
     return Outcome(
         desc=f"property {index}",
         negated=False,
-        holds=holds,
+        holds=kind == "holds",
         duration=0.001 * attempts,
         attempts=attempts,
-        discards=0,
+        discards=attempts if kind == "error" else 0,
         counter_example=example,
-        error=None,
+        error=f"not tested {index}" if kind == "error" else None,
     )
 
 
 def _module(
-    index: int, verdicts: list[tuple[bool, int, int]]
+    index: int, verdicts: list[tuple[str, int, int]]
 ) -> tuple[str, list[Outcome]]:
     outcomes = [
-        _outcome(index * 100 + i, holds, max(1, attempts), value)
-        for i, (holds, attempts, value) in enumerate(verdicts)
+        _outcome(index * 100 + i, kind, max(1, attempts), value)
+        for i, (kind, attempts, value) in enumerate(verdicts)
     ]
     return f"module{index}", outcomes
 
 
 def _modules() -> g.Generator[list[tuple[str, list[Outcome]]]]:
-    verdict = g.tuples(g.bools(), g.int_range(1, 50), g.ints())
+    verdict = g.tuples(g.one_of(_KINDS), g.int_range(1, 50), g.ints())
     module = g.map(_module, g.small_nats(), g.bounded_lists(0, 5, verdict))
     return g.bounded_lists(0, 4, module)
 
@@ -100,6 +107,16 @@ def _quiet(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     )
 
 
+def _json_failure(test: dict[str, Any]) -> bool:
+    """Whether a JSON test entry reports its synthetic failure verbatim."""
+    index = test["name"].split()[-1]
+    example = test["counter_example"]
+    return test["error"] in (None, f"not tested {index}") and (
+        example is None
+        or example["exception"] in (None, f"ValueError: e{index}")
+    )
+
+
 @context(_modules())
 @prop("the JSON reporter emits parseable output whose counts match")
 def _json(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
@@ -116,9 +133,11 @@ def _json(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
         and [module["name"] for module in data["modules"]]
         == [name for name, _ in modules]
         and all(
-            (test["counter_example"] is None) == test["success"]
+            (test["counter_example"] is None)
+            == (test["success"] or test["error"] is not None)
             for test in tests
         )
+        and all(_json_failure(test) for test in tests)
         and all(
             test["counter_example"]["arguments"]["x"]
             == repr(int(test["counter_example"]["arguments"]["x"]))
@@ -135,8 +154,10 @@ def _plain(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     failures = _failures(modules)
     if not failures:
         return text == ""
-    return text.count("FAIL: ") == len(failures) and text.rstrip().endswith(
-        f"seed={seed})"
+    return (
+        text.count("FAIL: ") == len(failures)
+        and all(r.describe_failure(o) in text for o in failures)
+        and text.rstrip().endswith(f"seed={seed})")
     )
 
 
@@ -149,6 +170,39 @@ def _rich(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     return all(name in text for name, _ in modules) and verdict in text
 
 
+@context(g.int_range(1, 80))
+@prop("the rich reporter shortens long descriptions in its plan table")
+def _rich_truncates(length: int, seed: int) -> bool:
+    desc = "d" * length
+    outcome = Outcome(desc, False, True, 0.0, 1, 0, None, None)
+    text = _feed(r.RichReporter(seed, 10.0), [("m", [outcome])])
+    # The plan table is the only boxed line naming the property; the
+    # progress line below it always shows the whole description.
+    rows = [line for line in text.splitlines() if line.startswith("│ d")]
+    shown = desc if length <= 40 else desc[:37] + "..."
+    return len(rows) == 1 and rows[0].startswith(f"│ {shown} ")
+
+
+@prop("the rich summary reports time usage only under a budget")
+def _rich_budget(budgeted: bool, seed: int) -> bool:
+    budget = 10.0 if budgeted else None
+    text = _feed(r.RichReporter(seed, budget), [])
+    return ("Test time" in text) == budgeted
+
+
+@prop("reporting a property outside a module is an error")
+def _outside_module(seed: int) -> bool:
+    reporter = r.QuietReporter(seed, 1.0)
+    outcome = Outcome("p", False, True, 0.0, 1, 0, None, None)
+    with contextlib.redirect_stdout(io.StringIO()):
+        reporter.start_run([], [])
+        try:
+            reporter.end_property(outcome)
+        except RuntimeError:
+            return True
+    return False
+
+
 @prop("formatted arguments have one entry per argument")
 def _format(args: dict[str, int]) -> bool:
     text = r.format_arguments(args)
@@ -157,7 +211,48 @@ def _format(args: dict[str, int]) -> bool:
     return all(f"{name} = {value}" in text for name, value in args.items())
 
 
-spec = conj(_quiet, _json, _plain, _rich, _format)
+@context(g.one_of(_KINDS), g.ints())
+@prop("failure descriptions say how the property failed")
+def _describe(kind: str, value: int) -> bool:
+    outcome = _outcome(7, kind, 3, value)
+    text = r.describe_failure(outcome)
+    match kind:
+        case "holds":
+            return 'Property "property 7" did not hold' in text
+        case "false":
+            return "failed with the following counter example" in text
+        case "exception":
+            return "raised ValueError: e7" in text
+        case _:
+            return text == "not tested 7"
+
+
+@context(g.lists(g.ints()))
+@prop("formatted values that span lines are indented and read back")
+def _format_multiline(xs: list[int]) -> bool:
+    text = r.format_arguments({"xs": xs})
+    if "\n" not in text:
+        return text == f"xs = {xs!r}"
+    head, rest = text.split("\n", 1)
+    return (
+        head == "xs ="
+        and all(line.startswith("  ") for line in rest.splitlines())
+        and ast.literal_eval(textwrap.dedent(rest)) == xs
+    )
+
+
+spec = conj(
+    _quiet,
+    _json,
+    _plain,
+    _rich,
+    _rich_truncates,
+    _rich_budget,
+    _outside_module,
+    _format,
+    _describe,
+    _format_multiline,
+)
 
 
 if __name__ == "__main__":
