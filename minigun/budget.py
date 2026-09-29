@@ -125,15 +125,18 @@ class TimeBudget:
         after construction.
     :param plans: The properties that will run, in any order.
 
-    :raises ValueError: When the budget is not positive.
+    :raises ValueError: When the budget is not positive or two plans share
+        a description.
     """
 
     def __init__(self, total: float, plans: list[PropertyPlan]):
         if total <= 0:
             raise ValueError(f"The time budget must be positive, got {total}")
+        self._limits = {p.desc: p.attempt_limit for p in plans}
+        if len(self._limits) != len(plans):
+            raise ValueError("Property plans must have unique descriptions")
         self.total = total
         self.end = time.perf_counter() + total
-        self._limits = {p.desc: p.attempt_limit for p in plans}
         self._pending = set(self._limits)
 
     def allowance(self, desc: str) -> Allowance:

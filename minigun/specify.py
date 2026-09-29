@@ -79,7 +79,8 @@ __all__ = [
 class Prop:
     """A property: a described law with generators for its parameters.
 
-    :param desc: The description; unique within a specification.
+    :param desc: The description; unique within a specification, and
+        within a run of several.
     :param law: The law under test, called with keyword arguments.
     :param generators: A generator per parameter in signature order, None
         where none was inferred or supplied.

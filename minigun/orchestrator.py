@@ -108,19 +108,45 @@ def _evaluate_modules(
     return success
 
 
+def _resolve_modules(modules: list[TestModule]) -> list[Resolved]:
+    """Resolve every module's specification.
+
+    Descriptions identify properties across the whole run: the time
+    budget, the reports and each property's random source are keyed by
+    them, so they must be unique across modules, not only within one.
+
+    :raises SpecificationError: When a specification cannot be resolved or
+        two properties of the run share a description.
+    """
+    owners: dict[str, str] = {}
+    resolved: list[Resolved] = []
+    for module in modules:
+        for r in specify.resolve_all(module.spec):
+            desc = r.prop.desc
+            if desc in owners:
+                raise specify.SpecificationError(
+                    f'Duplicate property description "{desc}" in modules '
+                    f'"{owners[desc]}" and "{module.name}"; descriptions '
+                    "must be unique across a run"
+                )
+            owners[desc] = module.name
+            resolved.append(r)
+    return resolved
+
+
 def run(config: RunConfig, modules: list[TestModule]) -> bool:
     """Run test modules under a time budget.
 
+    Property descriptions must be unique across all modules of the run.
+
     :return: Whether every module's specification holds.
 
-    :raises SpecificationError: When a specification cannot be resolved;
-        raised before any property runs.
+    :raises SpecificationError: When a specification cannot be resolved or
+        two properties share a description; raised before any property
+        runs.
     """
     seed = _seed(config.seed)
-    resolved = [
-        r for module in modules for r in specify.resolve_all(module.spec)
-    ]
-    plans = plan(resolved)
+    plans = plan(_resolve_modules(modules))
     budget = TimeBudget(config.time_budget, plans)
     reporter = _REPORTERS[config.output](seed, config.time_budget)
     return _evaluate_modules(
