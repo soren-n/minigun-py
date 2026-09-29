@@ -2,13 +2,19 @@
 Command-line interface
 
 Discovers test modules in a directory and runs them under a time budget.
+
+Test modules are imported as submodules of a package registered for their
+directory, so they can import helper modules beside them relatively, e.g.
+``from ._helpers import model`` or ``from .support.models import Model``.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 from minigun import __version__
@@ -16,6 +22,7 @@ from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
 from minigun.specify import Spec, SpecificationError, is_spec
 
 __all__ = [
+    "find_test_modules",
     "discover_test_modules",
     "run_tests",
     "main",
@@ -26,34 +33,85 @@ __all__ = [
 _DISCOVERY_NAMESPACE = "minigun_discovered"
 
 
-def discover_test_modules(
-    test_dir: Path,
-) -> tuple[dict[str, Spec], dict[str, str]]:
-    """Discover test modules in a directory.
+def _directory_package(test_dir: Path) -> str:
+    """Register the package that a directory's test modules belong to.
 
-    A test module is a Python file, not starting with an underscore, that
-    exports a module-level specification named ``spec``.
+    Its path is the directory itself, so relative imports in test modules
+    resolve against it. Each directory gets a package of its own, named
+    by a digest of its resolved path, so helper modules of different
+    directories never share an entry in ``sys.modules``.
+
+    :return: The package name.
+    """
+    if _DISCOVERY_NAMESPACE not in sys.modules:
+        namespace = types.ModuleType(_DISCOVERY_NAMESPACE)
+        namespace.__path__ = []
+        sys.modules[_DISCOVERY_NAMESPACE] = namespace
+    directory = str(test_dir.resolve())
+    digest = hashlib.sha256(directory.encode()).hexdigest()[:16]
+    name = f"{_DISCOVERY_NAMESPACE}.d{digest}"
+    if name not in sys.modules:
+        package = types.ModuleType(name)
+        package.__path__ = [directory]
+        package.__package__ = name
+        sys.modules[name] = package
+    return name
+
+
+def find_test_modules(test_dir: Path) -> dict[str, Path]:
+    """The candidate test modules of a directory, without importing them.
+
+    A candidate is a Python file whose name does not start with an
+    underscore; files starting with one are helpers.
+
+    :return: Paths by module name.
+
+    :raises NotADirectoryError: When ``test_dir`` is not a directory.
+    """
+    if not test_dir.is_dir():
+        raise NotADirectoryError(f"Test directory {test_dir} does not exist")
+    return {
+        path.stem: path
+        for path in sorted(test_dir.glob("*.py"))
+        if not path.name.startswith("_")
+    }
+
+
+def discover_test_modules(
+    test_dir: Path, names: list[str] | None = None
+) -> tuple[dict[str, Spec], dict[str, str]]:
+    """Load test modules from a directory.
+
+    A test module is a candidate module that exports a module-level
+    specification named ``spec``. Only the named modules are imported
+    when names are given, so a broken module elsewhere in the directory
+    does not stop them from running.
+
+    :param names: The modules to load, or None for every candidate.
 
     :return: Specifications by module name, and load errors by module name
         for modules that failed to import or export something other than a
         specification. A broken module is an error, never skipped.
 
     :raises NotADirectoryError: When ``test_dir`` is not a directory.
+    :raises ValueError: When a name is not a candidate module.
     """
-    if not test_dir.is_dir():
-        raise NotADirectoryError(f"Test directory {test_dir} does not exist")
+    candidates = find_test_modules(test_dir)
+    if names is not None:
+        unknown = [name for name in names if name not in candidates]
+        if unknown:
+            raise ValueError(f"No test modules named {', '.join(unknown)}")
+        candidates = {name: candidates[name] for name in names}
+    package = _directory_package(test_dir)
 
     specs: dict[str, Spec] = {}
     broken: dict[str, str] = {}
-    for path in sorted(test_dir.glob("*.py")):
-        if path.name.startswith("_"):
-            continue
-        name = path.stem
+    for name, path in candidates.items():
         # Import under a private namespace so discovered modules never
         # shadow installed packages. Registering in sys.modules before
         # execution is required for dataclasses with string annotations,
         # which resolve them through sys.modules.
-        qualified = f"{_DISCOVERY_NAMESPACE}.{name}"
+        qualified = f"{package}.{name}"
         try:
             spec = importlib.util.spec_from_file_location(qualified, path)
             if spec is None or spec.loader is None:
@@ -93,33 +151,43 @@ def run_tests(
 ) -> bool:
     """Discover and run test modules under a time budget.
 
+    Only the selected modules are imported when ``modules`` is given.
+
     :return: Whether every selected module's specification holds. Broken
-        modules, unknown module names and unresolvable specifications are
-        reported as errors and count as failure.
+        modules, unknown module names, selected modules without a
+        specification and unresolvable specifications are reported as
+        errors and count as failure.
     """
     try:
-        specs, broken = discover_test_modules(test_dir)
+        candidates = find_test_modules(test_dir)
     except NotADirectoryError as error:
         print(f"Error: {error}")
         return False
+
+    if modules:
+        unknown = [name for name in modules if name not in candidates]
+        if unknown:
+            for name in unknown:
+                print(f"Error: Module '{name}' not found.")
+            print(f"Available modules: {', '.join(sorted(candidates))}")
+            return False
+    specs, broken = discover_test_modules(test_dir, modules or None)
 
     if broken:
         for name, reason in sorted(broken.items()):
             print(f"Error: Test module '{name}' failed to load: {reason}")
         return False
+    if modules:
+        missing = [name for name in modules if name not in specs]
+        if missing:
+            for name in missing:
+                print(f"Error: Module '{name}' exports no 'spec: Spec'")
+            return False
+        specs = {name: specs[name] for name in modules}
     if not specs:
         print(f"No test modules found in {test_dir}")
         print("Tip: Test modules export a module-level 'spec: Spec'")
         return False
-
-    if modules:
-        unknown = [name for name in modules if name not in specs]
-        if unknown:
-            for name in unknown:
-                print(f"Error: Module '{name}' not found.")
-            print(f"Available modules: {', '.join(sorted(specs))}")
-            return False
-        specs = {name: specs[name] for name in modules}
 
     config = RunConfig(time_budget=time_budget, seed=seed, output=output)
     try:
@@ -144,7 +212,7 @@ Test discovery:
 Examples:
   minigun -t 30                            # Run all tests with a 30s budget
   minigun -t 60 --test-dir my_tests        # Run tests in ./my_tests
-  minigun -t 30 --modules lists strings    # Run specific modules
+  minigun -t 30 --modules lists strings    # Load and run only these modules
   minigun -t 60 --output quiet             # Minimal output for CI
   minigun -t 30 --output json              # JSON output for tools
   minigun -t 30 --seed 42                  # Reproduce a run
@@ -162,7 +230,7 @@ Examples:
         "--modules",
         "-m",
         nargs="+",
-        help="Test modules to run, by name without .py",
+        help="Test modules to load and run, by name without .py",
     )
     parser.add_argument(
         "--time-budget",
