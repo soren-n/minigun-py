@@ -95,11 +95,11 @@ repos:
         stages: [pre-push]
 
       - id: type-check-bench
-        name: Type Check benchmark scripts (MyPy)
+        name: Type Check benchmark and mutation scripts (MyPy)
         entry: uv run mypy
         language: system
         types: [python]
-        args: [--no-namespace-packages, scripts/bench]
+        args: [--no-namespace-packages, scripts/bench, scripts/mutate.py]
         pass_filenames: false
         stages: [pre-push]
 

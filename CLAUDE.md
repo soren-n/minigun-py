@@ -65,8 +65,24 @@ uv run python scripts/bench/hotspots.py --out /tmp/bench/profiles all
 uv run python scripts/bench/report.py --results /tmp/bench
 
 # Type-check the benchmark scripts (they import each other by bare name)
-uv run mypy --no-namespace-packages scripts/bench
+uv run mypy --no-namespace-packages scripts/bench scripts/mutate.py
 ```
+
+### Mutation Testing
+```bash
+# Mutate core functions one operator or constant at a time and run each
+# mutant's test modules in copies under --out (outside the repository);
+# about 8 minutes with 6 workers. Survivors are printed with their lines.
+uv run python scripts/mutate.py --out /tmp/mutants
+uv run python scripts/mutate.py --out /tmp/mutants --files search shrink
+```
+Survivors are either equivalent mutants or behavior no test pins down.
+Because minigun tests itself, a mutated generator also draws the tests'
+arguments: a test of a generator should draw its inputs from another one.
+Small finite domains get few attempts under a budget, and a property's
+time share follows its attempt limit, so a test that must see a boundary
+value or every one of a list of cases should check them on every attempt
+rather than draw one.
 
 ### Build and Development
 ```bash
@@ -214,8 +230,8 @@ CI runs on Python 3.12, 3.13 and 3.14: `ruff format --check`,
 `ruff check` (including import sorting), coverage with 60% minimum, and
 distribution build/install check. Scope includes the `minigun`, `tests`,
 `scripts` and `docs/examples` directories. Locally, pre-commit validates conventional commit
-messages at commit-msg and runs mypy on `minigun` and `scripts/bench` at
-pre-push.
+messages at commit-msg and runs mypy on `minigun`, `scripts/bench` and
+`scripts/mutate.py` at pre-push.
 
 ## Project Configuration
 
