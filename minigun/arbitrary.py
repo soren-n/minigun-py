@@ -22,6 +22,7 @@ Example::
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Sequence
 
@@ -100,7 +101,14 @@ def draw_float(rng: Rng, lower_bound: float, upper_bound: float) -> float:
             f"draw_float requires lower_bound <= upper_bound, got "
             f"{lower_bound} > {upper_bound}"
         )
-    return rng.uniform(lower_bound, upper_bound)
+    span = upper_bound - lower_bound
+    if math.isfinite(span):
+        return rng.uniform(lower_bound, upper_bound)
+    # The span of a range this wide overflows; interpolate the bounds
+    # instead, each term finite, and keep rounding inside the range.
+    p = rng.random()
+    value = lower_bound * (1.0 - p) + upper_bound * p
+    return min(upper_bound, max(lower_bound, value))
 
 
 def probability(rng: Rng) -> float:

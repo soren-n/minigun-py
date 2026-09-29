@@ -234,9 +234,11 @@ def floating(target: float) -> Shrinker[float]:
     """A shrinker for floats, shrinking toward a target.
 
     The alternatives of a finite value are the target, the value truncated
-    to an integer when that is closer to the target, then the midpoints
-    between the target and the value as for integers, each offered knowing
-    the one before it did not fail. Halving stops once an alternative
+    to an integer when that lies strictly between the target and the
+    value, then the midpoints between the target and the value as for
+    integers, each offered knowing the one before it did not fail. Every
+    alternative lies between the target and the value, so a value shrinks
+    within any range that holds both. Halving stops once an alternative
     differs from the value by less than one part in a billion, so a
     search ends after a bounded number of evaluations instead of walking
     the full precision of floats. Non-finite values shrink directly to the
@@ -245,6 +247,9 @@ def floating(target: float) -> Shrinker[float]:
 
     def _closer(candidate: float, value: float) -> bool:
         return abs(candidate - target) < abs(value - target)
+
+    def _same_side(candidate: float, value: float) -> bool:
+        return candidate != target and (candidate > target) == (value > target)
 
     def _node(
         bound: float, value: float, from_target: bool
@@ -261,6 +266,7 @@ def floating(target: float) -> Shrinker[float]:
             truncated = float(math.trunc(value))
             if (
                 truncated != value
+                and _same_side(truncated, value)
                 and _closer(truncated, value)
                 and _closer(bound, truncated)
             ):
