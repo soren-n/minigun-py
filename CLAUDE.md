@@ -170,7 +170,7 @@ Minigun is a property-based testing library organized in layers:
   registered in `sys.modules` before execution, as submodules of a package
   per test directory (`minigun_discovered.d<digest>`, `__path__` the
   directory) so relative helper imports work; `--modules` imports only the
-  selected modules.
+  selected modules (repeatable).
 
 ## Key Patterns
 

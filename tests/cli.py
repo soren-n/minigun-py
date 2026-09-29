@@ -2,8 +2,10 @@
 
 import contextlib
 import io
+import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import minigun.cli as cli
 import minigun.fixture as f
@@ -244,6 +246,43 @@ def _selected_no_spec(seed: int) -> bool:
     return not success and "'m1_no_spec' exports no" in text
 
 
+def _named_module(desc: str, threshold: int) -> str:
+    return (
+        "import minigun.generate as g\n"
+        "from minigun.specify import context, prop\n"
+        "@context(g.int_range(0, 100))\n"
+        f"@prop({desc!r})\n"
+        "def _p(x: int) -> bool:\n"
+        f"    return x < {threshold}\n"
+        "spec = _p\n"
+    )
+
+
+def _json_main(argv: list[str]) -> tuple[int, dict[str, Any] | None]:
+    code, text = _main(["-o", "json", *argv])
+    try:
+        return code, json.loads(text)
+    except json.JSONDecodeError:
+        return code, None
+
+
+@prop("a repeated --modules flag runs every module it names, once")
+def _repeated_modules(seed: int) -> bool:
+    directory = f.temporary_path()
+    (directory / "first.py").write_text(_named_module("first holds", 101))
+    (directory / "second.py").write_text(_named_module("second holds", 101))
+    (directory / "third.py").write_text(_named_module("third holds", 101))
+    code, data = _json_main(
+        ["-t", "0.2", "-d", str(directory), "-s", str(seed)]
+        + ["-m", "first", "-m", "second", "first"]
+    )
+    return (
+        code == 0
+        and data is not None
+        and data["config"]["modules"] == ["first", "second"]
+    )
+
+
 def _relative_module(expected: int) -> str:
     return (
         "from minigun.specify import prop\n"
@@ -327,6 +366,7 @@ spec = conj(
     _duplicates,
     _selected_alone,
     _selected_no_spec,
+    _repeated_modules,
     _relative,
     _broken,
     _no_specs,

@@ -230,7 +230,9 @@ Examples:
         "--modules",
         "-m",
         nargs="+",
-        help="Test modules to load and run, by name without .py",
+        action="extend",
+        help="Test modules to load and run, by name without .py; may be "
+        "repeated",
     )
     parser.add_argument(
         "--time-budget",
@@ -296,7 +298,9 @@ Examples:
     success = run_tests(
         args.time_budget,
         test_dir=args.test_dir,
-        modules=args.modules,
+        modules=None
+        if args.modules is None
+        else list(dict.fromkeys(args.modules)),
         output=args.output,
         seed=args.seed,
     )
