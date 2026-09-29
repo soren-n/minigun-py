@@ -19,11 +19,19 @@ from pathlib import Path
 
 from minigun import __version__
 from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
-from minigun.specify import Spec, SpecificationError, is_spec
+from minigun.specify import (
+    Prop,
+    Spec,
+    SpecificationError,
+    collect,
+    is_spec,
+    select,
+)
 
 __all__ = [
     "find_test_modules",
     "discover_test_modules",
+    "select_properties",
     "run_tests",
     "main",
 ]
@@ -142,21 +150,55 @@ def discover_test_modules(
     return specs, broken
 
 
+def select_properties(
+    specs: dict[str, Spec], patterns: list[str]
+) -> tuple[dict[str, Spec], list[str]]:
+    """The properties whose descriptions contain any of the patterns.
+
+    A property draws from a source derived from the run seed and its
+    description alone, so a selected property draws the same values as
+    it does in a run of every module.
+
+    :return: The pruned specifications by module name, without modules
+        none of whose properties are selected, and the patterns that
+        match no property.
+    """
+
+    def _keep(prop: Prop) -> bool:
+        return any(pattern in prop.desc for pattern in patterns)
+
+    selected: dict[str, Spec] = {}
+    for name, spec in specs.items():
+        kept = select(spec, _keep)
+        if kept is not None:
+            selected[name] = kept
+    descs = [prop.desc for spec in specs.values() for prop in collect(spec)]
+    unmatched = [
+        pattern
+        for pattern in patterns
+        if not any(pattern in desc for desc in descs)
+    ]
+    return selected, unmatched
+
+
 def run_tests(
     time_budget: float,
     test_dir: Path = Path("tests"),
     modules: list[str] | None = None,
     output: OutputMode = OutputMode.RICH,
     seed: int | None = None,
+    patterns: list[str] | None = None,
 ) -> bool:
     """Discover and run test modules under a time budget.
 
-    Only the selected modules are imported when ``modules`` is given.
+    Only the selected modules are imported when ``modules`` is given, and
+    only the properties whose descriptions contain one of ``patterns``
+    run when it is given.
 
     :return: Whether every selected module's specification holds. Broken
         modules, unknown module names, selected modules without a
-        specification and unresolvable specifications are reported as
-        errors and count as failure.
+        specification, patterns matching no property and unresolvable
+        specifications are reported as errors and count as failure.
     """
     try:
         candidates = find_test_modules(test_dir)
@@ -188,6 +230,12 @@ def run_tests(
         print(f"No test modules found in {test_dir}")
         print("Tip: Test modules export a module-level 'spec: Spec'")
         return False
+    if patterns:
+        specs, unmatched = select_properties(specs, patterns)
+        if unmatched:
+            for pattern in unmatched:
+                print(f"Error: No property description contains '{pattern}'")
+            return False
 
     config = RunConfig(time_budget=time_budget, seed=seed, output=output)
     try:
@@ -213,6 +261,7 @@ Examples:
   minigun -t 30                            # Run all tests with a 30s budget
   minigun -t 60 --test-dir my_tests        # Run tests in ./my_tests
   minigun -t 30 --modules lists strings    # Load and run only these modules
+  minigun -t 30 -k "reverse"               # Run properties matching "reverse"
   minigun -t 60 --output quiet             # Minimal output for CI
   minigun -t 30 --output json              # JSON output for tools
   minigun -t 30 --seed 42                  # Reproduce a run
@@ -233,6 +282,16 @@ Examples:
         action="extend",
         help="Test modules to load and run, by name without .py; may be "
         "repeated",
+    )
+    parser.add_argument(
+        "--select",
+        "-k",
+        nargs="+",
+        action="extend",
+        metavar="PATTERN",
+        help="Run only the properties whose descriptions contain one of "
+        "these substrings; with --seed, a selected property draws the "
+        "same values as in the full run; may be repeated",
     )
     parser.add_argument(
         "--time-budget",
@@ -303,6 +362,7 @@ Examples:
         else list(dict.fromkeys(args.modules)),
         output=args.output,
         seed=args.seed,
+        patterns=args.select,
     )
     sys.exit(0 if success else 1)
 

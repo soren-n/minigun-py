@@ -21,6 +21,9 @@ uv run minigun --time-budget 30 --output json
 # Reproduce a failing run (the seed is printed on failure)
 uv run minigun --time-budget 30 --seed 42
 
+# Replay only the properties whose descriptions contain a substring
+uv run minigun --time-budget 30 --seed 42 --select "shrinks to"
+
 # List available test modules
 uv run minigun --list-modules
 
@@ -143,7 +146,8 @@ Minigun is a property-based testing library organized in layers:
   runs every property (no short-circuit), each from a source derived from
   the run seed and its description, and emits structured `Outcome` values.
   `@prop(desc, attempts=n)` declares a property's attempts, overriding the
-  domain-derived count in both `check` and budgeted runs.
+  domain-derived count in both `check` and budgeted runs. `select` prunes
+  a spec to the properties a predicate keeps.
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
@@ -170,7 +174,8 @@ Minigun is a property-based testing library organized in layers:
   registered in `sys.modules` before execution, as submodules of a package
   per test directory (`minigun_discovered.d<digest>`, `__path__` the
   directory) so relative helper imports work; `--modules` imports only the
-  selected modules (repeatable).
+  selected modules (repeatable); `--select`/`-k` runs only properties
+  whose descriptions contain a pattern, with unchanged draws.
 
 ## Key Patterns
 
@@ -210,8 +215,8 @@ first attempt always runs. `check()` uses a property's declared attempts,
 else `baseline_attempts`, and no deadline.
 
 ### No Silent Fallbacks
-Broken test modules, unknown module names, missing test directories,
-duplicate property descriptions (within a spec and across the modules of
+Broken test modules, unknown module names, `--select` patterns matching
+no property, missing test directories, duplicate property descriptions (within a spec and across the modules of
 a run), missing generators and invalid arguments are hard errors
 (`SpecificationError`, `ValueError`, `TypeError`). A property most of
 whose attempts are discarded fails loudly. Unreachable match arms use

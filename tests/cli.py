@@ -266,6 +266,12 @@ def _json_main(argv: list[str]) -> tuple[int, dict[str, Any] | None]:
         return code, None
 
 
+def _tests(data: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if data is None:
+        return {}
+    return {t["name"]: t for m in data["modules"] for t in m["tests"]}
+
+
 @prop("a repeated --modules flag runs every module it names, once")
 def _repeated_modules(seed: int) -> bool:
     directory = f.temporary_path()
@@ -280,6 +286,30 @@ def _repeated_modules(seed: int) -> bool:
         code == 0
         and data is not None
         and data["config"]["modules"] == ["first", "second"]
+    )
+
+
+@prop("--select runs matching properties with their full-run counterexample")
+def _select(seed: int) -> bool:
+    directory = f.temporary_path()
+    (directory / "a.py").write_text(_named_module("alpha holds", 101))
+    (directory / "b.py").write_text(_named_module("beta fails", 50))
+    common = ["-t", "0.2", "-d", str(directory), "-s", str(seed)]
+    full_code, full = _json_main(common)
+    alpha_code, alpha = _json_main([*common, "-k", "alpha"])
+    beta_code, beta = _json_main([*common, "-k", "fails", "-k", "beta"])
+    none_code, none = _main([*common, "-k", "alpha", "gamma"])
+    return (
+        full_code == 1
+        and alpha_code == 0
+        and list(_tests(alpha)) == ["alpha holds"]
+        and beta_code == 1
+        and list(_tests(beta)) == ["beta fails"]
+        and _tests(beta)["beta fails"]["counter_example"]
+        == _tests(full)["beta fails"]["counter_example"]
+        and none_code == 1
+        and "contains 'gamma'" in none
+        and "'alpha'" not in none
     )
 
 
@@ -367,6 +397,7 @@ spec = conj(
     _selected_alone,
     _selected_no_spec,
     _repeated_modules,
+    _select,
     _relative,
     _broken,
     _no_specs,

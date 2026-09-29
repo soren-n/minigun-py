@@ -91,6 +91,9 @@ minigun --time-budget 60 --test-dir my_tests
 # Run specific test modules (only these are imported)
 minigun --time-budget 45 --modules my_tests other_tests
 
+# Run only the properties whose descriptions contain a substring
+minigun --time-budget 30 --select "sensitivities"
+
 # List available test modules
 minigun --list-modules
 
@@ -106,7 +109,7 @@ minigun --time-budget 30 --seed 42
 
 The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. Failures are reported with their shrunk counterexample in every output mode.
 
-Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran.
+Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran. To replay one failing property cheaply, pass the seed together with `--select` and part of its description: the property draws the same values as in the full run.
 
 ## Running Programmatically
 
@@ -280,7 +283,7 @@ A: Yes: `minigun --modules name ...` imports only the selected modules.
 
 **Q: How do I reproduce a failing run?**
 
-A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation.
+A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation. Add `--select "<part of the description>"` to replay only the failing property; it draws the same values as in the full run.
 
 **Q: My property passed but was it tested?**
 

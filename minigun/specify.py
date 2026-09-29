@@ -68,6 +68,7 @@ __all__ = [
     "conj",
     "Resolved",
     "collect",
+    "select",
     "resolve",
     "resolve_all",
     "MAX_DISCARD_RATIO",
@@ -249,6 +250,29 @@ def collect(spec: Spec) -> list[Prop]:
             return collect(term)
         case Conj(terms):
             return [prop for term in terms for prop in collect(term)]
+        case _:
+            assert_never(spec)
+
+
+def select(spec: Spec, keep: Callable[[Prop], bool]) -> Spec | None:
+    """The part of a specification made of the properties it keeps.
+
+    Negations and conjunctions are kept around the kept properties, so
+    each is evaluated under the same negation as in the whole
+    specification; a conjunction holds or fails over the kept terms only.
+
+    :return: The pruned specification, or None when no property is kept.
+    """
+    match spec:
+        case Prop():
+            return spec if keep(spec) else None
+        case Neg(term):
+            kept = select(term, keep)
+            return None if kept is None else Neg(kept)
+        case Conj(terms):
+            selected = [select(term, keep) for term in terms]
+            kept_terms = tuple(term for term in selected if term is not None)
+            return Conj(kept_terms) if kept_terms else None
         case _:
             assert_never(spec)
 

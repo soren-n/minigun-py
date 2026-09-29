@@ -155,6 +155,26 @@ def _exhaustive(tree: Tree, seed: int) -> bool:
     ] == [f"leaf {index}" for index in range(1, len(expected) + 1)]
 
 
+@context(trees())
+@prop("selection keeps exactly the chosen properties, each as it was judged")
+def _select(tree: Tree, seed: int, rng: random.Random) -> bool:
+    spec = build(tree)
+    descs = [p.desc for p in sp.collect(spec)]
+    chosen = {desc for desc in descs if rng.random() < 0.5}
+    selected = sp.select(spec, lambda p: p.desc in chosen)
+    if selected is None:
+        return not chosen
+    _, outcomes = run(selected, seed)
+    expected = [
+        holds
+        for desc, holds in zip(descs, expected_outcomes(tree), strict=True)
+        if desc in chosen
+    ]
+    return [o.desc for o in outcomes] == [
+        desc for desc in descs if desc in chosen
+    ] and [o.holds for o in outcomes] == expected
+
+
 @prop("an expected counterexample that is not found is reported as such")
 def _neg_unmet(seed: int) -> bool:
     @prop("always holds")
@@ -426,6 +446,7 @@ def _check_prints(seed: int) -> bool:
 spec = conj(
     _truth,
     _exhaustive,
+    _select,
     _neg_unmet,
     _reproducible,
     _independent,

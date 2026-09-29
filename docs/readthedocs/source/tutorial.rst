@@ -162,6 +162,12 @@ Every run is seeded, and the seed is printed in the run header and again when a 
 
     $ minigun --time-budget 30 --seed 5015299433215186410
 
+To replay only the failing property, add :code:`--select` with part of its description. Only the properties whose descriptions contain the given text run, and each draws the same values as in the full run, so the counterexample is found again without waiting for everything else:
+
+.. code-block:: shell
+
+    $ minigun --time-budget 30 --seed 5015299433215186410 --select "sensitivities"
+
 See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules (given once with several names, or repeated) and :code:`--output quiet` or :code:`--output json` for CI and tool integration. With :code:`--modules`, only the selected modules are imported, so a module that fails to load does not stop the others from running on their own.
 
 Files whose names start with an underscore are not test modules; use them for helpers shared between test modules. Test modules are imported as a package of their directory, so they import helpers with relative imports, including from subdirectories:
