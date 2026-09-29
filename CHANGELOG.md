@@ -2,6 +2,37 @@
 
 <!-- version list -->
 
+## v5.0.0 (2026-09-29)
+
+### Bug Fixes
+
+- Keep float shrinks and wide float draws inside their range
+  ([`b44e166`](https://github.com/soren-n/minigun-py/commit/b44e166445efafbd0d61e395fd90d9157c7bb785))
+
+- Reject property descriptions shared across modules
+  ([`959677c`](https://github.com/soren-n/minigun-py/commit/959677c3bb33180bf44470e4762fbf41ac7ffc99))
+
+### Features
+
+- Add assume and discard for preconditions over several parameters
+  ([`f61017f`](https://github.com/soren-n/minigun-py/commit/f61017fce1e2ff2fded4f0341ee6434fa577e3c9))
+
+- Add bounded float, date and datetime domains and string alphabets
+  ([`9d2cd35`](https://github.com/soren-n/minigun-py/commit/9d2cd35fdf13556b09ac11ed04a0ffac8e91cd74))
+
+- Add nonzero_int_range
+  ([`d10499a`](https://github.com/soren-n/minigun-py/commit/d10499a5c6584132ecca21eba3c6063fb2e5756b))
+
+- Let properties declare how many attempts they are worth
+  ([`d47885d`](https://github.com/soren-n/minigun-py/commit/d47885d38973c12a1f705fccb66feb03a825e4d7))
+
+- Load only selected test modules and allow relative helper imports
+  ([`01ebff1`](https://github.com/soren-n/minigun-py/commit/01ebff13967ec21dc02975ab6cade369d9474d2c))
+
+- Make generators and dissections immutable and covariant
+  ([`fb73940`](https://github.com/soren-n/minigun-py/commit/fb73940e591030bd62ffffbd2436d9a7fdff640a))
+
+
 ## v4.0.0 (2026-09-12)
 
 ### Bug Fixes
