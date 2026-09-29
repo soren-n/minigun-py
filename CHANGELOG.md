@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v6.0.0 (2026-09-29)
+
+### Bug Fixes
+
+- Print counterexamples in quiet output
+  ([`8fa3b25`](https://github.com/soren-n/minigun-py/commit/8fa3b2577cc6ec9ca3264a8a0d7c878b57f3039c))
+
+- Run every module named by a repeated --modules flag
+  ([`91dd21f`](https://github.com/soren-n/minigun-py/commit/91dd21fc87be79445c9565f783c7e6a55e80be3f))
+
+### Features
+
+- Make declared attempts a floor under a time budget
+  ([`2982a6b`](https://github.com/soren-n/minigun-py/commit/2982a6bc95193f7d4a26766b8fc63ff3fd81ac62))
+
+- Select properties by description with --select
+  ([`0483356`](https://github.com/soren-n/minigun-py/commit/0483356ddfbbcf41d518b300cf2fd9e5ac17986b))
+
+### Breaking Changes
+
+- A run whose declared properties take longer than their share of the time now overruns its
+  --time-budget instead of truncating them. Properties without declared attempts are still held to
+  their share.
+
+
 ## v5.0.0 (2026-09-29)
 
 ### Bug Fixes
