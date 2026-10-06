@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.0.1 (2026-10-06)
+
 ### Bug Fixes
 
 - Evaluate a property's law at least once before its time share ends, so
