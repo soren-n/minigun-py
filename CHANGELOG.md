@@ -5,11 +5,15 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.0.2 (2026-10-06)
+
 ### Bug Fixes
 
 - Give a property over a small finite domain enough attempts to draw every
   value with 99.9% confidence; a bool property made one attempt under a
   time budget and missed a failing value half the time
+  (finite domains of up to about 740 values now make more attempts, and
+  `check` gives domains of more than about 90 values its full 1000)
 
 ## v6.0.1 (2026-10-06)
 
