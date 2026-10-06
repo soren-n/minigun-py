@@ -107,7 +107,7 @@ minigun --time-budget 30 --output json
 minigun --time-budget 30 --seed 42
 ```
 
-The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode.
+The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode. A counterexample is announced as soon as it is found, before shrinking starts (on stderr in quiet and JSON output), and shrinking stops when the run's budget is spent: no further shrunk candidate is evaluated, and the smallest counterexample found so far is reported with a note that it may not be minimal.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran. To replay one failing property cheaply, pass the seed together with `--select` and part of its description: the property draws the same values as in the full run.
 
@@ -268,6 +268,10 @@ A: Yes, use the `@context` decorator with generators from `minigun.generate`, or
 **Q: Some properties are much more expensive than others. How do I balance them?**
 
 A: Declare their attempts with `@prop("...", attempts=n)`. The time budget is shared in proportion to attempt limits, and time a property leaves unspent flows to the properties after it. A declared property always makes all its attempts, so the run takes as long as they need.
+
+**Q: A run seems to hang after a failure. What is it doing?**
+
+A: Shrinking: the counterexample found is being reduced by re-running the law on smaller arguments, and a smaller argument can be slower to evaluate than the original. The failure is announced, with its seed and original arguments, as soon as it is found (on stderr in quiet and JSON output), and shrinking stops when the time budget is spent. A single evaluation already running is not interrupted, so a law whose evaluations can take minutes can still overrun by one evaluation.
 
 **Q: How do I measure coverage?**
 

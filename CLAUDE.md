@@ -153,9 +153,11 @@ Minigun is a property-based testing library organized in layers:
   attempts drawn in sequence from the property's source, discards
   counted, optional deadline. Shrinking keeps the kind of failure found:
   a False result only shrinks to False results, an exception only to the
-  same exception type. A law raising `Discard` (via `assume`/`discard`)
-  rejects its arguments: the attempt counts as a discard and the shrunk
-  alternative is skipped.
+  same exception type. An optional shrink deadline stops shrinking between
+  candidates; the counterexample then records `minimal=False`. `on_found`
+  sees the counterexample before shrinking. A law raising `Discard` (via
+  `assume`/`discard`) rejects its arguments: the attempt counts as a
+  discard and the shrunk alternative is skipped.
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`):
   a finite domain is worth its coverage count, the draws that see every
   value with 99.9% confidence (bool 11, ten values 88), capped at 10000
@@ -164,9 +166,12 @@ Minigun is a property-based testing library organized in layers:
   of the remaining time weighted by its attempt limit, unspent time flows
   on, and the budget is held strictly, except that a property declaring
   `attempts=n` always makes all n (no deadline; the run may overrun).
+  Every allowance's `shrink_deadline` is the end of the run.
 - `reporter.py` - Passive sinks over `Outcome`: `PlainReporter` (for
-  `check`), `QuietReporter`, `RichReporter`, `JSONReporter`. Also the
-  stdout encoding guard and counterexample formatting.
+  `check`), `QuietReporter`, `RichReporter`, `JSONReporter`; the
+  `found_counter_example` hook announces a failure before shrinking
+  (stderr in quiet and JSON modes). Also the stdout encoding guard and
+  counterexample formatting.
 - `fixture.py` - Filesystem fixtures under `.minigun`; temporary paths are
   removed by the enclosing `scope()`, so nested runs clean only their own.
 
@@ -219,8 +224,10 @@ attempts continue past the deadline until the law has been evaluated
 once, so a property squeezed by the budget is never reported as untested
 because its only attempt was discarded. A property that declares its
 attempts gets no deadline and makes all of them; its count still weighs
-in the others' shares. `check()` uses a property's declared attempts, else
-`baseline_attempts`, and no deadline.
+in the others' shares. Shrinking may run until the end of the whole budget,
+then stops between candidates and reports the smallest counterexample so
+far. `check()` uses a property's declared attempts, else
+`baseline_attempts`, and no deadline for attempts or shrinking.
 
 ### No Silent Fallbacks
 Broken test modules, unknown module names, `--select` patterns matching
