@@ -16,8 +16,10 @@ def _cardinalities() -> g.Generator[c.Cardinality]:
         return c.Cardinality(float(10**exponent))
 
     # Sizes below and around where the attempt policy reaches its caps
-    # are drawn densely, as well as powers of ten across the float range.
+    # (about 90 and 740 values) are drawn densely, as well as larger sizes
+    # and powers of ten across the float range.
     return g.choice(
+        g.map(c.finite, g.int_range(0, 1000)),
         g.map(c.finite, g.int_range(0, 3_000_000)),
         g.map(_finite, g.int_range(0, 250)),
         g.constant(c.INFINITE),
@@ -41,7 +43,12 @@ def _log_miss(size: int, attempts: int) -> float:
 _SMALL_SIZES = (0, 1, 2, 3)
 
 
-@context(g.int_range(0, 1_000_000), g.int_range(1, 20000))
+# Below about 1500 values the count stays under the drawn caps and its
+# minimality is checked; larger sizes mostly check the cap.
+@context(
+    g.choice(g.int_range(2, 1500), g.int_range(0, 1_000_000)),
+    g.int_range(1, 20000),
+)
 @prop("a coverage count is the least that draws every value, or the cap")
 def _coverage(drawn: int, cap: int) -> bool:
     log_bound = math.log(b.COVERAGE_MISS)
