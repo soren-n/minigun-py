@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.1.0 (2026-10-07)
+
 ### Bug Fixes
 
 - Stop shrinking when the time budget runs out. Shrinking a counterexample
