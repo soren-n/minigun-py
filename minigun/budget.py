@@ -28,6 +28,9 @@ from minigun.specify import Allowance, Resolved
 __all__ = [
     "UNBOUNDED_LIMIT",
     "UNBOUNDED_BASELINE",
+    "MINIMUM_BASELINE",
+    "COVERAGE_MISS",
+    "coverage_attempts",
     "attempt_limit",
     "baseline_attempts",
     "share",
@@ -47,41 +50,65 @@ UNBOUNDED_LIMIT = 10000
 #: Baseline attempts for an unbounded domain when no time budget applies.
 UNBOUNDED_BASELINE = 1000
 
+#: Baseline attempts for a domain of at most one value.
+MINIMUM_BASELINE = 10
+
+#: Chance, at most, that the coverage count of a finite domain leaves some
+#: value undrawn.
+COVERAGE_MISS = 1e-3
+
+
+def coverage_attempts(size: float, cap: int) -> int:
+    """Uniform draws needed to see every value of a finite domain.
+
+    The least ``k`` with ``size * (1 - 1 / size) ** k <= COVERAGE_MISS``:
+    by the union bound, ``k`` uniform draws then leave some value undrawn
+    with chance at most ``COVERAGE_MISS``. That is about
+    ``size * ln(size / COVERAGE_MISS)``, more than the square root of the
+    size for every size above one.
+
+    :param size: The number of values in the domain.
+    :param cap: The most attempts to return.
+
+    :return: The count, at most ``cap``; one for a domain of at most one
+        value.
+    """
+    if size <= 1:
+        return 1
+    attempts = math.log(size / COVERAGE_MISS) / -math.log1p(-1 / size)
+    if attempts >= cap:
+        return cap
+    return math.ceil(attempts)
+
 
 def attempt_limit(cardinality: Cardinality) -> int:
     """Cap on useful attempts for a domain.
 
-    For finite domains this is the square root of the domain size; beyond
-    that repeat draws dominate and further attempts add little coverage.
-    No domain, finite or not, is worth more than ``UNBOUNDED_LIMIT``.
+    A finite domain is worth enough attempts to draw each of its values
+    with high probability (``coverage_attempts``), so a property over a
+    small domain sees all of it. No domain, finite or not, is worth more
+    than ``UNBOUNDED_LIMIT``, which domains of more than about 740 values
+    reach.
     """
     if not cardinality.is_finite:
         return UNBOUNDED_LIMIT
-    return min(UNBOUNDED_LIMIT, max(1, int(math.sqrt(cardinality.size))))
+    return coverage_attempts(cardinality.size, UNBOUNDED_LIMIT)
 
 
 def baseline_attempts(cardinality: Cardinality) -> int:
     """Attempts for a domain when no time budget applies.
 
-    Grows with the square root of the domain size up to 1000 values, then
-    logarithmically: large domains cannot be meaningfully covered by
-    attempt count alone. No domain gets more than ``UNBOUNDED_BASELINE``,
-    which is what unbounded domains get.
+    The coverage count of a finite domain, as for ``attempt_limit``, but
+    at least ``MINIMUM_BASELINE`` and at most ``UNBOUNDED_BASELINE``, which
+    is what unbounded domains get and domains of more than about 90 values
+    reach.
     """
     if not cardinality.is_finite:
         return UNBOUNDED_BASELINE
-    size = cardinality.size
-    if size <= 1000:
-        return max(10, int(math.sqrt(size)))
-    if size <= 1_000_000:
-        attempts = math.sqrt(1000) + math.log10(size / 1000) * 10
-    else:
-        attempts = (
-            math.sqrt(1000)
-            + math.log10(1000) * 10
-            + math.log10(size / 1_000_000) * 5
-        )
-    return min(UNBOUNDED_BASELINE, int(attempts))
+    return max(
+        MINIMUM_BASELINE,
+        coverage_attempts(cardinality.size, UNBOUNDED_BASELINE),
+    )
 
 
 ###############################################################################

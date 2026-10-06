@@ -391,7 +391,7 @@ A generator decides which values a single parameter takes. When a precondition r
 
 A rejected attempt counts as a discard, just like a draw a filtered generator rejected, and a shrunk counterexample always satisfies the precondition. A property most of whose attempts are discarded fails, so a precondition that is rarely met is reported rather than silently leaving the law untested.
 
-By default the number of attempts a property gets follows the size of its argument domain, and every property over floats, or any other unbounded domain, gets the same number. A property whose attempts are expensive, or which is statistical so that each attempt is a whole experiment, can say how many attempts it is worth:
+By default the number of attempts a property gets follows the size of its argument domain. A small finite domain gets enough attempts to draw each of its values with 99.9% confidence, so a property over a :code:`bool` makes 11 attempts and one over ten values 88, which sees every case without being told to; domains of more than about 740 values, and floats or any other unbounded domain, all get the same number. A property whose attempts are expensive, or which is statistical so that each attempt is a whole experiment, can say how many attempts it is worth:
 
 .. literalinclude:: ../../examples/preconditions.py
    :language: python

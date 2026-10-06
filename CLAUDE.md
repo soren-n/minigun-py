@@ -82,10 +82,10 @@ uv run python scripts/mutate.py --out /tmp/mutants --files search shrink
 Survivors are either equivalent mutants or behavior no test pins down.
 Because minigun tests itself, a mutated generator also draws the tests'
 arguments: a test of a generator should draw its inputs from another one.
-Small finite domains get few attempts under a budget, and a property's
-time share follows its attempt limit, so a test that must see a boundary
-value or every one of a list of cases should check them on every attempt
-rather than draw one.
+A drawn boundary value is rare in a large domain, and a property's time
+share follows its attempt limit, so a test that must see a boundary value
+or every one of a list of cases should check them on every attempt rather
+than draw one.
 
 ### Build and Development
 ```bash
@@ -156,8 +156,11 @@ Minigun is a property-based testing library organized in layers:
   same exception type. A law raising `Discard` (via `assume`/`discard`)
   rejects its arguments: the attempt counts as a discard and the shrunk
   alternative is skipped.
-- `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`) and
-  the time-sliced `TimeBudget`: no calibration; each property gets a share
+- `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`):
+  a finite domain is worth its coverage count, the draws that see every
+  value with 99.9% confidence (bool 11, ten values 88), capped at 10000
+  (1000 without a budget), which unbounded domains get. Also the
+  time-sliced `TimeBudget`: no calibration; each property gets a share
   of the remaining time weighted by its attempt limit, unspent time flows
   on, and the budget is held strictly, except that a property declaring
   `attempts=n` always makes all n (no deadline; the run may overrun).

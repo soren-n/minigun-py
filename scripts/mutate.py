@@ -70,7 +70,8 @@ TARGETS: dict[str, Target] = {
     ),
     "budget": Target(
         frozenset(
-            {"attempt_limit", "baseline_attempts", "share", "_limit"}
+            {"attempt_limit", "baseline_attempts", "coverage_attempts"}
+            | {"share", "_limit"}
             | {"plan", "__init__", "allowance"}
         ),
         ("budget", "orchestrator", "specify"),

@@ -15,17 +15,13 @@ def _cardinalities() -> g.Generator[c.Cardinality]:
     def _finite(exponent: int) -> c.Cardinality:
         return c.Cardinality(float(10**exponent))
 
-    # Sizes where the attempt policy changes shape are drawn densely, as
-    # well as powers of ten across the whole float range.
+    # Sizes below and around where the attempt policy reaches its caps
+    # are drawn densely, as well as powers of ten across the float range.
     return g.choice(
         g.map(c.finite, g.int_range(0, 3_000_000)),
         g.map(_finite, g.int_range(0, 250)),
         g.constant(c.INFINITE),
     )
-
-
-#: Domain sizes around which the baseline changes formula.
-_BREAKPOINTS = (1000, 1_000_000)
 
 
 @context(_cardinalities())
@@ -34,11 +30,61 @@ def _limit_bounds(cardinality: c.Cardinality) -> bool:
     return 1 <= b.attempt_limit(cardinality) <= b.UNBOUNDED_LIMIT
 
 
-@context(g.choice(g.int_range(0, 3), g.int_range(0, b.UNBOUNDED_LIMIT**2)))
-@prop("a finite domain is worth the square root of its size in attempts")
-def _limit_sqrt(size: int) -> bool:
-    limit = b.attempt_limit(c.finite(size))
-    return limit == max(1, math.isqrt(size))
+def _log_miss(size: int, attempts: int) -> float:
+    """The log of the union bound on leaving a value of the domain undrawn
+    after a number of uniform draws."""
+    return math.log(size) + attempts * math.log1p(-1 / size)
+
+
+#: Domain sizes checked on every attempt: the trivial domains and the
+#: smallest that need coverage.
+_SMALL_SIZES = (0, 1, 2, 3)
+
+
+@context(g.int_range(0, 1_000_000), g.int_range(1, 20000))
+@prop("a coverage count is the least that draws every value, or the cap")
+def _coverage(drawn: int, cap: int) -> bool:
+    log_bound = math.log(b.COVERAGE_MISS)
+    for size in (*_SMALL_SIZES, drawn):
+        attempts = b.coverage_attempts(size, cap)
+        if size <= 1:
+            if attempts != 1:
+                return False
+            continue
+        if not 1 <= attempts <= cap:
+            return False
+        if _log_miss(size, attempts - 1) <= log_bound - 1e-9:
+            return False
+        if attempts < cap and _log_miss(size, attempts) > log_bound + 1e-9:
+            return False
+    return True
+
+
+@context(g.int_range(0, b.UNBOUNDED_LIMIT**2))
+@prop("a finite domain is worth its coverage count, and no less than sqrt")
+def _limit_coverage(drawn: int) -> bool:
+    for size in (*_SMALL_SIZES, drawn):
+        cardinality = c.finite(size)
+        limit = b.attempt_limit(cardinality)
+        baseline = b.baseline_attempts(cardinality)
+        if limit != b.coverage_attempts(size, b.UNBOUNDED_LIMIT):
+            return False
+        if baseline != max(
+            b.MINIMUM_BASELINE,
+            b.coverage_attempts(size, b.UNBOUNDED_BASELINE),
+        ):
+            return False
+        if limit < min(b.UNBOUNDED_LIMIT, math.isqrt(size)):
+            return False
+    return True
+
+
+@prop("unbounded domains get the caps")
+def _unbounded() -> bool:
+    return (
+        b.attempt_limit(c.INFINITE) == b.UNBOUNDED_LIMIT
+        and b.baseline_attempts(c.INFINITE) == b.UNBOUNDED_BASELINE
+    )
 
 
 @context(_cardinalities(), _cardinalities())
@@ -48,20 +94,6 @@ def _monotone(left: c.Cardinality, right: c.Cardinality) -> bool:
     return b.attempt_limit(small) <= b.attempt_limit(
         large
     ) and b.baseline_attempts(small) <= b.baseline_attempts(large)
-
-
-@context(
-    g.choice(
-        *[g.int_range(point - 20, point + 20) for point in _BREAKPOINTS],
-        g.int_range(1, 10**9),
-    )
-)
-@prop("baseline attempts do not jump between neighbouring domain sizes")
-def _continuous(size: int) -> bool:
-    step = b.baseline_attempts(c.finite(size + 1)) - b.baseline_attempts(
-        c.finite(size)
-    )
-    return step in (0, 1)
 
 
 @context(g.float_range(-10.0, 10.0), g.int_range(1, 10))
@@ -189,9 +221,10 @@ def _rejects(total: float) -> bool:
 
 spec = conj(
     _limit_bounds,
-    _limit_sqrt,
+    _coverage,
+    _limit_coverage,
+    _unbounded,
     _monotone,
-    _continuous,
     _alone,
     _share,
     _exhausted,
