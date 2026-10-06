@@ -242,9 +242,9 @@ properties quantify over all generators.
 CI runs on Python 3.12, 3.13 and 3.14: `ruff format --check`,
 `ruff check` (including import sorting), coverage with 60% minimum, and
 distribution build/install check. Scope includes the `minigun`, `tests`,
-`scripts` and `docs/examples` directories. Locally, pre-commit validates conventional commit
-messages at commit-msg and runs mypy on `minigun`, `scripts/bench` and
-`scripts/mutate.py` at pre-push.
+`scripts` and `docs/examples` directories. Locally, pre-commit runs ruff
+at commit and mypy on `minigun`, `scripts/bench` and `scripts/mutate.py`
+at pre-push.
 
 ## Project Configuration
 
@@ -258,7 +258,8 @@ messages at commit-msg and runs mypy on `minigun`, `scripts/bench` and
 
 ## Releasing
 
-Commit types do not decide versions; the maintainer chooses the bump.
+Commit messages are free-form and do not decide versions; the maintainer
+chooses the bump.
 Record changes under `## Unreleased` in `CHANGELOG.md` as they land.
 To release:
 ```bash

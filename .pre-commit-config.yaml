@@ -1,9 +1,9 @@
 # Pre-commit hooks configuration
 # Install with: uv run pre-commit install
-# (default_install_hook_types below covers the commit-msg and pre-push stages)
+# (default_install_hook_types below covers the pre-push stage)
 
 # Configure default hook types and language versions
-default_install_hook_types: [pre-commit, pre-push, commit-msg]
+default_install_hook_types: [pre-commit, pre-push]
 default_language_version:
     python: python3.12
 
@@ -76,13 +76,6 @@ repos:
         stages: [pre-commit]
         args: [minigun, tests, scripts, docs/examples]
         pass_filenames: false
-
-      # Conventional commit message validation (commit-msg stage)
-      - id: conventional-commit-msg
-        name: Conventional Commit Message
-        entry: uv run python scripts/commit_msg_hook.py
-        language: system
-        stages: [commit-msg]
 
       # Type checking (pre-push stage - more comprehensive)
       - id: type-check-local
