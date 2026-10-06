@@ -185,8 +185,10 @@ def find_counter_example(
     :param generators: Generators for the law's parameters by name.
     :param max_attempts: The maximum number of attempts.
     :param deadline: A ``time.perf_counter`` instant after which no further
-        attempt starts, or None for no deadline. The first attempt always
-        runs.
+        attempt starts once the law has been evaluated, or None for no
+        deadline. Attempts continue past it until one is not discarded, so
+        a search cut short by the budget has still tested the law; the
+        attempt limit bounds them.
 
     :return: The search outcome.
     """
@@ -194,7 +196,7 @@ def find_counter_example(
     discards = 0
     for attempt in range(max_attempts):
         if (
-            attempt > 0
+            attempt > discards
             and deadline is not None
             and time.perf_counter() >= deadline
         ):

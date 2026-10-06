@@ -5,6 +5,12 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Bug Fixes
+
+- Evaluate a property's law at least once before its time share ends, so
+  a property squeezed by the budget is not reported as untested because
+  its only attempt was discarded
+
 ## v6.0.0 (2026-09-29)
 
 ### Bug Fixes

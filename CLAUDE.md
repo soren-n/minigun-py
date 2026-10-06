@@ -211,10 +211,12 @@ more than a cheap attempt.
 
 ### Time Budget
 There is no calibration. `TimeBudget` hands each starting property an
-`Allowance` (attempt limit plus a deadline) from the time remaining; the
-first attempt always runs. A property that declares its attempts gets
-no deadline and makes all of them; its count still weighs in the others'
-shares. `check()` uses a property's declared attempts, else
+`Allowance` (attempt limit plus a deadline) from the time remaining;
+attempts continue past the deadline until the law has been evaluated
+once, so a property squeezed by the budget is never reported as untested
+because its only attempt was discarded. A property that declares its
+attempts gets no deadline and makes all of them; its count still weighs
+in the others' shares. `check()` uses a property's declared attempts, else
 `baseline_attempts`, and no deadline.
 
 ### No Silent Fallbacks

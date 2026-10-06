@@ -164,6 +164,38 @@ def _deadline(rng: random.Random) -> bool:
     return search.attempts == 1 and search.counter_example is None
 
 
+# The discard count comes from a generator other than the search's own, so
+# a mutated search cannot also choose it.
+@context(g.int_range(1, 50), g.rngs())
+@prop("an expired deadline lets the search run until the law is evaluated")
+def _deadline_discards(discarded: int, rng: random.Random) -> bool:
+    calls = 0
+
+    def _law(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls <= discarded:
+            s.discard()
+        return True
+
+    search = s.find_counter_example(
+        rng, _law, {"x": g.ints()}, 100, deadline=time.perf_counter()
+    )
+    return (
+        search.attempts == discarded + 1
+        and search.discards == discarded
+        and search.counter_example is None
+    )
+
+
+@prop("past a deadline the attempt limit bounds a law that always discards")
+def _deadline_limit(rng: random.Random) -> bool:
+    search = s.find_counter_example(
+        rng, lambda x: s.discard(), {"x": g.ints()}, 20, deadline=0.0
+    )
+    return search.attempts == 20 and search.discards == 20
+
+
 @prop("exceptions are counterexamples and are reported with the arguments")
 def _exception(rng: random.Random) -> bool:
     def _law(x: int) -> bool:
@@ -231,6 +263,8 @@ spec = conj(
     _assume_discards,
     _assume_shrinks,
     _deadline,
+    _deadline_discards,
+    _deadline_limit,
     _exception,
     _failure_kind,
     _reproducible,
