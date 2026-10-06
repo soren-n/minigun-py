@@ -5,6 +5,30 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Bug Fixes
+
+- Stop shrinking when the time budget runs out. Shrinking a counterexample
+  may use what is left of the whole run's budget; past it no further
+  shrunk candidate is evaluated, and the smallest counterexample found so
+  far is reported, marked as possibly not minimal. Before this, shrinking
+  had no deadline, and a law whose shrunk candidates were slow to evaluate
+  could hold a run for far longer than its budget. `check` still shrinks
+  without a deadline
+- Announce a counterexample as soon as it is found, before it is shrunk,
+  with the property, the attempt, the arguments and (in quiet and JSON
+  output) the seed, so a run whose shrinking is slow still says what
+  failed. Quiet and JSON output announce on stderr and leave stdout for
+  the final report
+
+### Features
+
+- `find_counter_example` takes a `shrink_deadline` and an `on_found`
+  callback; `Allowance` has a `shrink_deadline`; `evaluate` takes an
+  optional `on_found` callback, not invoked under negation; reporters
+  have a `found_counter_example` hook; `CounterExample` records the
+  shrink steps taken and whether shrinking reached a local minimum
+  (`shrinks`, `minimal`, also in JSON output)
+
 ## v6.0.2 (2026-10-06)
 
 ### Bug Fixes

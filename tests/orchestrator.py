@@ -19,10 +19,15 @@ def _threshold(desc: str, threshold: int) -> Spec:
 
 
 def _quiet_run(
-    config: o.RunConfig, modules: list[o.TestModule]
+    config: o.RunConfig,
+    modules: list[o.TestModule],
+    errors: io.StringIO | None = None,
 ) -> tuple[bool, str]:
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with (
+        contextlib.redirect_stdout(buffer),
+        contextlib.redirect_stderr(errors or io.StringIO()),
+    ):
         success = o.run(config, modules)
     return success, buffer.getvalue()
 
@@ -48,6 +53,44 @@ def _holds_budget(budget_ms: int, seed: int) -> bool:
         and "FAIL [failing] c" in text
         and "FAIL [passing]" not in text
     )
+
+
+# Every failing evaluation sleeps, so shrinking from a draw near a million
+# down to the boundary takes far longer than the budget. Both a declared
+# and an undeclared property are checked on every attempt.
+@context(g.int_range(200, 400))
+@prop(
+    "shrinking stops at the end of the budget, the failure announced",
+    attempts=2,
+)
+def _shrink_budget(budget_ms: int, seed: int) -> bool:
+    budget = budget_ms / 1000
+
+    def _run(declared: bool) -> bool:
+        @context(g.int_range(0, 10**6))
+        @prop("slow to fail", attempts=1 if declared else None)
+        def _slow(x: int) -> bool:
+            if x >= 1000:
+                time.sleep(0.05)
+                return False
+            return True
+
+        errors = io.StringIO()
+        started = time.perf_counter()
+        success, text = _quiet_run(
+            o.RunConfig(budget, seed=seed, output=o.OutputMode.QUIET),
+            [o.TestModule("slow", _slow)],
+            errors,
+        )
+        elapsed = time.perf_counter() - started
+        return (
+            not success
+            and elapsed < budget + 0.1
+            and "may not be minimal" in text
+            and "FOUND [slow] slow to fail" in errors.getvalue()
+        )
+
+    return _run(False) and _run(True)
 
 
 @prop("a run of holding properties succeeds under every output mode")
@@ -146,6 +189,7 @@ def _config(budget: float) -> bool:
 
 spec = conj(
     _holds_budget,
+    _shrink_budget,
     _succeeds,
     _rejects,
     _cross_module,

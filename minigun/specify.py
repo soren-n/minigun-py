@@ -35,6 +35,7 @@ says how many attempts it is worth with ``@prop(desc, attempts=n)``.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import inspect
 import time
 from collections.abc import Callable
@@ -77,6 +78,7 @@ __all__ = [
     "AllowanceFor",
     "OnStart",
     "OnOutcome",
+    "OnFound",
     "property_rng",
     "evaluate",
 ]
@@ -332,10 +334,13 @@ class Allowance:
     :param deadline: A ``time.perf_counter`` instant after which no further
         attempt starts once the law has been evaluated, or None. Attempts
         continue past it until one is not discarded.
+    :param shrink_deadline: A ``time.perf_counter`` instant after which no
+        shrunk candidate of a counterexample is evaluated, or None.
     """
 
     max_attempts: int
     deadline: float | None = None
+    shrink_deadline: float | None = None
 
 
 @dataclass(frozen=True)
@@ -373,6 +378,10 @@ type OnStart = Callable[[Prop], None]
 
 #: Invoked with the outcome of a property.
 type OnOutcome = Callable[[Outcome], None]
+
+#: Invoked when a counterexample falsifying a property is found, before it
+#: is shrunk.
+type OnFound = Callable[[Prop, s.CounterExample], None]
 
 
 def property_rng(seed: int, desc: str) -> a.Rng:
@@ -413,6 +422,7 @@ def evaluate(
     allowance_for: AllowanceFor,
     on_start: OnStart,
     on_outcome: OnOutcome,
+    on_found: OnFound | None = None,
 ) -> bool:
     """Evaluate a specification, reporting every property's outcome.
 
@@ -424,6 +434,10 @@ def evaluate(
     :param allowance_for: Decides each property's allowance.
     :param on_start: Invoked when a property starts.
     :param on_outcome: Invoked with each property's outcome.
+    :param on_found: Invoked when a counterexample is found that makes a
+        property fail, before it is shrunk, so a run whose shrinking is
+        slow can say what failed. Not invoked under negation, where a
+        counterexample is what the property expects.
 
     :return: Whether the specification holds.
 
@@ -439,12 +453,19 @@ def evaluate(
         on_start(prop)
         allowance = allowance_for(resolved)
         started = time.perf_counter()
+        found = (
+            None
+            if on_found is None or negated
+            else functools.partial(on_found, prop)
+        )
         search = s.find_counter_example(
             property_rng(seed, prop.desc),
             prop.law,
             resolved.generators,
             allowance.max_attempts,
             allowance.deadline,
+            allowance.shrink_deadline,
+            found,
         )
         duration = time.perf_counter() - started
         holds, error = _judge(resolved, search, negated)

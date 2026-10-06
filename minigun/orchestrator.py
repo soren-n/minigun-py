@@ -101,6 +101,9 @@ def _evaluate_modules(
                 allowance_for,
                 lambda prop: reporter.start_property(prop.desc),
                 reporter.end_property,
+                lambda prop, example: reporter.found_counter_example(
+                    prop.desc, example
+                ),
             )
             success = success and holds
             reporter.end_module()

@@ -196,6 +196,66 @@ def _deadline_limit(rng: random.Random) -> bool:
     return search.attempts == 20 and search.discards == 20
 
 
+# Every draw fails, and every draw but the lower bound has smaller
+# alternatives, so only the deadline stops shrinking at the arguments
+# first found.
+@context(g.int_range(1, 500), g.rngs())
+@prop("an expired shrink deadline reports the counterexample as found")
+def _shrink_deadline(threshold: int, rng: random.Random) -> bool:
+    found: list[s.CounterExample] = []
+    search = s.find_counter_example(
+        rng,
+        lambda x: x < threshold,
+        {"x": g.int_range(1000, 10000)},
+        10,
+        shrink_deadline=time.perf_counter(),
+        on_found=found.append,
+    )
+    example = search.counter_example
+    return (
+        example is not None
+        and found == [s.CounterExample(example.args, 0)]
+        and example.shrinks == 0
+        and example.minimal == (example.args["x"] == 1000)
+        and search.evaluations == 1
+    )
+
+
+@context(g.int_range(1, 500), g.rngs())
+@prop("a counterexample is announced before it is shrunk, steps counted")
+def _announce(threshold: int, rng: random.Random) -> bool:
+    calls = 0
+    failing = 0
+    announced_at: list[int] = []
+    found: list[s.CounterExample] = []
+
+    def _law(x: int) -> bool:
+        nonlocal calls, failing
+        calls += 1
+        failing += x >= threshold
+        return x < threshold
+
+    def _found(example: s.CounterExample) -> None:
+        announced_at.append(calls)
+        found.append(example)
+
+    search = s.find_counter_example(
+        rng, _law, {"x": g.int_range(0, 10000)}, 200, on_found=_found
+    )
+    example = search.counter_example
+    if example is None or len(found) != 1:
+        return False
+    first = found[0]
+    return (
+        announced_at == [search.evaluations]
+        and first.attempt == example.attempt
+        and first.args["x"] >= example.args["x"] == threshold
+        and first.shrinks == 0
+        and example.shrinks == failing - 1
+        and example.minimal
+    )
+
+
 @prop("exceptions are counterexamples and are reported with the arguments")
 def _exception(rng: random.Random) -> bool:
     def _law(x: int) -> bool:
@@ -265,6 +325,8 @@ spec = conj(
     _deadline,
     _deadline_discards,
     _deadline_limit,
+    _shrink_deadline,
+    _announce,
     _exception,
     _failure_kind,
     _reproducible,

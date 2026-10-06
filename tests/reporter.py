@@ -63,20 +63,33 @@ def _modules() -> g.Generator[list[tuple[str, list[Outcome]]]]:
 
 
 def _feed(
-    reporter: r.Reporter, modules: list[tuple[str, list[Outcome]]]
+    reporter: r.Reporter,
+    modules: list[tuple[str, list[Outcome]]],
+    errors: io.StringIO | None = None,
 ) -> str:
+    """Drive a reporter through the modules and return what it printed.
+
+    With ``errors``, each counterexample is also announced as found and
+    stderr is captured there.
+    """
     plans = [
         b.PropertyPlan(o.desc, c.finite(100), 10)
         for _, outcomes in modules
         for o in outcomes
     ]
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with (
+        contextlib.redirect_stdout(buffer),
+        contextlib.redirect_stderr(errors or io.StringIO()),
+    ):
         reporter.start_run([name for name, _ in modules], plans)
         for name, outcomes in modules:
             reporter.start_module(name)
             for outcome in outcomes:
                 reporter.start_property(outcome.desc)
+                example = outcome.counter_example
+                if errors is not None and example is not None:
+                    reporter.found_counter_example(outcome.desc, example)
                 reporter.end_property(outcome)
             reporter.end_module()
         reporter.finish()
@@ -194,6 +207,69 @@ def _rich_budget(budgeted: bool, seed: int) -> bool:
     return ("Test time" in text) == budgeted
 
 
+@context(_modules())
+@prop("quiet and JSON reporters announce counterexamples on stderr only")
+def _announced(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
+    examples = [
+        (o.desc, o.counter_example)
+        for _, outcomes in modules
+        for o in outcomes
+        if o.counter_example is not None
+    ]
+    for make in (r.QuietReporter, r.JSONReporter):
+        errors = io.StringIO()
+        announced = _feed(make(seed, 10.0), modules, errors)
+        # The final report does not depend on what was announced, except
+        # for the JSON timestamp and durations.
+        silent = _feed(make(seed, 10.0), modules)
+        if make is r.QuietReporter and announced != silent:
+            return False
+        if make is r.JSONReporter:
+            json.loads(announced)
+        text = errors.getvalue()
+        if text.count("FOUND [") != len(examples):
+            return False
+        if not all(
+            textwrap.indent(r.describe_found(desc, example), "  ") in text
+            for desc, example in examples
+        ):
+            return False
+    return True
+
+
+@context(_modules())
+@prop("plain and rich reporters announce counterexamples on stdout")
+def _announced_stdout(
+    modules: list[tuple[str, list[Outcome]]], seed: int
+) -> bool:
+    count = sum(
+        o.counter_example is not None
+        for _, outcomes in modules
+        for o in outcomes
+    )
+    plain_errors, rich_errors = io.StringIO(), io.StringIO()
+    plain = _feed(r.PlainReporter(seed, None), modules, plain_errors)
+    rich = _feed(r.RichReporter(seed, 10.0), modules, rich_errors)
+    return (
+        plain.count("FOUND: ") == count
+        and rich.count("counter example found on attempt") == count
+        and plain_errors.getvalue() == rich_errors.getvalue() == ""
+    )
+
+
+@context(g.int_range(0, 100), g.bools())
+@prop("a failure says when shrinking stopped short of a minimum")
+def _not_minimal(shrinks: int, minimal: bool) -> bool:
+    for exception in (None, ValueError("e")):
+        example = s.CounterExample({"x": 1}, 0, exception, shrinks, minimal)
+        outcome = Outcome("p", False, False, 0.0, 1, 0, example, None)
+        text = r.describe_failure(outcome)
+        stopped = f"stopped at the time budget after {shrinks} steps"
+        if (stopped in text) == minimal:
+            return False
+    return True
+
+
 @prop("reporting a property outside a module is an error")
 def _outside_module(seed: int) -> bool:
     reporter = r.QuietReporter(seed, 1.0)
@@ -252,6 +328,9 @@ spec = conj(
     _rich,
     _rich_truncates,
     _rich_budget,
+    _announced,
+    _announced_stdout,
+    _not_minimal,
     _outside_module,
     _format,
     _describe,

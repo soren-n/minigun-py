@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, assert_never
 
 import minigun.generate as g
+import minigun.search as s
 import minigun.specify as sp
 from minigun import assume, check
 from minigun.specify import Spec, conj, context, neg, prop
@@ -188,6 +189,29 @@ def _neg_unmet(seed: int) -> bool:
         and not outcome.holds
         and outcome.error is not None
         and "expected" in outcome.error
+    )
+
+
+@context(trees())
+@prop("counterexamples are announced only when they make a property fail")
+def _announced(tree: Tree, seed: int) -> bool:
+    found: list[tuple[str, s.CounterExample]] = []
+    outcomes: list[sp.Outcome] = []
+    sp.evaluate(
+        seed,
+        build(tree),
+        lambda resolved: sp.Allowance(5),
+        lambda p: None,
+        outcomes.append,
+        lambda p, example: found.append((p.desc, example)),
+    )
+    failed = [
+        o for o in outcomes if o.counter_example is not None and not o.negated
+    ]
+    return [desc for desc, _ in found] == [o.desc for o in failed] and all(
+        example.attempt == o.counter_example.attempt
+        for (_, example), o in zip(found, failed, strict=True)
+        if o.counter_example is not None
     )
 
 
@@ -457,6 +481,7 @@ spec = conj(
     _exhaustive,
     _select,
     _neg_unmet,
+    _announced,
     _reproducible,
     _independent,
     _attempt_index,

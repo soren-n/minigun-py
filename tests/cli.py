@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,17 @@ _VALID = {"valid", "forward_ref"}
 _BROKEN = {"syntax_error", "import_error", "retired", "wrong_spec"}
 
 
+@contextlib.contextmanager
+def _captured(buffer: io.StringIO) -> Iterator[None]:
+    """Capture stdout in a buffer and discard stderr, where nested runs
+    announce their counterexamples."""
+    with (
+        contextlib.redirect_stdout(buffer),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
+        yield
+
+
 def _write(kinds: list[str]) -> Path:
     directory = f.temporary_path()
     for index, kind in enumerate(kinds):
@@ -71,7 +83,7 @@ def _missing_dir(seed: int) -> bool:
     else:
         return False
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(0.2, test_dir=missing, output=OutputMode.QUIET)
     return not success and "does not exist" in buffer.getvalue()
 
@@ -81,7 +93,7 @@ def _missing_dir(seed: int) -> bool:
 def _run_tests(kinds: list[str], seed: int) -> bool:
     directory = _write(kinds)
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(
             0.2,
             test_dir=directory,
@@ -107,7 +119,7 @@ def _run_tests(kinds: list[str], seed: int) -> bool:
 
 def _run_quietly(directory: Path) -> tuple[bool, str]:
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(
             0.2, test_dir=directory, output=OutputMode.QUIET
         )
@@ -154,7 +166,7 @@ def _duplicates(count: int, seed: int) -> bool:
     # Every "valid" module defines a property described "holds".
     directory = _write(["valid"] * count)
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(
             0.2, test_dir=directory, output=OutputMode.QUIET, seed=seed
         )
@@ -171,7 +183,7 @@ def _main(argv: list[str]) -> tuple[int, str]:
     saved = sys.argv
     sys.argv = ["minigun", *argv]
     try:
-        with contextlib.redirect_stdout(buffer):
+        with _captured(buffer):
             cli.main()
     except SystemExit as exit_:
         code = exit_.code if isinstance(exit_.code, int) else 1
@@ -219,7 +231,7 @@ def _selected_alone(kinds: list[str], seed: int) -> bool:
     # descriptions must be unique across a run.
     selected = [f"m{i}_{k}" for i, k in enumerate(kinds) if k in _VALID][:1]
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(
             0.2,
             test_dir=directory,
@@ -234,7 +246,7 @@ def _selected_alone(kinds: list[str], seed: int) -> bool:
 def _selected_no_spec(seed: int) -> bool:
     directory = _write(["valid", "no_spec"])
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         success = cli.run_tests(
             0.2,
             test_dir=directory,
@@ -344,7 +356,7 @@ def _relative(first: int, second: int, seed: int) -> bool:
         (directory / "relative.py").write_text(_relative_module(value))
         directories.append(directory)
     buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
+    with _captured(buffer):
         results = [
             cli.run_tests(
                 0.2, test_dir=directory, output=OutputMode.QUIET, seed=seed
@@ -378,7 +390,7 @@ def _module_entry(seed: int) -> bool:
     saved = sys.argv
     sys.argv = ["minigun", "--version"]
     try:
-        with contextlib.redirect_stdout(buffer):
+        with _captured(buffer):
             runpy.run_module("minigun", run_name="__main__")
     except SystemExit as exit_:
         code = exit_.code

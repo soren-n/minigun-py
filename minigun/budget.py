@@ -14,6 +14,13 @@ tested what it claims. Its limit still weighs in the shares of the others,
 so they leave it room, but it has no deadline, and a run whose declared
 properties take longer than their share overruns its budget. The budget
 is held strictly for every other property.
+
+Shrinking a counterexample may use what is left of the whole budget, not
+only the failing property's share: a counterexample is what a failing run
+is for, and the properties after it still make at least one evaluation
+each. No shrunk candidate is evaluated once the budget is spent, so a run
+that finds a failure ends within its budget plus one evaluation, or after
+its declared attempts when those overran.
 """
 
 from __future__ import annotations
@@ -193,6 +200,7 @@ class TimeBudget:
 
         A property that declares its attempts gets them all, with no
         deadline; any other gets a deadline at the end of its share.
+        Either may shrink a counterexample until the budget ends.
 
         :raises KeyError: When the property is not in the plan or has
             already started.
@@ -203,9 +211,9 @@ class TimeBudget:
         now = time.perf_counter()
         limit = self._limits[desc]
         if desc in self._declared:
-            return Allowance(limit)
+            return Allowance(limit, shrink_deadline=self.end)
         remaining_limits = limit + sum(
             self._limits[pending] for pending in self._pending
         )
         seconds = share(self.end - now, limit, remaining_limits)
-        return Allowance(limit, now + seconds)
+        return Allowance(limit, now + seconds, self.end)

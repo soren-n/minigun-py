@@ -2,7 +2,10 @@
 Reporting
 
 Reporters are passive sinks: the runner drives the run and calls the
-reporter's hooks; reporters accumulate outcomes and render them. Four
+reporter's hooks; reporters accumulate outcomes and render them. A
+counterexample is announced as soon as it is found, before it is shrunk,
+so a run whose shrinking is slow still says what failed; quiet and JSON
+output announce it on stderr, keeping stdout for the final report. Four
 renderings are provided:
 
     - PlainReporter: failures only, for the standalone ``check``
@@ -30,12 +33,14 @@ from rich.panel import Panel
 from rich.table import Table
 
 from minigun.budget import PropertyPlan
+from minigun.search import CounterExample
 from minigun.specify import Outcome
 
 __all__ = [
     "relax_stdout_errors",
     "format_arguments",
     "describe_failure",
+    "describe_found",
     "ModuleResult",
     "Reporter",
     "PlainReporter",
@@ -77,6 +82,15 @@ def format_arguments(args: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _not_minimal(example: CounterExample) -> str:
+    if example.minimal:
+        return ""
+    return (
+        f"\nShrinking stopped at the time budget after {example.shrinks} "
+        "steps; the counter example may not be minimal."
+    )
+
+
 def describe_failure(outcome: Outcome) -> str:
     """One paragraph explaining why an outcome did not hold."""
     if outcome.error is not None:
@@ -88,11 +102,25 @@ def describe_failure(outcome: Outcome) -> str:
         return (
             f'A test case of "{outcome.desc}" raised '
             f"{type(example.exception).__name__}: {example.exception}\n"
-            f"{format_arguments(example.args)}"
+            f"{format_arguments(example.args)}{_not_minimal(example)}"
         )
     return (
         f'A test case of "{outcome.desc}" failed with the following counter '
-        f"example:\n{format_arguments(example.args)}"
+        f"example:\n{format_arguments(example.args)}{_not_minimal(example)}"
+    )
+
+
+def describe_found(desc: str, example: CounterExample) -> str:
+    """One paragraph announcing a counterexample found, before shrinking."""
+    failure = (
+        "failed"
+        if example.exception is None
+        else f"raised {type(example.exception).__name__}: {example.exception}"
+    )
+    return (
+        f'A test case of "{desc}" {failure} on attempt '
+        f"{example.attempt + 1}; shrinking the counter example:\n"
+        f"{format_arguments(example.args)}"
     )
 
 
@@ -198,6 +226,10 @@ class Reporter:
     def start_property(self, desc: str) -> None:
         """Evaluation of a property begins."""
 
+    def found_counter_example(self, desc: str, example: CounterExample) -> None:
+        """A counterexample to a property was found and is about to be
+        shrunk."""
+
     def end_property(self, outcome: Outcome) -> None:
         """Evaluation of a property ended."""
         self._current_module().outcomes.append(outcome)
@@ -217,6 +249,10 @@ class Reporter:
 class PlainReporter(Reporter):
     """Failures as they happen and the seed at the end; nothing on success."""
 
+    def found_counter_example(self, desc: str, example: CounterExample) -> None:
+        print(f"FOUND: {desc}")
+        print(describe_found(desc, example), flush=True)
+
     def end_property(self, outcome: Outcome) -> None:
         super().end_property(outcome)
         if outcome.holds:
@@ -232,9 +268,25 @@ class PlainReporter(Reporter):
 ###############################################################################
 # Quiet reporter
 ###############################################################################
+def _announce(
+    module: str, desc: str, example: CounterExample, seed: int
+) -> None:
+    """Announce a counterexample on stderr, keeping stdout for the report."""
+    print(f"FOUND [{module}] {desc} (seed {seed})", file=sys.stderr)
+    print(
+        textwrap.indent(describe_found(desc, example), "  "),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 class QuietReporter(Reporter):
     """A pass/fail line, and on failure the failing properties, why each
-    failed, with its counterexample, and the seed."""
+    failed, with its counterexample, and the seed. Counterexamples are
+    announced on stderr as they are found."""
+
+    def found_counter_example(self, desc: str, example: CounterExample) -> None:
+        _announce(self._current_module().name, desc, example, self.seed)
 
     def finish(self) -> None:
         print(f"Tests: {'PASS' if self.overall_success else 'FAIL'}")
@@ -293,6 +345,23 @@ class RichReporter(Reporter):
 
     def start_property(self, desc: str) -> None:
         self.console.print(f"  [yellow]Running:[/yellow] {desc}", end="")
+
+    def found_counter_example(self, desc: str, example: CounterExample) -> None:
+        self.console.print(
+            f" [red]counter example found on attempt {example.attempt + 1}, "
+            "shrinking[/red]"
+        )
+        self.console.print(
+            Panel(
+                format_arguments(example.args),
+                title="[red]Found[/red]",
+                title_align="left",
+                border_style="red",
+                padding=(0, 1),
+            )
+        )
+        # The verdict follows on a progress line of its own.
+        self.console.print(f"  [yellow]Shrinking:[/yellow] {desc}", end="")
 
     def end_property(self, outcome: Outcome) -> None:
         super().end_property(outcome)
@@ -388,7 +457,8 @@ class RichReporter(Reporter):
 # JSON reporter
 ###############################################################################
 class JSONReporter(Reporter):
-    """Structured output for tool integration, printed at the end."""
+    """Structured output for tool integration, printed at the end.
+    Counterexamples are announced on stderr as they are found."""
 
     def __init__(self, seed: int, time_budget: float | None):
         super().__init__(seed, time_budget)
@@ -399,6 +469,9 @@ class JSONReporter(Reporter):
     ) -> None:
         super().start_run(module_names, plans)
         self._module_names = list(module_names)
+
+    def found_counter_example(self, desc: str, example: CounterExample) -> None:
+        _announce(self._current_module().name, desc, example, self.seed)
 
     def _outcome(self, outcome: Outcome) -> dict[str, Any]:
         example = outcome.counter_example
@@ -417,6 +490,8 @@ class JSONReporter(Reporter):
                     name: repr(value) for name, value in example.args.items()
                 },
                 "attempt": example.attempt,
+                "shrinks": example.shrinks,
+                "minimal": example.minimal,
                 "exception": None
                 if example.exception is None
                 else f"{type(example.exception).__name__}: {example.exception}",

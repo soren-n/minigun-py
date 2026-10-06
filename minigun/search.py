@@ -13,6 +13,13 @@ by raising an exception of the same type. Without this a counterexample
 found by a False result could shrink into arguments that merely crash the
 law, and the report would describe a different failure than the one found.
 
+Shrinking can be given a deadline. A shrunk candidate can cost far more to
+evaluate than the counterexample it came from, and a walk of many such
+candidates would hold the run long past its budget; past the deadline no
+further candidate is evaluated and the smallest counterexample accepted so
+far is reported, marked as not minimal. A candidate already being
+evaluated is not interrupted.
+
 Attempts draw in sequence from the property's random source, so the whole
 sequence of draws is a function of the property's seed and the reported
 attempt index identifies the failing draw within it. Forking a child per
@@ -35,9 +42,13 @@ from minigun import shrink as s
 #: A law under test: a callable over keyword arguments returning truth.
 type Law = Callable[..., bool]
 
+#: Invoked with a counterexample as it is found, before it is shrunk.
+type OnFound = Callable[[CounterExample], None]
+
 
 __all__ = [
     "Law",
+    "OnFound",
     "Discard",
     "assume",
     "discard",
@@ -93,11 +104,16 @@ class CounterExample:
     :param attempt: The zero-based attempt index that found it.
     :param exception: The exception the law raised on these arguments, when
         the failure was an exception rather than a False result.
+    :param shrinks: The shrink steps taken from the arguments first found.
+    :param minimal: Whether shrinking reached a locally minimal
+        counterexample; False when it stopped at its deadline.
     """
 
     args: dict[str, Any]
     attempt: int
     exception: Exception | None = None
+    shrinks: int = 0
+    minimal: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,14 +167,22 @@ def _trim(
     law: Law,
     dissection: s.Dissection[dict[str, Any]],
     exception: Exception | None,
-) -> tuple[dict[str, Any], Exception | None]:
+    deadline: float | None = None,
+) -> tuple[dict[str, Any], Exception | None, int, bool]:
     """Walk to a locally minimal dissection failing in the same way.
 
     Each candidate is evaluated once; the exception of the last accepted
-    candidate is kept so the report matches the arguments shown.
+    candidate is kept so the report matches the arguments shown. No
+    candidate is evaluated past the deadline.
+
+    :return: The arguments, their exception, the steps taken and whether
+        the arguments are locally minimal.
     """
+    steps = 0
     while True:
         for child in dissection.shrinks():
+            if deadline is not None and time.perf_counter() >= deadline:
+                return dissection.head, exception, steps, False
             result = _evaluate(law, child.head)
             if result is None:
                 continue
@@ -166,9 +190,10 @@ def _trim(
             if holds or not _same_failure(exception, child_exception):
                 continue
             dissection, exception = child, child_exception
+            steps += 1
             break
         else:
-            return dissection.head, exception
+            return dissection.head, exception, steps, True
 
 
 def find_counter_example(
@@ -177,6 +202,8 @@ def find_counter_example(
     generators: dict[str, g.Generator[Any]],
     max_attempts: int,
     deadline: float | None = None,
+    shrink_deadline: float | None = None,
+    on_found: OnFound | None = None,
 ) -> Search:
     """Search for a counterexample to a law.
 
@@ -189,6 +216,10 @@ def find_counter_example(
         deadline. Attempts continue past it until one is not discarded, so
         a search cut short by the budget has still tested the law; the
         attempt limit bounds them.
+    :param shrink_deadline: A ``time.perf_counter`` instant after which no
+        shrunk candidate is evaluated, or None for no deadline.
+    :param on_found: Invoked with the counterexample as found, before it
+        is shrunk.
 
     :return: The search outcome.
     """
@@ -209,8 +240,14 @@ def find_counter_example(
         holds, exception = result
         if holds:
             continue
-        args, exception = _trim(law, dissection, exception)
+        if on_found is not None:
+            on_found(CounterExample(dissection.head, attempt, exception))
+        args, exception, shrinks, minimal = _trim(
+            law, dissection, exception, shrink_deadline
+        )
         return Search(
-            attempt + 1, discards, CounterExample(args, attempt, exception)
+            attempt + 1,
+            discards,
+            CounterExample(args, attempt, exception, shrinks, minimal),
         )
     return Search(max_attempts, discards, None)

@@ -136,7 +136,7 @@ def _exhausted(limit: int, others: int) -> bool:
     g.bounded_lists(1, 12, g.tuples(g.int_range(1, 10000), g.bools())),
     g.int_range(50, 2000),
 )
-@prop("only declared attempts outlast the budget, and are made in full")
+@prop("only declared attempts outlast the budget; shrinking lasts until it")
 def _deadlines(
     limits: list[tuple[int, bool]], budget_ms: int, rng: random.Random
 ) -> bool:
@@ -150,6 +150,8 @@ def _deadlines(
     for plan in order:
         allowance = budget.allowance(plan.desc)
         if allowance.max_attempts != plan.attempt_limit:
+            return False
+        if allowance.shrink_deadline != budget.end:
             return False
         if plan.declared:
             if allowance.deadline is not None:

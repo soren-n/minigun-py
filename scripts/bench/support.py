@@ -144,8 +144,9 @@ def trim(law: Law, dissection: Any) -> dict[str, Any]:
     """Walk a failing argument dissection to a minimal counterexample
     with the installed version's own trimmer."""
     if IS_FORKING:
-        args, _ = _search._trim(law, dissection, None)
-        result: dict[str, Any] = args
+        # The arguments lead the result in every forking version; later
+        # versions also return the steps taken and whether they finished.
+        result: dict[str, Any] = _search._trim(law, dissection, None)[0]
         return result
     trimmed = _search._trim_counter_example(law, dissection)
     head: dict[str, Any] = trimmed.head
