@@ -1,3 +1,5 @@
+import importlib.metadata
+
 from minigun import generate
 from minigun.orchestrator import check
 from minigun.specify import (
@@ -15,7 +17,8 @@ from minigun.specify import (
     prop,
 )
 
-__version__ = "6.0.0"
+# The version is recorded once, in pyproject.toml.
+__version__ = importlib.metadata.version("minigun-soren-n")
 
 __all__ = [
     "Conj",

@@ -1,6 +1,9 @@
 # CHANGELOG
 
-<!-- version list -->
+Entries are written by hand. Add changes under Unreleased as they land;
+a release renames that heading to the version and date.
+
+## Unreleased
 
 ## v6.0.0 (2026-09-29)
 

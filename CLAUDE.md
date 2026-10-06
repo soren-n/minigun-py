@@ -247,5 +247,21 @@ messages at commit-msg and runs mypy on `minigun`, `scripts/bench` and
 - Python >=3.12 required; single runtime dependency (rich)
 - Configured with ruff for linting/formatting (80 char line limit)
 - mypy strict settings; `uv run mypy minigun/` must pass with no errors
-- Semantic versioning via `python-semantic-release`; version tracked in
-  both `pyproject.toml` and `minigun/__init__.py`
+- Versions are managed by hand. The version is recorded once, in
+  `pyproject.toml`; `minigun.__version__` reads it from the installed
+  package metadata
+
+## Releasing
+
+Commit types do not decide versions; the maintainer chooses the bump.
+Record changes under `## Unreleased` in `CHANGELOG.md` as they land.
+To release:
+```bash
+uv version --bump patch     # or minor / major; updates pyproject.toml and uv.lock
+# rename "## Unreleased" in CHANGELOG.md to "## vX.Y.Z (YYYY-MM-DD)"
+# merge, then tag the merged commit on main
+git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z
+```
+The tag push runs `.github/workflows/release.yml`, which refuses a tag
+that does not match the version or has no changelog entry, then builds,
+publishes to PyPI and creates the GitHub release with that entry as notes.

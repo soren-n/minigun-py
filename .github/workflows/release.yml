@@ -1,44 +1,26 @@
 name: Release
 
+# Versions are managed by hand: bump with `uv version --bump`, give the
+# Unreleased section of CHANGELOG.md the new version, merge, then push a
+# tag vX.Y.Z on that commit. The tag must match the version in
+# pyproject.toml and have a changelog entry, or nothing is published.
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      version_bump:
-        description: 'Version bump type'
-        required: true
-        default: 'auto'
-        type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
+    tags:
+      - 'v*'
 
 jobs:
   release:
-    name: Semantic Release
+    name: Build and Publish
     runs-on: ubuntu-latest
     if: github.repository == 'soren-n/minigun-py'
 
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
-
-    outputs:
-      released: ${{ steps.release.outputs.released }}
-      version: ${{ steps.release.outputs.version }}
-      tag: ${{ steps.release.outputs.tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.1.0
@@ -46,57 +28,22 @@ jobs:
       - name: Set up Python
         run: uv python install
 
-      - name: Install Python Semantic Release
-        run: uv tool install python-semantic-release
-
-      - name: Configure git
+      - name: Check the tag against the version and changelog
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Python Semantic Release
-        id: release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BUMP=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.version_bump }}" != "auto" ]; then
-            BUMP="--${{ github.event.inputs.version_bump }}"
+          VERSION=$(uv version --short)
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match version ${VERSION} in pyproject.toml"
+            exit 1
           fi
-
-          BEFORE=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
-          uv tool run python-semantic-release version $BUMP --no-push
-          AFTER=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
-
-          # semantic-release exits 0 when no release is due, so detect a
-          # release by the version actually changing rather than by exit code.
-          if [ "$BEFORE" != "$AFTER" ]; then
-            git push origin main --follow-tags
-            echo "released=true" >> $GITHUB_OUTPUT
-            echo "version=$AFTER" >> $GITHUB_OUTPUT
-            echo "tag=v$AFTER" >> $GITHUB_OUTPUT
-          else
-            echo "No version change from $BEFORE; skipping publish"
-            echo "released=false" >> $GITHUB_OUTPUT
+          awk -v heading="## v${VERSION} " '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no entry for v${VERSION}"
+            exit 1
           fi
-
-  build_and_publish:
-    name: Build and Publish
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ needs.release.outputs.tag }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.1.0
-
-      - name: Set up Python
-        run: uv python install
 
       - name: Build distribution
         run: uv build
@@ -114,13 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view ${{ needs.release.outputs.tag }} > /dev/null 2>&1; then
-            echo "Release ${{ needs.release.outputs.tag }} already exists, updating assets..."
-            gh release upload ${{ needs.release.outputs.tag }} ./dist/* --clobber
-          else
-            echo "Creating new release ${{ needs.release.outputs.tag }}..."
-            gh release create ${{ needs.release.outputs.tag }} \
-              --title "Release ${{ needs.release.outputs.version }}" \
-              --generate-notes \
-              ./dist/*
-          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Release ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md \
+            ./dist/*

@@ -53,9 +53,6 @@ test = "minigun.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.version]
-path = "minigun/__init__.py"
-
 [tool.hatch.build.targets.sdist]
 packages = ["minigun"]
 
@@ -128,41 +125,3 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
     "case _:\\n\\s*assert_never\\(",
 ]
-
-[tool.semantic_release]
-version_toml = ["pyproject.toml:project.version"]
-version_variables = [
-    "minigun/__init__.py:__version__",
-]
-# Refresh the lock file so the release commit carries the bumped version.
-assets = ["uv.lock"]
-build_command = "uv lock && uv build"
-dist_path = "dist/"
-upload_to_PyPI = false
-upload_to_release = true
-remove_dist = false
-
-[tool.semantic_release.branches.main]
-match = "(main|master)"
-prerelease_token = "rc"
-prerelease = false
-
-[tool.semantic_release.changelog]
-exclude_commit_patterns = [
-    "^(chore|docs|style|refactor|test|build|ci)(?:\\(.+\\))?:",
-]
-
-[tool.semantic_release.changelog.default_templates]
-changelog_file = "CHANGELOG.md"
-
-[tool.semantic_release.commit_author]
-env = "GIT_COMMIT_AUTHOR"
-default = "semantic-release <semantic-release>"
-
-[tool.semantic_release.commit_parser_options]
-allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "style", "refactor", "test"]
-minor_tags = ["feat"]
-patch_tags = ["fix", "perf"]
-
-[tool.semantic_release.remote.token]
-env = "GH_TOKEN"
