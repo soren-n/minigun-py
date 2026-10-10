@@ -67,7 +67,7 @@ jobs:
         run: uv build --sdist
 
       - name: Upload distribution
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sdist
           path: ./dist/*.tar.gz
@@ -85,7 +85,7 @@ jobs:
         run: uv python install
 
       - name: Download distribution
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: sdist
           path: ./dist
