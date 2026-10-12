@@ -51,7 +51,26 @@ class Dates:
 
 
 @dataclass(frozen=True)
+class BiasedBool:
+    bias: float
+
+
+@dataclass(frozen=True)
+class Datetimes:
+    first: datetime.datetime
+    last: datetime.datetime
+    resolution: datetime.timedelta
+
+
+@dataclass(frozen=True)
 class Strings:
+    alphabet: str
+
+
+@dataclass(frozen=True)
+class BoundedStrings:
+    lower: int
+    upper: int
     alphabet: str
 
 
@@ -95,9 +114,29 @@ class Sets:
 
 
 @dataclass(frozen=True)
+class BoundedSets:
+    lower: int
+    upper: int
+    inner: "Program"
+
+
+@dataclass(frozen=True)
 class Dicts:
     keys: "Program"
     values: "Program"
+
+
+@dataclass(frozen=True)
+class BoundedDicts:
+    lower: int
+    upper: int
+    keys: "Program"
+    values: "Program"
+
+
+@dataclass(frozen=True)
+class SubsetOf:
+    values: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -113,6 +152,11 @@ class Optional:
 @dataclass(frozen=True)
 class Choice:
     branches: tuple["Program", ...]
+
+
+@dataclass(frozen=True)
+class WeightedChoice:
+    branches: tuple[tuple[int, "Program"], ...]
 
 
 @dataclass(frozen=True)
@@ -170,11 +214,14 @@ class MapSet:
 
 type Program = (
     Bools
+    | BiasedBool
     | Tiered
     | Floats
     | FloatRange
     | Dates
+    | Datetimes
     | Strings
+    | BoundedStrings
     | IntRange
     | NonzeroRange
     | Const
@@ -182,10 +229,14 @@ type Program = (
     | Lists
     | BoundedLists
     | Sets
+    | BoundedSets
     | Dicts
+    | BoundedDicts
+    | SubsetOf
     | Tuples
     | Optional
     | Choice
+    | WeightedChoice
     | Filtered
     | Mapped
     | Replicate
@@ -238,6 +289,8 @@ def interpret(program: Program) -> g.Generator[Any]:
     match program:
         case Bools():
             return g.bools()
+        case BiasedBool(bias):
+            return g.biased_bool(bias)
         case Tiered(name):
             return TIERED[name][0]()
         case Floats():
@@ -246,8 +299,12 @@ def interpret(program: Program) -> g.Generator[Any]:
             return g.float_range(lower, upper, edges)
         case Dates(first, last):
             return g.dates(first, last)
+        case Datetimes(first, last, resolution):
+            return g.datetimes(first, last, resolution)
         case Strings(alphabet):
             return g.strings(alphabet)
+        case BoundedStrings(lower, upper, alphabet):
+            return g.bounded_strings(lower, upper, alphabet)
         case IntRange(lower, upper):
             return g.int_range(lower, upper)
         case NonzeroRange(lower, upper):
@@ -262,14 +319,26 @@ def interpret(program: Program) -> g.Generator[Any]:
             return g.bounded_lists(lower, upper, interpret(inner))
         case Sets(inner):
             return g.sets(interpret(inner))
+        case BoundedSets(lower, upper, inner):
+            return g.bounded_sets(lower, upper, interpret(inner))
         case Dicts(keys, values):
             return g.dicts(interpret(keys), interpret(values))
+        case BoundedDicts(lower, upper, keys, values):
+            return g.bounded_dicts(
+                lower, upper, interpret(keys), interpret(values)
+            )
+        case SubsetOf(values):
+            return g.subset_of(set(values))
         case Tuples(items):
             return g.tuples(*[interpret(item) for item in items])
         case Optional(inner):
             return g.optional(interpret(inner))
         case Choice(branches):
             return g.choice(*[interpret(branch) for branch in branches])
+        case WeightedChoice(branches):
+            return g.weighted_choice(
+                *[(weight, interpret(branch)) for weight, branch in branches]
+            )
         case Filtered(predicate, inner):
             return g.filter(PREDICATES[predicate], interpret(inner))
         case Mapped(function, inner):
@@ -323,6 +392,10 @@ def member(program: Program, value: Any) -> bool:
     match program:
         case Bools():
             return isinstance(value, bool)
+        case BiasedBool(bias):
+            # A certain bias draws only its value; shrinking may still
+            # offer False, the boolean shrinker's target.
+            return isinstance(value, bool) and (value is False or bias > 0.0)
         case Tiered(name):
             _, lower, upper = TIERED[name]
             return (
@@ -340,10 +413,22 @@ def member(program: Program, value: Any) -> bool:
                 and not isinstance(value, datetime.datetime)
                 and first <= value <= last
             )
+        case Datetimes(first, last, resolution):
+            return (
+                isinstance(value, datetime.datetime)
+                and first <= value <= last
+                and (value - first) % resolution == datetime.timedelta(0)
+            )
         case Strings(alphabet):
             return (
                 isinstance(value, str)
                 and len(value) <= 100
+                and all(char in alphabet for char in value)
+            )
+        case BoundedStrings(lower, upper, alphabet):
+            return (
+                isinstance(value, str)
+                and lower <= len(value) <= upper
                 and all(char in alphabet for char in value)
             )
         case IntRange(lower, upper):
@@ -379,11 +464,31 @@ def member(program: Program, value: Any) -> bool:
             return isinstance(value, set) and all(
                 member(inner, item) for item in value
             )
+        case BoundedSets(lower, upper, inner):
+            # At least ``lower`` elements are drawn, but equal draws
+            # collapse, so a non-empty lower bound only promises one.
+            return (
+                isinstance(value, set)
+                and min(lower, 1) <= len(value) <= upper
+                and all(member(inner, item) for item in value)
+            )
         case Dicts(keys, values):
             return isinstance(value, dict) and all(
                 member(keys, key) and member(values, val)
                 for key, val in value.items()
             )
+        case BoundedDicts(lower, upper, keys, values):
+            # As for sets, entries with equal keys collapse.
+            return (
+                isinstance(value, dict)
+                and min(lower, 1) <= len(value) <= upper
+                and all(
+                    member(keys, key) and member(values, val)
+                    for key, val in value.items()
+                )
+            )
+        case SubsetOf(values):
+            return isinstance(value, set) and value <= set(values)
         case Tuples(items):
             return (
                 isinstance(value, tuple)
@@ -397,6 +502,12 @@ def member(program: Program, value: Any) -> bool:
             return value is None or member(inner, value)
         case Choice(branches):
             return any(member(branch, value) for branch in branches)
+        case WeightedChoice(branches):
+            # A branch of weight zero is never drawn.
+            return any(
+                weight > 0 and member(branch, value)
+                for weight, branch in branches
+            )
         case Filtered(predicate, inner):
             return member(inner, value) and PREDICATES[predicate](value)
         case Mapped(function, inner):
@@ -493,12 +604,64 @@ def _dates() -> g.Generator[Program]:
     return g.map(_make, g.int_range(-20000, 20000), g.int_range(0, 1000))
 
 
+_EPOCH_TIME = datetime.datetime(2000, 1, 1)
+
+#: Resolutions of datetime programs, from the finest to a whole day.
+RESOLUTIONS = (
+    datetime.timedelta(microseconds=1),
+    datetime.timedelta(seconds=1),
+    datetime.timedelta(minutes=7),
+    datetime.timedelta(days=1),
+)
+
+
+def _datetimes() -> g.Generator[Program]:
+    def _make(
+        offset: int, steps: int, resolution: datetime.timedelta
+    ) -> Program:
+        first = _EPOCH_TIME + datetime.timedelta(seconds=offset)
+        # A span of a few steps plus a remainder, so ``last`` is not
+        # always a whole number of steps from ``first``.
+        last = first + steps * resolution + resolution / 3
+        return Datetimes(first, last, resolution)
+
+    return g.map(
+        _make,
+        g.int_range(-(10**9), 10**9),
+        g.int_range(0, 50),
+        g.one_of(list(RESOLUTIONS)),
+    )
+
+
 #: Alphabets of string programs: the default, a narrow one, and one letter.
 ALPHABETS = (string.printable, string.ascii_uppercase, "a")
 
 
 def _strings() -> g.Generator[Program]:
     return g.map(Strings, g.one_of(list(ALPHABETS)))
+
+
+def _bounded_strings() -> g.Generator[Program]:
+    def _make(a: int, b: int, alphabet: str) -> Program:
+        return BoundedStrings(min(a, b), max(a, b), alphabet)
+
+    small = g.int_range(0, 8)
+    return g.map(_make, small, small, g.one_of(list(ALPHABETS)))
+
+
+def _biased_bool() -> g.Generator[Program]:
+    # The certain biases are drawn as often as the uncertain ones.
+    return g.map(
+        BiasedBool,
+        g.choice(g.one_of([0.0, 1.0]), g.float_range(0.0, 1.0)),
+    )
+
+
+def _subset_of() -> g.Generator[Program]:
+    def _make(values: list[int]) -> Program:
+        return SubsetOf(tuple(values))
+
+    return g.map(_make, g.bounded_lists(0, 6, g.small_ints()))
 
 
 def _one_of() -> g.Generator[Program]:
@@ -538,7 +701,13 @@ def int_programs() -> g.Generator[Program]:
 def hashable_programs() -> g.Generator[Program]:
     """Programs whose values are hashable, fit for set elements and keys."""
     leaves: g.Generator[Program] = g.choice(
-        g.constant(Bools()), _strings(), _dates(), int_programs()
+        g.constant(Bools()),
+        _biased_bool(),
+        _strings(),
+        _bounded_strings(),
+        _dates(),
+        _datetimes(),
+        int_programs(),
     )
 
     def _tuple(a: Program, b: Program) -> Program:
@@ -553,7 +722,7 @@ def hashable_programs() -> g.Generator[Program]:
 
 def _sized(depth: int) -> g.Generator[Program]:
     leaves: g.Generator[Program] = g.choice(
-        hashable_programs(), g.constant(Floats()), _float_range()
+        hashable_programs(), g.constant(Floats()), _float_range(), _subset_of()
     )
     if depth == 0:
         return leaves
@@ -567,6 +736,19 @@ def _sized(depth: int) -> g.Generator[Program]:
 
     def _choice(a: Program, b: Program) -> Program:
         return Choice((a, b))
+
+    def _weighted(weights: tuple[int, int], a: Program, b: Program) -> Program:
+        # One weight may be zero, never both: that branch is never drawn.
+        first, second = weights
+        return WeightedChoice(
+            ((first, a), (second if first else 1 + second, b))
+        )
+
+    def _bounded_set(a: int, b: int, inner: Program) -> Program:
+        return BoundedSets(min(a, b), max(a, b), inner)
+
+    def _bounded_dict(a: int, b: int, key: Program, value: Program) -> Program:
+        return BoundedDicts(min(a, b), max(a, b), key, value)
 
     def _append(items: Program, item: Program) -> Program:
         return ListAppend(Lists(items), item)
@@ -587,6 +769,7 @@ def _sized(depth: int) -> g.Generator[Program]:
         return MapSet(tuple(items))
 
     small = g.int_range(0, 5)
+    weight = g.int_range(0, 3)
     return g.weighted_choice(
         (4, leaves),
         (1, g.map(Lists, sub)),
@@ -596,6 +779,9 @@ def _sized(depth: int) -> g.Generator[Program]:
         (1, g.map(_tuple, sub, sub)),
         (1, g.map(Optional, sub)),
         (1, g.map(_choice, sub, sub)),
+        (1, g.map(_weighted, g.tuples(weight, weight), sub, sub)),
+        (1, g.map(_bounded_set, small, small, hashable_programs())),
+        (1, g.map(_bounded_dict, small, small, hashable_programs(), sub)),
         (1, g.map(Replicate, int_programs(), sub)),
         (1, g.map(_append, sub, sub)),
         (1, g.map(_insert, hashable_programs(), sub)),
