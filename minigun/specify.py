@@ -69,6 +69,8 @@ __all__ = [
     "conj",
     "Resolved",
     "collect",
+    "leaves",
+    "combine",
     "select",
     "resolve",
     "resolve_all",
@@ -80,6 +82,7 @@ __all__ = [
     "OnOutcome",
     "OnFound",
     "property_rng",
+    "evaluate_property",
     "evaluate",
 ]
 
@@ -257,6 +260,50 @@ def collect(spec: Spec) -> list[Prop]:
             assert_never(spec)
 
 
+def leaves(spec: Spec) -> list[tuple[Prop, bool]]:
+    """The properties of a specification in evaluation order, each with
+    whether it is evaluated under negation."""
+
+    def _visit(spec: Spec, negated: bool) -> list[tuple[Prop, bool]]:
+        match spec:
+            case Prop():
+                return [(spec, negated)]
+            case Neg(term):
+                return _visit(term, not negated)
+            case Conj(terms):
+                return [
+                    leaf for term in terms for leaf in _visit(term, negated)
+                ]
+            case _:
+                assert_never(spec)
+
+    return _visit(spec, False)
+
+
+def combine(spec: Spec, holds: Callable[[str], bool]) -> bool:
+    """The truth of a specification from whether each property held,
+    negation applied, as its outcome reports it.
+
+    :param holds: Whether the property of a description held.
+    """
+
+    def _visit(spec: Spec, negated: bool) -> bool:
+        match spec:
+            case Prop():
+                return holds(spec.desc)
+            case Neg(term):
+                return _visit(term, not negated)
+            case Conj(terms):
+                # Under negation the conjunction holds when any negated
+                # term holds.
+                results = [_visit(term, negated) for term in terms]
+                return any(results) if negated else all(results)
+            case _:
+                assert_never(spec)
+
+    return _visit(spec, False)
+
+
 def select(spec: Spec, keep: Callable[[Prop], bool]) -> Spec | None:
     """The part of a specification made of the properties it keeps.
 
@@ -416,6 +463,47 @@ def _judge(
     return negated, None
 
 
+def evaluate_property(
+    seed: int,
+    resolved: Resolved,
+    negated: bool,
+    allowance: Allowance,
+    on_found: Callable[[s.CounterExample], None] | None = None,
+) -> Outcome:
+    """Evaluate one property of a run.
+
+    :param seed: The run seed.
+    :param resolved: The property.
+    :param negated: Whether it is evaluated under negation.
+    :param allowance: What it may spend.
+    :param on_found: Invoked when a counterexample is found that makes the
+        property fail, before it is shrunk; never invoked under negation.
+    """
+    prop = resolved.prop
+    started = time.perf_counter()
+    search = s.find_counter_example(
+        property_rng(seed, prop.desc),
+        prop.law,
+        resolved.generators,
+        allowance.max_attempts,
+        allowance.deadline,
+        allowance.shrink_deadline,
+        None if negated else on_found,
+    )
+    duration = time.perf_counter() - started
+    holds, error = _judge(resolved, search, negated)
+    return Outcome(
+        prop.desc,
+        negated,
+        holds,
+        duration,
+        search.attempts,
+        search.discards,
+        search.counter_example,
+        error,
+    )
+
+
 def evaluate(
     seed: int,
     spec: Spec,
@@ -426,8 +514,9 @@ def evaluate(
 ) -> bool:
     """Evaluate a specification, reporting every property's outcome.
 
-    Every property in the tree is evaluated; nothing is skipped on
-    failure. The truth of the tree is computed from the outcomes.
+    Every property in the tree is evaluated, in the order of ``leaves``;
+    nothing is skipped on failure. The truth of the tree is computed from
+    the outcomes.
 
     :param seed: The run seed.
     :param spec: The specification to evaluate.
@@ -447,54 +536,17 @@ def evaluate(
     resolved_by_desc = {
         resolved.prop.desc: resolved for resolved in resolve_all(spec)
     }
-
-    def _visit_prop(prop: Prop, negated: bool) -> bool:
+    held: dict[str, bool] = {}
+    for prop, negated in leaves(spec):
         resolved = resolved_by_desc[prop.desc]
         on_start(prop)
-        allowance = allowance_for(resolved)
-        started = time.perf_counter()
-        found = (
-            None
-            if on_found is None or negated
-            else functools.partial(on_found, prop)
+        outcome = evaluate_property(
+            seed,
+            resolved,
+            negated,
+            allowance_for(resolved),
+            None if on_found is None else functools.partial(on_found, prop),
         )
-        search = s.find_counter_example(
-            property_rng(seed, prop.desc),
-            prop.law,
-            resolved.generators,
-            allowance.max_attempts,
-            allowance.deadline,
-            allowance.shrink_deadline,
-            found,
-        )
-        duration = time.perf_counter() - started
-        holds, error = _judge(resolved, search, negated)
-        on_outcome(
-            Outcome(
-                prop.desc,
-                negated,
-                holds,
-                duration,
-                search.attempts,
-                search.discards,
-                search.counter_example,
-                error,
-            )
-        )
-        return holds
-
-    def _visit(spec: Spec, negated: bool) -> bool:
-        match spec:
-            case Prop():
-                return _visit_prop(spec, negated)
-            case Neg(term):
-                return _visit(term, not negated)
-            case Conj(terms):
-                # Evaluate every term; combine afterwards. Under negation
-                # the conjunction holds when any negated term holds.
-                results = [_visit(term, negated) for term in terms]
-                return any(results) if negated else all(results)
-            case _:
-                assert_never(spec)
-
-    return _visit(spec, False)
+        held[prop.desc] = outcome.holds
+        on_outcome(outcome)
+    return combine(spec, held.__getitem__)
