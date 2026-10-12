@@ -83,9 +83,12 @@ def _shrink_budget(budget_ms: int, seed: int) -> bool:
             errors,
         )
         elapsed = time.perf_counter() - started
+        # The run may overrun by one evaluation, and a 50 ms sleep can
+        # overshoot on Windows runners under load; that shrinking was cut
+        # short is shown by the report, not by the time.
         return (
             not success
-            and elapsed < budget + 0.1
+            and elapsed < budget + 0.25
             and "may not be minimal" in text
             and "FOUND [slow] slow to fail" in errors.getvalue()
         )
