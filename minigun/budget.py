@@ -2,16 +2,27 @@
 Time budget
 
 A run has a fixed time budget and no calibration phase. Every property
-receives a share of the time remaining when it starts, weighted by its
-attempt limit, and runs until it has spent that share or reached the
-limit. Time a property leaves unspent flows to the properties after it, so
-cheap properties never starve expensive ones.
+receives an equal share of the time remaining when it starts, divided
+among the properties not yet started, and runs until it has spent that
+share or reached its attempt limit. Time a property leaves unspent flows
+to the properties after it.
+
+Shares are equal per property, not per attempt. The cost of an attempt
+varies by orders of magnitude between properties, and a share weighted by
+attempt limit gives every attempt the same time, so a property whose
+attempts cost more than that makes only a few of them however small its
+limit, while cheap properties over unbounded domains take most of the
+run. With equal shares a small finite domain is covered whenever its
+attempts fit in one share, and properties that need more than a share
+divide what the others leave. The time saved flows only forward: a
+property that needs more than its share gets none of the time the
+properties after it will leave unspent.
 
 A property that declares its attempts always makes all of them: the count
 is a statement of what the property needs, such as the sample size of a
 statistical test, and a truncated run of it would pass without having
-tested what it claims. Its limit still weighs in the shares of the others,
-so they leave it room, but it has no deadline, and a run whose declared
+tested what it claims. It still counts as one of the properties sharing
+the time, so the others leave it one share of room, but it has no deadline, and a run whose declared
 properties take longer than their share overruns its budget. The budget
 is held strictly for every other property.
 
@@ -121,20 +132,18 @@ def baseline_attempts(cardinality: Cardinality) -> int:
 ###############################################################################
 # Time shares
 ###############################################################################
-def share(remaining_time: float, limit: int, remaining_limits: int) -> float:
+def share(remaining_time: float, properties: int) -> float:
     """The time share of a property about to start.
 
     :param remaining_time: Seconds left in the budget.
-    :param limit: The property's attempt limit.
-    :param remaining_limits: The attempt limits of every property not yet
-        started, this one included.
+    :param properties: The number of properties not yet started, this one
+        included.
 
-    :return: Seconds, proportional to the property's limit; never
-        negative.
+    :return: Seconds, an equal part of the remaining time; never negative.
     """
-    if remaining_time <= 0 or remaining_limits <= 0:
+    if remaining_time <= 0 or properties <= 0:
         return 0.0
-    return remaining_time * limit / remaining_limits
+    return remaining_time / properties
 
 
 @dataclass(frozen=True)
@@ -226,9 +235,6 @@ class TimeBudget:
         limit = self._limits[desc]
         if desc in self._declared:
             return Allowance(limit, shrink_deadline=self.end)
-        remaining_limits = limit + sum(
-            self._limits[pending] for pending in self._pending
-        )
         if self.workers == 1:
             # One worker runs one property at a time: whatever started
             # before this one has ended.
@@ -238,7 +244,7 @@ class TimeBudget:
             max(0.0, deadline - now) for deadline in self._running.values()
         )
         available = max(0.0, self.workers * remaining - held)
-        seconds = min(remaining, share(available, limit, remaining_limits))
+        seconds = min(remaining, share(available, 1 + len(self._pending)))
         self._running[desc] = now + seconds
         return Allowance(limit, now + seconds, self.end)
 

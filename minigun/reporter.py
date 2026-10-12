@@ -215,6 +215,33 @@ class Reporter:
     def elapsed(self) -> float:
         return time.perf_counter() - self._started
 
+    def short_of_limit(self, outcome: Outcome) -> int | None:
+        """The attempt limit of a property that held without reaching it,
+        such as one whose time share ran out; else None.
+
+        Such a property passed without trying as much of its domain as it
+        is worth, so a run whose properties all held may still have
+        covered little.
+        """
+        plan = self.plans.get(outcome.desc)
+        if (
+            plan is None
+            or not outcome.holds
+            or outcome.counter_example is not None
+            or outcome.attempts >= plan.attempt_limit
+        ):
+            return None
+        return plan.attempt_limit
+
+    @property
+    def total_short(self) -> int:
+        return sum(
+            1
+            for module in self.modules
+            for outcome in module.outcomes
+            if self.short_of_limit(outcome) is not None
+        )
+
     def _current_module(self) -> ModuleResult:
         if self._current is None:
             raise RuntimeError("No module is being reported")
@@ -374,8 +401,11 @@ class RichReporter(Reporter):
 
     def end_property(self, outcome: Outcome) -> None:
         super().end_property(outcome)
+        limit = self.short_of_limit(outcome)
         detail = (
-            f"{outcome.attempts} attempts"
+            f"{outcome.attempts}"
+            + ("" if limit is None else f"/{limit}")
+            + " attempts"
             + (f", {outcome.discards} discarded" if outcome.discards else "")
             + f", {outcome.duration:.3f}s"
         )
@@ -446,6 +476,12 @@ class RichReporter(Reporter):
                 f"\n[dim]Run time: {self.elapsed:.3f}s / "
                 f"{self.time_budget:.1f}s "
                 f"({100 * self.elapsed / self.time_budget:.1f}%)[/dim]"
+            )
+        short = self.total_short
+        if short:
+            usage += (
+                f"\n[yellow]{short} of {self.total_tests} properties stopped "
+                "short of their attempt limit[/yellow]"
             )
         if self.overall_success:
             panel = Panel.fit(

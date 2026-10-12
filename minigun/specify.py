@@ -152,9 +152,8 @@ def prop(
         gives every property over an unbounded domain the same number; set
         it for properties whose attempts are expensive or statistical. It
         is the attempt count of ``check`` and of a budgeted run, where the
-        property makes every attempt even past its share of the time, and
-        the shares of the other properties leave it room in proportion to
-        it.
+        property makes every attempt even past its share of the time; the
+        other properties leave it one share of room.
 
     :raises ValueError: When ``attempts`` is not positive.
     :raises SpecificationError: When the law's annotations cannot be

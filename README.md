@@ -110,7 +110,7 @@ minigun --time-budget 30 --seed 42
 minigun --time-budget 30 --jobs 4
 ```
 
-The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode. A counterexample is announced as soon as it is found, before shrinking starts (on stderr in quiet and JSON output), and shrinking stops when the run's budget is spent: no further shrunk candidate is evaluated, and the smallest counterexample found so far is reported with a note that it may not be minimal.
+The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared equally between properties, whatever their attempts cost: each runs until it has spent its share or reached the attempts its input domain is worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. The summary counts the properties that held without reaching that number, and each one's line shows its attempts against it (for example `3/2029 attempts`). A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode. A counterexample is announced as soon as it is found, before shrinking starts (on stderr in quiet and JSON output), and shrinking stops when the run's budget is spent: no further shrunk candidate is evaluated, and the smallest counterexample found so far is reported with a note that it may not be minimal.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran. To replay one failing property cheaply, pass the seed together with `--select` and part of its description: the property draws the same values as in the full run.
 
@@ -209,7 +209,7 @@ Rejected attempts count as discards, and shrunk counterexamples always satisfy t
 
 ### Declaring Effort
 
-A property whose attempts are expensive, or statistical, can declare how many attempts it is worth. `check` makes exactly that many, and so does a budgeted run, even when the property's share of the time runs out first: a declared count is what the property needs, not a limit to cut. Its declared attempts still weigh in the time shares of the other properties, so they leave it room, but a run whose declared properties overrun their share takes longer than its budget, and the summary shows by how much:
+A property whose attempts are expensive, or statistical, can declare how many attempts it is worth. `check` makes exactly that many, and so does a budgeted run, even when the property's share of the time runs out first: a declared count is what the property needs, not a limit to cut. It still counts as one of the properties sharing the time, so the others leave it a share of room, but a run whose declared properties overrun their share takes longer than its budget, and the summary shows by how much:
 
 ```python
 import random
@@ -266,7 +266,7 @@ A: Start with 30-60 seconds for quick feedback. Use 2-5 minutes for thorough tes
 
 **Q: How do I test larger input spaces?**
 
-A: Increase the time budget. Properties over unbounded domains absorb the extra time, up to 10000 attempts each per run.
+A: Increase the time budget. Every property gets an equal part of it, and properties short of their attempt limit absorb the extra time, up to 10000 attempts each per run for unbounded domains.
 
 **Q: Can I customize test generation?**
 
@@ -274,7 +274,7 @@ A: Yes, use the `@context` decorator with generators from `minigun.generate`, or
 
 **Q: Some properties are much more expensive than others. How do I balance them?**
 
-A: Declare their attempts with `@prop("...", attempts=n)`. The time budget is shared in proportion to attempt limits, and time a property leaves unspent flows to the properties after it. A declared property always makes all its attempts, so the run takes as long as they need.
+A: The time budget is shared equally between properties, not attempts, so a property whose attempts are expensive gets as much time as a cheap one, and time a property leaves unspent flows to the properties after it. When a property needs a number of attempts regardless of the budget, declare them with `@prop("...", attempts=n)`. A declared property always makes all its attempts, so the run takes as long as they need.
 
 **Q: A run seems to hang after a failure. What is it doing?**
 
@@ -298,7 +298,7 @@ A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or
 
 **Q: My property passed but was it tested?**
 
-A: A property whose generators or assumptions discard most of its attempts (for example an over-restrictive `g.filter` or `assume`) fails with a message saying how many attempts were discarded, rather than passing silently.
+A: A property whose generators or assumptions discard most of its attempts (for example an over-restrictive `g.filter` or `assume`) fails with a message saying how many attempts were discarded, rather than passing silently. A property that held without reaching its attempt limit, because its share of the time ran out, shows its attempts against the limit (for example `3/2029 attempts`), and the summary counts such properties; give the run a larger budget or `--jobs` to cover more.
 
 # Real-World Usage
 

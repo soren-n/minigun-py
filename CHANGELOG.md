@@ -5,6 +5,26 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Changes
+
+- The time budget is shared equally between properties instead of in
+  proportion to their attempt limits. Weighting by limit gave every
+  attempt the same time, so a property whose attempts cost milliseconds
+  made only a few of them however small its domain, while cheap
+  properties over unbounded domains took most of the run. Now a small
+  finite domain is covered whenever its attempts fit in one share, and a
+  declared property counts as one property in the others' shares.
+  `budget.share(remaining_time, properties)` takes the number of
+  properties left instead of the attempt limits
+
+### Features
+
+- The rich reporter shows a passing property's attempts against its
+  attempt limit when it stopped short (for example `3/2029 attempts`),
+  and the summary counts such properties, so a passing run that covered
+  little does not look complete. `Reporter.short_of_limit` and
+  `Reporter.total_short` give the same for other reporters
+
 ## v6.3.1 (2026-10-12)
 
 ### Fixes

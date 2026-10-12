@@ -88,9 +88,9 @@ arguments: a test of a generator should draw its inputs from another one.
 The run's exit code is computed by the code under test, so a mutant
 survives only when its run also prints "Tests: PASS".
 A drawn boundary value is rare in a large domain, and a property's time
-share follows its attempt limit, so a test that must see a boundary value
-or every one of a list of cases should check them on every attempt rather
-than draw one.
+share is an equal part of the run whatever its attempt limit, so a test
+that must see a boundary value or every one of a list of cases should
+check them on every attempt rather than draw one.
 
 ### Build and Development
 ```bash
@@ -165,18 +165,19 @@ Minigun is a property-based testing library organized in layers:
   sees the counterexample before shrinking. A law raising `Discard` (via
   `assume`/`discard`) rejects its arguments: the attempt counts as a
   discard and the shrunk alternative is skipped.
-- `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`):
-  a finite domain is worth its coverage count, the draws that see every
+- `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`): a
+  finite domain is worth its coverage count, the draws that see every
   value with 99.9% confidence (bool 11, ten values 88), capped at 10000
   (1000 without a budget), which unbounded domains get. Also the
-  time-sliced `TimeBudget`: no calibration; each property gets a share
-  of the remaining time weighted by its attempt limit, unspent time flows
-  on, and the budget is held strictly, except that a property declaring
-  `attempts=n` always makes all n (no deadline; the run may overrun).
-  Every allowance's `shrink_deadline` is the end of the run. With
-  `workers` > 1 the budget is worker time: shares come out of workers
-  times the remaining time less what running properties hold (returned
-  by `finished`), capped at the end of the run.
+  time-sliced `TimeBudget`: no calibration; each property gets an equal
+  share of the remaining time (per property, not per attempt, so
+  expensive attempts over small domains are not starved), unspent time
+  flows on, and the budget is held strictly, except that a property
+  declaring `attempts=n` always makes all n (no deadline; the run may
+  overrun). Every allowance's `shrink_deadline` is the end of the run.
+  With `workers` > 1 the budget is worker time: shares come out of
+  workers times the remaining time less what running properties hold
+  (returned by `finished`), capped at the end of the run.
 - `reporter.py` - Passive sinks over `Outcome`: `PlainReporter` (for
   `check`), `QuietReporter`, `RichReporter`, `JSONReporter`; the
   `found_counter_example` hook announces a failure before shrinking
@@ -246,12 +247,14 @@ There is no calibration. `TimeBudget` hands each starting property an
 attempts continue past the deadline until the law has been evaluated
 once, so a property squeezed by the budget is never reported as untested
 because its only attempt was discarded. A property that declares its
-attempts gets no deadline and makes all of them; its count still weighs
-in the others' shares. Shrinking may run until the end of the whole budget,
-then stops between candidates and reports the smallest counterexample so
-far. `check()` uses a property's declared attempts, else
-`baseline_attempts`, and no deadline for attempts or shrinking. With
-`--jobs N`, N properties run at once and the budget is worker time;
+attempts gets no deadline and makes all of them; it still counts as one
+of the properties sharing the time. The rich reporter shows a passing
+property's attempts against its limit when it stopped short, and counts
+such properties in the summary. Shrinking may run until the end of the
+whole budget, then stops between candidates and reports the smallest
+counterexample so far. `check()` uses a property's declared attempts,
+else `baseline_attempts`, and no deadline for attempts or shrinking.
+With `--jobs N`, N properties run at once and the budget is worker time;
 worker startup and module imports come out of the budget.
 
 ### No Silent Fallbacks

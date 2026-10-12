@@ -200,6 +200,29 @@ def _rich_truncates(length: int, seed: int) -> bool:
     return len(rows) == 1 and rows[0].startswith(f"│ {shown} ")
 
 
+@context(_modules())
+@prop("the rich reporter flags passing properties short of their limit")
+def _rich_short(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
+    # _feed plans every property with an attempt limit of ten.
+    short = [
+        o
+        for _, outcomes in modules
+        for o in outcomes
+        if o.holds and o.attempts < 10
+    ]
+    text = _feed(r.RichReporter(seed, 10.0), modules)
+    total = sum(len(outcomes) for _, outcomes in modules)
+    summary = (
+        f"{len(short)} of {total} properties stopped short of their "
+        "attempt limit"
+    )
+    return (
+        all(f"({o.attempts}/10 attempts" in text for o in short)
+        and text.count("/10 attempts") == len(short)
+        and (summary in text) == bool(short)
+    )
+
+
 @prop("the rich summary reports time usage only under a budget")
 def _rich_budget(budgeted: bool, seed: int) -> bool:
     budget = 10.0 if budgeted else None
@@ -327,6 +350,7 @@ spec = conj(
     _plain,
     _rich,
     _rich_truncates,
+    _rich_short,
     _rich_budget,
     _announced,
     _announced_stdout,

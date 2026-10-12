@@ -103,41 +103,39 @@ def _monotone(left: c.Cardinality, right: c.Cardinality) -> bool:
     ) and b.baseline_attempts(small) <= b.baseline_attempts(large)
 
 
-@context(g.float_range(-10.0, 10.0), g.int_range(1, 10))
+@context(g.float_range(-10.0, 10.0))
 @prop("the only pending property receives all remaining time and no more")
-def _alone(remaining: float, limit: int) -> bool:
-    # float_range draws zero and its bounds often, so spent budgets and
-    # limits of one are both exercised.
-    share = b.share(remaining, limit, limit)
+def _alone(remaining: float) -> bool:
+    # float_range draws zero and its bounds often, so spent budgets are
+    # exercised.
+    share = b.share(remaining, 1)
     if remaining <= 0:
         return share == 0.0
     return math.isclose(share, remaining, rel_tol=1e-12)
 
 
-@context(g.int_range(1, 1000), g.int_range(1, 10000), g.int_range(0, 100000))
-@prop("a share never exceeds the remaining time and is proportional")
-def _share(remaining_ms: int, limit: int, others: int) -> bool:
+@context(g.int_range(1, 1000), g.int_range(1, 1000))
+@prop("a share never exceeds the remaining time and is an equal part")
+def _share(remaining_ms: int, properties: int) -> bool:
     remaining = remaining_ms / 1000
-    share = b.share(remaining, limit, limit + others)
-    whole = b.share(remaining, limit, limit)
+    share = b.share(remaining, properties)
     return (
         0 <= share <= remaining + 1e-9
-        and abs(whole - remaining) < 1e-9
-        and abs(share * (limit + others) - remaining * limit) < 1e-6
+        and abs(share * properties - remaining) < 1e-9
     )
 
 
 @prop("shares of an exhausted budget are zero")
-def _exhausted(limit: int, others: int) -> bool:
-    return b.share(0.0, abs(limit), abs(limit) + abs(others)) == 0.0
+def _exhausted(properties: int) -> bool:
+    return b.share(0.0, abs(properties)) == 0.0
 
 
 @context(g.float_range(0.0, 100.0))
-@prop("without attempt limits left there is nothing to share")
-def _no_limits(remaining: float) -> bool:
+@prop("without properties left there is nothing to share")
+def _no_properties(remaining: float) -> bool:
     # Both boundaries are checked on every attempt: a zero remaining time
-    # is drawn rarely, and neither may divide by the empty total.
-    return b.share(remaining, 0, 0) == 0.0 and b.share(0.0, 0, 0) == 0.0
+    # is drawn rarely, and neither may divide by zero properties.
+    return b.share(remaining, 0) == 0.0 and b.share(0.0, 0) == 0.0
 
 
 @context(
@@ -194,7 +192,19 @@ def _declared_room(limit: int, declared: int) -> bool:
         b.PropertyPlan("d", c.INFINITE, declared, True),
     ]
     budget = b.TimeBudget(1.0, plans)
-    return _within(_fraction(budget, "a"), limit / (limit + declared))
+    return _within(_fraction(budget, "a"), 0.5)
+
+
+@context(
+    g.bounded_lists(1, 10, g.int_range(1, 10000)),
+    g.int_range(50, 2000),
+)
+@prop("shares do not depend on attempt limits")
+def _limit_blind(limits: list[int], budget_ms: int) -> bool:
+    # A property whose attempts are expensive gets as much time as one
+    # over a larger domain, so a small finite domain is not starved.
+    budget = b.TimeBudget(budget_ms / 1000, _planned(limits))
+    return _within(_fraction(budget, "p0"), 1 / len(limits))
 
 
 @prop("a property can start at most once and must be planned")
@@ -271,7 +281,7 @@ def _worker_time(
             del held[desc]
             continue
         plan = order.pop()
-        pending = plan.attempt_limit + sum(p.attempt_limit for p in order)
+        pending = 1 + len(order)
         before = time.perf_counter()
         allowance = budget.allowance(plan.desc)
         now = time.perf_counter()
@@ -291,11 +301,7 @@ def _worker_time(
             # share of what the running properties leave of the workers'
             # time) increases with it, so the two ranges over the
             # instants between the readings here must meet.
-            def _expected(
-                instant: float,
-                limit: int = plan.attempt_limit,
-                pending: int = pending,
-            ) -> float:
+            def _expected(instant: float, pending: int = pending) -> float:
                 remaining = budget.end - instant
                 others = sum(
                     max(0.0, d - instant)
@@ -303,7 +309,7 @@ def _worker_time(
                     if d is not None
                 )
                 available = max(0.0, workers - others / remaining)
-                return min(1.0, b.share(available, limit, pending))
+                return min(1.0, b.share(available, pending))
 
             low = (deadline - now) / (budget.end - now)
             high = (deadline - before) / (budget.end - before)
@@ -360,17 +366,17 @@ def _within(bounds: tuple[float, float], value: float) -> bool:
     g.bounded_lists(1, 10, g.int_range(1, 10000)),
     g.int_range(50, 2000),
 )
-@prop("with one worker a share is the old share, finished or not")
+@prop("with one worker a share is an equal part, finished or not")
 def _one_worker(limits: list[int], budget_ms: int, rng: random.Random) -> bool:
     plans = _planned(limits)
     budget = b.TimeBudget(budget_ms / 1000, plans)
     order = list(plans)
     rng.shuffle(order)
-    pending = sum(limits)
+    pending = len(limits)
     for plan in order:
-        # The old share, as a fraction of the remaining time.
-        expected = b.share(1.0, plan.attempt_limit, pending)
-        pending -= plan.attempt_limit
+        # The share, as a fraction of the remaining time.
+        expected = b.share(1.0, pending)
+        pending -= 1
         if not _within(_fraction(budget, plan.desc), expected):
             return False
         # Whether the property reports its end changes nothing.
@@ -399,7 +405,7 @@ def _returned(first: int, second: int, others: list[int], workers: int) -> bool:
     # With the first finished, the second gets its share of every
     # worker's remaining time, capped at that time; with the first still
     # running, no more.
-    expected = min(1.0, b.share(workers, second, second + sum(others)))
+    expected = min(1.0, b.share(workers, 1 + len(others)))
     return _within(returned, expected) and running_low <= expected + 1e-9
 
 
@@ -437,10 +443,11 @@ spec = conj(
     _alone,
     _share,
     _exhausted,
-    _no_limits,
+    _no_properties,
     _deadlines,
     _last_gets_rest,
     _declared_room,
+    _limit_blind,
     _once,
     _duplicate_plans,
     _rejects,
