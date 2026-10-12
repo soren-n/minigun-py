@@ -176,31 +176,45 @@ def plan(resolved: list[Resolved]) -> list[PropertyPlan]:
 class TimeBudget:
     """Hands out allowances from a fixed budget as properties start.
 
+    With several workers the budget is worker time: each worker has the
+    time until the end of the run, less what the properties running on
+    the others still hold. A property reports that it ended with
+    ``finished``, which returns what it held to the others.
+
     :param total: The budget in seconds; the run ends ``total`` seconds
         after construction.
     :param plans: The properties that will run, in any order.
+    :param workers: The number of properties that may run at once.
 
-    :raises ValueError: When the budget is not positive or two plans share
-        a description.
+    :raises ValueError: When the budget is not positive, there are no
+        workers, or two plans share a description.
     """
 
-    def __init__(self, total: float, plans: list[PropertyPlan]):
+    def __init__(
+        self, total: float, plans: list[PropertyPlan], workers: int = 1
+    ):
         if total <= 0:
             raise ValueError(f"The time budget must be positive, got {total}")
+        if workers < 1:
+            raise ValueError(f"A budget needs a worker, got {workers}")
         self._limits = {p.desc: p.attempt_limit for p in plans}
         if len(self._limits) != len(plans):
             raise ValueError("Property plans must have unique descriptions")
         self._declared = {p.desc for p in plans if p.declared}
         self.total = total
+        self.workers = workers
         self.end = time.perf_counter() + total
         self._pending = set(self._limits)
+        # Deadlines of the properties that started and have not finished.
+        self._running: dict[str, float] = {}
 
     def allowance(self, desc: str) -> Allowance:
         """The allowance of a property that is starting now.
 
         A property that declares its attempts gets them all, with no
-        deadline; any other gets a deadline at the end of its share.
-        Either may shrink a counterexample until the budget ends.
+        deadline; any other gets a deadline at the end of its share of the
+        worker time, never past the end of the run. Either may shrink a
+        counterexample until the budget ends.
 
         :raises KeyError: When the property is not in the plan or has
             already started.
@@ -215,5 +229,25 @@ class TimeBudget:
         remaining_limits = limit + sum(
             self._limits[pending] for pending in self._pending
         )
-        seconds = share(self.end - now, limit, remaining_limits)
+        if self.workers == 1:
+            # One worker runs one property at a time: whatever started
+            # before this one has ended.
+            self._running.clear()
+        remaining = max(0.0, self.end - now)
+        held = sum(
+            max(0.0, deadline - now) for deadline in self._running.values()
+        )
+        available = max(0.0, self.workers * remaining - held)
+        seconds = min(remaining, share(available, limit, remaining_limits))
+        self._running[desc] = now + seconds
         return Allowance(limit, now + seconds, self.end)
+
+    def finished(self, desc: str) -> None:
+        """A property that started has ended; the time it held is free.
+        Needed with several workers; with one, the next start implies it.
+
+        :raises KeyError: When the property has not started.
+        """
+        if desc in self._pending or desc not in self._limits:
+            raise KeyError(f'Property "{desc}" has not started')
+        self._running.pop(desc, None)

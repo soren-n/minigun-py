@@ -204,7 +204,7 @@ def _rich_truncates(length: int, seed: int) -> bool:
 def _rich_budget(budgeted: bool, seed: int) -> bool:
     budget = 10.0 if budgeted else None
     text = _feed(r.RichReporter(seed, budget), [])
-    return ("Test time" in text) == budgeted
+    return ("Run time" in text) == budgeted
 
 
 @context(_modules())

@@ -11,8 +11,10 @@ directory, so they can import helper modules beside them relatively, e.g.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import importlib.util
+import os
 import sys
 import types
 from pathlib import Path
@@ -31,6 +33,7 @@ from minigun.specify import (
 __all__ = [
     "find_test_modules",
     "discover_test_modules",
+    "load_test_module",
     "select_properties",
     "run_tests",
     "main",
@@ -150,6 +153,23 @@ def discover_test_modules(
     return specs, broken
 
 
+def load_test_module(test_dir: Path, name: str) -> Spec:
+    """Load one test module's specification, as a worker process of a
+    parallel run does.
+
+    :raises SpecificationError: When the module fails to load or exports
+        no specification.
+    """
+    specs, broken = discover_test_modules(test_dir, [name])
+    if name in broken:
+        raise SpecificationError(
+            f"Test module '{name}' failed to load: {broken[name]}"
+        )
+    if name not in specs:
+        raise SpecificationError(f"Module '{name}' exports no 'spec: Spec'")
+    return specs[name]
+
+
 def select_properties(
     specs: dict[str, Spec], patterns: list[str]
 ) -> tuple[dict[str, Spec], list[str]]:
@@ -188,12 +208,14 @@ def run_tests(
     output: OutputMode = OutputMode.RICH,
     seed: int | None = None,
     patterns: list[str] | None = None,
+    jobs: int = 1,
 ) -> bool:
     """Discover and run test modules under a time budget.
 
     Only the selected modules are imported when ``modules`` is given, and
     only the properties whose descriptions contain one of ``patterns``
-    run when it is given.
+    run when it is given. With several ``jobs``, properties are evaluated
+    in that many worker processes, each importing the test modules.
 
     :return: Whether every selected module's specification holds. Broken
         modules, unknown module names, selected modules without a
@@ -237,14 +259,37 @@ def run_tests(
                 print(f"Error: No property description contains '{pattern}'")
             return False
 
-    config = RunConfig(time_budget=time_budget, seed=seed, output=output)
-    try:
-        return run(
-            config, [TestModule(name, spec) for name, spec in specs.items()]
+    config = RunConfig(
+        time_budget=time_budget, seed=seed, output=output, jobs=jobs
+    )
+    test_modules = [
+        TestModule(
+            name, spec, functools.partial(load_test_module, test_dir, name)
         )
+        for name, spec in specs.items()
+    ]
+    try:
+        return run(config, test_modules)
     except SpecificationError as error:
         print(f"Error: {error}")
         return False
+
+
+def _jobs(text: str) -> int:
+    """Parse ``--jobs``: a positive count, or ``auto`` for one per CPU."""
+    if text == "auto":
+        return os.cpu_count() or 1
+    try:
+        jobs = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer or 'auto', got '{text}'"
+        ) from None
+    if jobs < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer or 'auto', got '{text}'"
+        )
+    return jobs
 
 
 def main() -> None:
@@ -265,6 +310,7 @@ Examples:
   minigun -t 60 --output quiet             # Minimal output for CI
   minigun -t 30 --output json              # JSON output for tools
   minigun -t 30 --seed 42                  # Reproduce a run
+  minigun -t 30 --jobs auto                # One worker process per CPU
   minigun --list-modules                   # List discovered test modules
         """,
     )
@@ -304,6 +350,16 @@ Examples:
         "-s",
         type=int,
         help="Seed for random generation; reported on failure for replay",
+    )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=_jobs,
+        default=1,
+        metavar="N",
+        help="Evaluate N properties at once in worker processes, or 'auto' "
+        "for one per CPU; the time budget is shared out as worker time "
+        "(default: 1)",
     )
     parser.add_argument(
         "--output",
@@ -363,6 +419,7 @@ Examples:
         output=args.output,
         seed=args.seed,
         patterns=args.select,
+        jobs=args.jobs,
     )
     sys.exit(0 if success else 1)
 

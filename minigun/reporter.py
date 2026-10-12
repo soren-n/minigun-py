@@ -33,6 +33,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from minigun.budget import PropertyPlan
+from minigun.parallel import RemoteException
 from minigun.search import CounterExample
 from minigun.specify import Outcome
 
@@ -70,6 +71,14 @@ def relax_stdout_errors() -> None:
 ###############################################################################
 # Formatting
 ###############################################################################
+def _exception_name(exception: Exception) -> str:
+    """The name of an exception's type, also for one raised in a worker
+    process and sent back as its text."""
+    if isinstance(exception, RemoteException):
+        return exception.type_name
+    return type(exception).__name__
+
+
 def format_arguments(args: dict[str, Any]) -> str:
     """Render counterexample arguments as ``name = value`` lines."""
     lines: list[str] = []
@@ -101,7 +110,7 @@ def describe_failure(outcome: Outcome) -> str:
     if example.exception is not None:
         return (
             f'A test case of "{outcome.desc}" raised '
-            f"{type(example.exception).__name__}: {example.exception}\n"
+            f"{_exception_name(example.exception)}: {example.exception}\n"
             f"{format_arguments(example.args)}{_not_minimal(example)}"
         )
     return (
@@ -115,7 +124,7 @@ def describe_found(desc: str, example: CounterExample) -> str:
     failure = (
         "failed"
         if example.exception is None
-        else f"raised {type(example.exception).__name__}: {example.exception}"
+        else f"raised {_exception_name(example.exception)}: {example.exception}"
     )
     return (
         f'A test case of "{desc}" {failure} on attempt '
@@ -432,9 +441,11 @@ class RichReporter(Reporter):
         usage = ""
         if self.time_budget is not None:
             usage = (
-                f"\n[dim]Test time: {self.execution_time:.3f}s / "
+                # Wall time, like the budget: with several workers the
+                # properties' own durations add up to more.
+                f"\n[dim]Run time: {self.elapsed:.3f}s / "
                 f"{self.time_budget:.1f}s "
-                f"({100 * self.execution_time / self.time_budget:.1f}%)[/dim]"
+                f"({100 * self.elapsed / self.time_budget:.1f}%)[/dim]"
             )
         if self.overall_success:
             panel = Panel.fit(
@@ -494,7 +505,7 @@ class JSONReporter(Reporter):
                 "minimal": example.minimal,
                 "exception": None
                 if example.exception is None
-                else f"{type(example.exception).__name__}: {example.exception}",
+                else f"{_exception_name(example.exception)}: {example.exception}",
             },
             "error": outcome.error,
             "domain_size": None if plan is None else str(plan.cardinality),

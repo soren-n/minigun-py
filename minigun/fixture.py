@@ -87,6 +87,23 @@ def scope() -> Iterator[None]:
                 shutil.rmtree(path)
 
 
+def _detach() -> list[Path]:
+    """Take the temporary paths of the innermost scope, which then no
+    longer removes them; a worker process hands them to its run."""
+    if not _scopes:
+        return []
+    paths = list(_scopes[-1])
+    _scopes[-1].clear()
+    return paths
+
+
+def _adopt(paths: list[Path]) -> None:
+    """Make the innermost scope remove temporary paths created elsewhere,
+    by a worker process of the run."""
+    if _scopes:
+        _scopes[-1].extend(paths)
+
+
 def cleanup_temporary() -> None:
     """Remove every temporary fixture directory, whatever created it."""
     temporary = ROOT / "temporary"
