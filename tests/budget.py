@@ -307,7 +307,8 @@ def _worker_time(
 
             low = (deadline - now) / (budget.end - now)
             high = (deadline - before) / (budget.end - before)
-            if low > _expected(now) + 1e-9 or high < _expected(before) - 1e-9:
+            slack = 1e-9 + _rounding(budget, now)
+            if low > _expected(now) + slack or high < _expected(before) - slack:
                 return False
         held[plan.desc] = deadline
         holding = sum(max(0.0, d - now) for d in held.values() if d is not None)
@@ -323,7 +324,8 @@ def _fraction(budget: b.TimeBudget, desc: str) -> tuple[float, float]:
     The budget reads the clock between the two readings here, and the
     fraction ``(deadline - now) / (end - now)`` decreases with ``now``, so
     it lies between its values at the two readings, however long the
-    process was descheduled in between.
+    process was descheduled in between. The bounds are widened by the
+    rounding of absolute clock instants, which a short budget magnifies.
     """
     before = time.perf_counter()
     deadline = budget.allowance(desc).deadline
@@ -331,16 +333,22 @@ def _fraction(budget: b.TimeBudget, desc: str) -> tuple[float, float]:
     if deadline is None:
         return math.nan, math.nan
     low = (
-        (deadline - after) / (budget.end - after)
+        (deadline - after) / (budget.end - after) - _rounding(budget, after)
         if budget.end > after
         else -math.inf
     )
     high = (
-        (deadline - before) / (budget.end - before)
+        (deadline - before) / (budget.end - before) + _rounding(budget, before)
         if budget.end > before
         else math.inf
     )
     return low, high
+
+
+def _rounding(budget: b.TimeBudget, instant: float) -> float:
+    """The error in a fraction of the time remaining after ``instant``
+    from rounding absolute clock instants."""
+    return 8 * math.ulp(budget.end) / (budget.end - instant)
 
 
 def _within(bounds: tuple[float, float], value: float) -> bool:
