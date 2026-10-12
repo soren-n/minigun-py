@@ -168,6 +168,14 @@ To replay only the failing property, add :code:`--select` with part of its descr
 
     $ minigun --time-budget 30 --seed 5015299433215186410 --select "sensitivities"
 
+To use several cores, pass :code:`--jobs` with a number of worker processes, or :code:`auto` for one per CPU:
+
+.. code-block:: shell
+
+    $ minigun --time-budget 30 --jobs 4
+
+Each worker imports the test modules itself and evaluates whole properties. A property draws only from its own random source, so it draws the same values whichever worker evaluates it, and a seed replays a parallel run just as it does a sequential one. The report lists the outcomes in the same order as a sequential run: the property at the head of that order is reported as it runs, the others when their turn comes. The time budget becomes worker time: with four workers, each property's share comes out of four times the remaining time, less what the properties already running hold, and no property runs past the end of the run. Starting the workers and importing the test modules in each takes some of the budget. A law that scans or clears the fixture directories as a whole, such as one calling :code:`cleanup_temporary`, sees the fixtures of the properties running beside it.
+
 See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules (given once with several names, or repeated) and :code:`--output quiet` or :code:`--output json` for CI and tool integration. With :code:`--modules`, only the selected modules are imported, so a module that fails to load does not stop the others from running on their own.
 
 Files whose names start with an underscore are not test modules; use them for helpers shared between test modules. Test modules are imported as a package of their directory, so they import helpers with relative imports, including from subdirectories:
@@ -522,6 +530,8 @@ Tools that embed Minigun have two entry points below the CLI. :code:`minigun.orc
    :language: python
    :start-after: # -- start: run --
    :end-before: # -- end: run --
+
+A :code:`RunConfig` with :code:`jobs` greater than one evaluates in worker processes, which cannot be handed the specifications themselves: give each :code:`TestModule` a :code:`load`, a picklable callable such as a module-level function or a :code:`functools.partial` of one, that returns the module's specification in a worker. Workers are started with :code:`spawn` on every platform, so the program's entry point must be guarded by :code:`if __name__ == "__main__":`.
 
 Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample. An optional :code:`on_found` callback receives each counterexample that makes a property fail as soon as it is found, before it is shrunk, and :code:`Allowance(shrink_deadline=...)` bounds the shrinking with a :code:`time.perf_counter` instant.
 

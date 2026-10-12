@@ -24,6 +24,9 @@ uv run minigun --time-budget 30 --seed 42
 # Replay only the properties whose descriptions contain a substring
 uv run minigun --time-budget 30 --seed 42 --select "shrinks to"
 
+# Evaluate properties in worker processes (N, or auto for one per CPU)
+uv run minigun --time-budget 30 --jobs auto
+
 # List available test modules
 uv run minigun --list-modules
 
@@ -147,7 +150,9 @@ Minigun is a property-based testing library organized in layers:
   the run seed and its description, and emits structured `Outcome` values.
   `@prop(desc, attempts=n)` declares a property's attempts, overriding the
   domain-derived count in both `check` and budgeted runs. `select` prunes
-  a spec to the properties a predicate keeps.
+  a spec to the properties a predicate keeps. `evaluate` is a loop over
+  `leaves` (properties with their negation, in order) calling
+  `evaluate_property`, then `combine` for the truth of the tree.
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
@@ -166,7 +171,10 @@ Minigun is a property-based testing library organized in layers:
   of the remaining time weighted by its attempt limit, unspent time flows
   on, and the budget is held strictly, except that a property declaring
   `attempts=n` always makes all n (no deadline; the run may overrun).
-  Every allowance's `shrink_deadline` is the end of the run.
+  Every allowance's `shrink_deadline` is the end of the run. With
+  `workers` > 1 the budget is worker time: shares come out of workers
+  times the remaining time less what running properties hold (returned
+  by `finished`), capped at the end of the run.
 - `reporter.py` - Passive sinks over `Outcome`: `PlainReporter` (for
   `check`), `QuietReporter`, `RichReporter`, `JSONReporter`; the
   `found_counter_example` hook announces a failure before shrinking
@@ -178,13 +186,23 @@ Minigun is a property-based testing library organized in layers:
 ### Orchestration
 - `orchestrator.py` - `run(RunConfig, modules)` for budgeted runs and
   `check(spec, seed)` for standalone checks; `OutputMode` selects the
-  reporter.
+  reporter. `RunConfig.jobs` > 1 evaluates in parallel, which needs a
+  picklable `TestModule.load` per module.
+- `parallel.py` - Parallel evaluation in a `spawn` process pool. Workers
+  rebuild the specs from the loaders and evaluate whole properties;
+  outcomes are reported in sequential order (the head property live).
+  Deadlines cross processes as `time.time` instants; worker temporary
+  fixtures are adopted by the run's scope; counterexample arguments and
+  exceptions that do not round-trip through pickle come back as `Shown`
+  and `RemoteException`.
 - `cli.py` - Command-line interface and test discovery. Modules are
   registered in `sys.modules` before execution, as submodules of a package
   per test directory (`minigun_discovered.d<digest>`, `__path__` the
   directory) so relative helper imports work; `--modules` imports only the
   selected modules (repeatable); `--select`/`-k` runs only properties
-  whose descriptions contain a pattern, with unchanged draws.
+  whose descriptions contain a pattern, with unchanged draws;
+  `--jobs`/`-j` sets the worker count, each worker loading modules with
+  `load_test_module`.
 
 ## Key Patterns
 
@@ -227,7 +245,9 @@ attempts gets no deadline and makes all of them; its count still weighs
 in the others' shares. Shrinking may run until the end of the whole budget,
 then stops between candidates and reports the smallest counterexample so
 far. `check()` uses a property's declared attempts, else
-`baseline_attempts`, and no deadline for attempts or shrinking.
+`baseline_attempts`, and no deadline for attempts or shrinking. With
+`--jobs N`, N properties run at once and the budget is worker time;
+worker startup and module imports come out of the budget.
 
 ### No Silent Fallbacks
 Broken test modules, unknown module names, `--select` patterns matching
@@ -242,7 +262,10 @@ whose attempts are discarded fails loudly. Unreachable match arms use
 laws) and `examples` (the tutorial examples under `docs/examples/`,
 which the tutorial includes with `literalinclude`). `tests/_support.py`
 models generators as programs and interprets them, so universal
-properties quantify over all generators.
+properties quantify over all generators; a new generator belongs in that
+model, or a shrink leaving its domain goes unnoticed. A law that scans or
+clears the fixture directories runs under `isolated_fixtures()`, since
+properties may run beside it in other worker processes.
 
 ## CI
 

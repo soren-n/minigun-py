@@ -105,11 +105,16 @@ minigun --time-budget 30 --output json
 
 # Reproduce a failing run
 minigun --time-budget 30 --seed 42
+
+# Evaluate four properties at once in worker processes ('auto': one per CPU)
+minigun --time-budget 30 --jobs 4
 ```
 
 The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared between properties in proportion to how many attempts their input domains are worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode. A counterexample is announced as soon as it is found, before shrinking starts (on stderr in quiet and JSON output), and shrinking stops when the run's budget is spent: no further shrunk candidate is evaluated, and the smallest counterexample found so far is reported with a note that it may not be minimal.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran. To replay one failing property cheaply, pass the seed together with `--select` and part of its description: the property draws the same values as in the full run.
+
+With `--jobs N`, N properties are evaluated at once, each in a worker process that imports the test modules itself. A property draws the same values whichever worker evaluates it, so a seed replays a parallel run too, and the report lists outcomes in the same order as a sequential run. The time budget is then worker time: N workers share out N times the remaining time, and no property runs past the end of the run. A law that scans or clears the fixture directories as a whole sees the fixtures of properties running beside it.
 
 ## Running Programmatically
 
@@ -129,6 +134,8 @@ if __name__ == "__main__":
     config = RunConfig(time_budget=30.0, output=OutputMode.QUIET)
     sys.exit(0 if run(config, [TestModule("my_tests", my_property)]) else 1)
 ```
+
+To run with several jobs, give each `TestModule` a `load`: a picklable callable, such as a module-level function, that returns the module's specification in a worker process, and set `RunConfig(jobs=...)`. Workers are started with `spawn`, so the entry point must be guarded by `if __name__ == "__main__":`.
 
 For structured outcomes without a reporter, drive `minigun.specify.evaluate` directly; the tutorial's "Running specifications programmatically" section shows how.
 

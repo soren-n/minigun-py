@@ -5,6 +5,33 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Features
+
+- Evaluate properties in parallel: `minigun --jobs N` (`-j`, or `auto`
+  for one per CPU) runs N properties at once in worker processes, each
+  importing the test modules itself. A property draws the same values in
+  any worker, so a seed replays a parallel run, and outcomes are reported
+  in the same order as a sequential run. The time budget is worker time:
+  N workers share out N times the remaining time, and no deadline passes
+  the end of the run
+- `RunConfig` takes `jobs`, and `TestModule` a `load`: a picklable
+  callable returning the module's specification in a worker, required
+  with more than one job. `cli.load_test_module` is the CLI's loader
+- `TimeBudget` takes `workers` and has `finished(desc)`, which returns a
+  running property's time to the others; with one worker nothing changes
+- `specify.leaves`, `specify.combine` and `specify.evaluate_property`
+  split `evaluate` into the properties with their negation, the truth of
+  a specification from its outcomes, and the evaluation of one property
+- `minigun.parallel`: the worker pool, with `portable` making a
+  counterexample sendable between processes (`Shown` stands in for an
+  argument that does not pickle, `RemoteException` for an exception)
+
+### Changes
+
+- The rich summary compares the run's wall time with the time budget
+  ("Run time"), rather than the sum of property durations, which exceeds
+  it with several jobs
+
 ## v6.2.0 (2026-10-12)
 
 ### Bug Fixes
