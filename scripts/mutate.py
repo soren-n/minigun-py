@@ -96,7 +96,7 @@ TARGETS: dict[str, Target] = {
             | {"_check_bounds", "_check_alphabet", "_draw_list", "_draw_dict"}
             | {"_draw_set", "one_of", "subset_of", "weighted_choice"}
             | {"choice", "biased_bool", "infer", "_optional_inner", "lazy"}
-            | {"_unsized", "floats"}
+            | {"_unsized", "floats", "_draw_string"}
         ),
         ("generate", "algebra"),
     ),
