@@ -277,7 +277,8 @@ properties may run beside it in other worker processes.
 
 ## CI
 
-CI runs the tests with coverage (60% minimum) on Linux and Windows with
+CI runs only when a `v*` tag is pushed, beside the release workflow
+(not on branch pushes or pull requests). It runs the tests with coverage (60% minimum) on Linux and Windows with
 Python 3.12, 3.13 and 3.14, each job limited to 15 minutes so a hung run
 fails; `ruff format --check` and `ruff check` (including import sorting)
 run on Linux only, as does the distribution build/install check. Scope includes the `minigun`, `tests`,

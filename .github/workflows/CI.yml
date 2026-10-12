@@ -1,10 +1,10 @@
 name: CI
 
+# Only on release tags: tests are run locally before a push.
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags:
+      - 'v*'
 
 jobs:
   test:
