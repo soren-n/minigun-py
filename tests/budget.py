@@ -132,6 +132,14 @@ def _exhausted(limit: int, others: int) -> bool:
     return b.share(0.0, abs(limit), abs(limit) + abs(others)) == 0.0
 
 
+@context(g.float_range(0.0, 100.0))
+@prop("without attempt limits left there is nothing to share")
+def _no_limits(remaining: float) -> bool:
+    # Both boundaries are checked on every attempt: a zero remaining time
+    # is drawn rarely, and neither may divide by the empty total.
+    return b.share(remaining, 0, 0) == 0.0 and b.share(0.0, 0, 0) == 0.0
+
+
 @context(
     g.bounded_lists(1, 12, g.tuples(g.int_range(1, 10000), g.bools())),
     g.int_range(50, 2000),
@@ -424,6 +432,7 @@ spec = conj(
     _alone,
     _share,
     _exhausted,
+    _no_limits,
     _deadlines,
     _last_gets_rest,
     _declared_room,
