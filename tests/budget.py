@@ -156,6 +156,9 @@ def _deadlines(
     order = list(plans)
     rng.shuffle(order)
     for plan in order:
+        # Read before the budget reads the clock, so a deadline is never
+        # earlier than it however long the process is descheduled.
+        before = time.perf_counter()
         allowance = budget.allowance(plan.desc)
         if allowance.max_attempts != plan.attempt_limit:
             return False
@@ -167,7 +170,7 @@ def _deadlines(
             continue
         if allowance.deadline is None or allowance.deadline > budget.end + 1e-9:
             return False
-        if allowance.deadline < time.perf_counter() - 1e-3:
+        if allowance.deadline < before:
             return False
     return True
 
@@ -180,8 +183,7 @@ def _last_gets_rest(seed: int) -> bool:
     ]
     budget = b.TimeBudget(1.0, plans)
     budget.allowance("a")
-    last = budget.allowance("b")
-    return last.deadline is not None and abs(last.deadline - budget.end) < 1e-3
+    return _within(_fraction(budget, "b"), 1.0)
 
 
 @context(g.int_range(1, 100), g.int_range(1, 100))
@@ -192,12 +194,7 @@ def _declared_room(limit: int, declared: int) -> bool:
         b.PropertyPlan("d", c.INFINITE, declared, True),
     ]
     budget = b.TimeBudget(1.0, plans)
-    started = time.perf_counter()
-    first = budget.allowance("a")
-    if first.deadline is None:
-        return False
-    expected = (budget.end - started) * limit / (limit + declared)
-    return abs(first.deadline - started - expected) < 1e-3
+    return _within(_fraction(budget, "a"), limit / (limit + declared))
 
 
 @prop("a property can start at most once and must be planned")
