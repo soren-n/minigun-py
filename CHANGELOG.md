@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.4.0 (2026-10-12)
+
 ### Changes
 
 - The time budget is shared equally between properties instead of in
