@@ -520,7 +520,7 @@ Some laws need a place on disk: a file to round-trip through, or a directory of 
    :start-after: # -- start: permanent --
    :end-before: # -- end: permanent --
 
-Cleanup is scoped to the run that created the paths: a Minigun test that itself runs Minigun does not disturb the outer run's fixtures.
+Cleanup is scoped to the run that created the paths: a Minigun test that itself runs Minigun does not disturb the outer run's fixtures. In a run with several jobs, the temporary paths a worker process creates also belong to the run and are removed when it ends.
 
 Running specifications programmatically
 ---------------------------------------

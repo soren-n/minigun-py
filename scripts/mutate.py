@@ -14,6 +14,8 @@ each with a fixed seed and time budget. Because minigun tests itself, a
 mutant also changes the harness running the tests: a broken generator
 draws the tests' own arguments, so a test can pass by never seeing the
 inputs the mutant gets wrong. Survivors are best read with that in mind.
+The run's verdict is computed by the code under test too, so a mutant
+survives only when its run both exits cleanly and reports a pass.
 
 Run from the repository root, so the copies import this checkout::
 

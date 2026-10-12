@@ -52,6 +52,12 @@ minigun.orchestrator module
 .. automodule:: minigun.orchestrator
    :members:
 
+minigun.parallel module
+=======================
+
+.. automodule:: minigun.parallel
+   :members:
+
 minigun.reporter module
 =======================
 

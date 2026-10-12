@@ -85,6 +85,8 @@ uv run python scripts/mutate.py --out /tmp/mutants --files search shrink
 Survivors are either equivalent mutants or behavior no test pins down.
 Because minigun tests itself, a mutated generator also draws the tests'
 arguments: a test of a generator should draw its inputs from another one.
+The run's exit code is computed by the code under test, so a mutant
+survives only when its run also prints "Tests: PASS".
 A drawn boundary value is rare in a large domain, and a property's time
 share follows its attempt limit, so a test that must see a boundary value
 or every one of a list of cases should check them on every attempt rather
