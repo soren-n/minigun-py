@@ -7,13 +7,18 @@ then quantify over programs, so counterexamples are readable programs and
 shrink through the ordinary combinators.
 """
 
+import contextlib
 import datetime
 import math
+import secrets
+import shutil
 import string
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, assert_never
 
+import minigun.fixture as f
 import minigun.generate as g
 import minigun.shrink as s
 
@@ -837,3 +842,26 @@ def greedy_leaf[T](dissection: s.Dissection[T]) -> T:
     while (child := next(node.shrinks(), None)) is not None:
         node = child
     return node.head
+
+
+###############################################################################
+# Fixtures
+###############################################################################
+@contextlib.contextmanager
+def isolated_fixtures() -> Iterator[Path]:
+    """Point the fixtures at a fresh root of their own, removed with
+    everything in it at the end.
+
+    A law that scans or clears the fixture directories then sees only its
+    own, also while other properties run beside it in worker processes.
+    """
+    previous = f.ROOT
+    root = previous / "isolated" / secrets.token_hex(8)
+    f.ROOT = root
+    try:
+        yield root
+    finally:
+        f.ROOT = previous
+        # The shared parent stays: removing it would race with properties
+        # creating roots of their own in other worker processes.
+        shutil.rmtree(root, ignore_errors=True)

@@ -7,14 +7,13 @@ so the tutorial cannot drift from the library.
 import contextlib
 import importlib.util
 import io
-import shutil
 import sys
 from pathlib import Path
 
-import minigun.fixture as f
 import minigun.specify as sp
 from minigun import check
 from minigun.specify import Spec, conj, prop
+from tests._support import isolated_fixtures
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "docs" / "examples"
 
@@ -34,20 +33,21 @@ def _load(name: str) -> sp.Spec:
     return spec
 
 
-def _permanent() -> set[Path]:
-    permanent = f.ROOT / "permanent"
-    return set(permanent.iterdir()) if permanent.is_dir() else set()
+def _holds(
+    name: str, seed: int, attempts: int, roots: list[Path] | None = None
+) -> bool:
+    """Load and evaluate an example under a fixture root of its own,
+    removed with every fixture the example created.
 
+    Loading happens under that root because an example may create a
+    permanent artifact directory at import time.
 
-def _holds(name: str, seed: int, attempts: int) -> bool:
-    """Load and evaluate an example, reclaiming every fixture it creates.
-
-    Loading happens inside the reclaim window because an example may
-    create a permanent artifact directory at import time.
+    :param roots: Receives the fixture root used.
     """
-    before = _permanent()
-    try:
-        with contextlib.redirect_stdout(io.StringIO()), f.scope():
+    with isolated_fixtures() as root:
+        if roots is not None:
+            roots.append(root)
+        with contextlib.redirect_stdout(io.StringIO()):
             return sp.evaluate(
                 seed,
                 _load(name),
@@ -55,9 +55,6 @@ def _holds(name: str, seed: int, attempts: int) -> bool:
                 lambda p: None,
                 lambda outcome: None,
             )
-    finally:
-        for path in _permanent() - before:
-            shutil.rmtree(path)
 
 
 def _example(name: str, attempts: int = 30) -> Spec:
@@ -68,11 +65,11 @@ def _example(name: str, attempts: int = 30) -> Spec:
     return _runs
 
 
-@prop("examples leave no permanent fixtures behind once reclaimed")
+@prop("examples leave no fixtures behind once reclaimed")
 def _no_litter(seed: int) -> bool:
-    before = _permanent()
-    _holds("fixtures", seed, 5)
-    return _permanent() == before
+    roots: list[Path] = []
+    _holds("fixtures", seed, 5, roots)
+    return len(roots) == 1 and not roots[0].exists()
 
 
 @prop("every example file is covered by a property")
