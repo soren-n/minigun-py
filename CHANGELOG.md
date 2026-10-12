@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.3.1 (2026-10-12)
+
 ### Fixes
 
 - A parallel run no longer hangs after its report when a law leaves a
