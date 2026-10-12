@@ -274,9 +274,10 @@ properties may run beside it in other worker processes.
 
 ## CI
 
-CI runs on Python 3.12, 3.13 and 3.14: `ruff format --check`,
-`ruff check` (including import sorting), coverage with 60% minimum, and
-distribution build/install check. Scope includes the `minigun`, `tests`,
+CI runs the tests with coverage (60% minimum) on Linux and Windows with
+Python 3.12, 3.13 and 3.14, each job limited to 15 minutes so a hung run
+fails; `ruff format --check` and `ruff check` (including import sorting)
+run on Linux only, as does the distribution build/install check. Scope includes the `minigun`, `tests`,
 `scripts` and `docs/examples` directories. Locally, pre-commit runs ruff
 at commit and mypy on `minigun`, `scripts/bench` and `scripts/mutate.py`
 at pre-push.

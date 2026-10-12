@@ -8,12 +8,16 @@ on:
 
 jobs:
   test:
-    name: Run Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Run Tests (Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # A hung run (e.g. a worker process that never exits) fails in minutes
+    # instead of the six hour default.
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
@@ -32,12 +36,15 @@ jobs:
         run: uv sync --group dev --group quality
 
       - name: Format check
+        if: runner.os == 'Linux'
         run: uv run ruff format --check --diff minigun tests scripts docs/examples
 
       - name: Import sort check
+        if: runner.os == 'Linux'
         run: uv run ruff check --select I minigun tests scripts docs/examples
 
       - name: Lint check
+        if: runner.os == 'Linux'
         run: uv run ruff check minigun tests scripts docs/examples
 
       - name: Run tests with coverage
