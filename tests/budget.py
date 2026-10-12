@@ -228,6 +228,193 @@ def _rejects(total: float) -> bool:
     return total > 0
 
 
+def _planned(limits: list[int]) -> list[b.PropertyPlan]:
+    return [
+        b.PropertyPlan(f"p{i}", c.INFINITE, limit)
+        for i, limit in enumerate(limits)
+    ]
+
+
+@context(
+    g.bounded_lists(1, 10, g.tuples(g.int_range(1, 10000), g.bools())),
+    g.int_range(2, 6),
+    g.int_range(50, 2000),
+)
+@prop("running properties never hold more than the workers' remaining time")
+def _worker_time(
+    limits: list[tuple[int, bool]],
+    workers: int,
+    budget_ms: int,
+    rng: random.Random,
+) -> bool:
+    plans = [
+        b.PropertyPlan(f"p{i}", c.INFINITE, limit, declared)
+        for i, (limit, declared) in enumerate(limits)
+    ]
+    budget = b.TimeBudget(budget_ms / 1000, plans, workers)
+    order = list(plans)
+    rng.shuffle(order)
+    # Deadlines of the undeclared properties started and not finished; a
+    # declared property holds no deadline but occupies a worker.
+    held: dict[str, float | None] = {}
+    while order:
+        # At most `workers` properties run at once, as in a parallel run;
+        # one finishes at a drawn point, or when every worker is busy.
+        if held and (len(held) == workers or rng.random() < 0.5):
+            desc = rng.choice(sorted(held))
+            budget.finished(desc)
+            del held[desc]
+            continue
+        plan = order.pop()
+        pending = plan.attempt_limit + sum(p.attempt_limit for p in order)
+        before = time.perf_counter()
+        allowance = budget.allowance(plan.desc)
+        now = time.perf_counter()
+        if allowance.shrink_deadline != budget.end:
+            return False
+        if plan.declared:
+            if allowance.deadline is not None:
+                return False
+            held[plan.desc] = None
+            continue
+        deadline = allowance.deadline
+        if deadline is None or deadline > budget.end:
+            return False
+        if budget.end > now:
+            # The fraction of the remaining time received decreases with
+            # the instant the budget read, and the expected fraction (a
+            # share of what the running properties leave of the workers'
+            # time) increases with it, so the two ranges over the
+            # instants between the readings here must meet.
+            def _expected(
+                instant: float,
+                limit: int = plan.attempt_limit,
+                pending: int = pending,
+            ) -> float:
+                remaining = budget.end - instant
+                others = sum(
+                    max(0.0, d - instant)
+                    for d in held.values()
+                    if d is not None
+                )
+                available = max(0.0, workers - others / remaining)
+                return min(1.0, b.share(available, limit, pending))
+
+            low = (deadline - now) / (budget.end - now)
+            high = (deadline - before) / (budget.end - before)
+            if low > _expected(now) + 1e-9 or high < _expected(before) - 1e-9:
+                return False
+        held[plan.desc] = deadline
+        holding = sum(max(0.0, d - now) for d in held.values() if d is not None)
+        if holding > workers * max(0.0, budget.end - now) + 1e-6:
+            return False
+    return True
+
+
+def _fraction(budget: b.TimeBudget, desc: str) -> tuple[float, float]:
+    """Bounds on the fraction of the remaining time a starting property
+    receives.
+
+    The budget reads the clock between the two readings here, and the
+    fraction ``(deadline - now) / (end - now)`` decreases with ``now``, so
+    it lies between its values at the two readings, however long the
+    process was descheduled in between.
+    """
+    before = time.perf_counter()
+    deadline = budget.allowance(desc).deadline
+    after = time.perf_counter()
+    if deadline is None:
+        return math.nan, math.nan
+    low = (
+        (deadline - after) / (budget.end - after)
+        if budget.end > after
+        else -math.inf
+    )
+    high = (
+        (deadline - before) / (budget.end - before)
+        if budget.end > before
+        else math.inf
+    )
+    return low, high
+
+
+def _within(bounds: tuple[float, float], value: float) -> bool:
+    low, high = bounds
+    return low - 1e-9 <= value <= high + 1e-9
+
+
+@context(
+    g.bounded_lists(1, 10, g.int_range(1, 10000)),
+    g.int_range(50, 2000),
+)
+@prop("with one worker a share is the old share, finished or not")
+def _one_worker(limits: list[int], budget_ms: int, rng: random.Random) -> bool:
+    plans = _planned(limits)
+    budget = b.TimeBudget(budget_ms / 1000, plans)
+    order = list(plans)
+    rng.shuffle(order)
+    pending = sum(limits)
+    for plan in order:
+        # The old share, as a fraction of the remaining time.
+        expected = b.share(1.0, plan.attempt_limit, pending)
+        pending -= plan.attempt_limit
+        if not _within(_fraction(budget, plan.desc), expected):
+            return False
+        # Whether the property reports its end changes nothing.
+        if rng.random() < 0.5:
+            budget.finished(plan.desc)
+    return True
+
+
+@context(
+    g.int_range(1, 10000),
+    g.int_range(1, 10000),
+    g.bounded_lists(0, 4, g.int_range(1, 10000)),
+    g.int_range(2, 6),
+)
+@prop("a finished property returns its time to the others")
+def _returned(first: int, second: int, others: list[int], workers: int) -> bool:
+    def _second(finish: bool) -> tuple[float, float]:
+        budget = b.TimeBudget(1.0, _planned([first, second, *others]), workers)
+        budget.allowance("p0")
+        if finish:
+            budget.finished("p0")
+        return _fraction(budget, "p1")
+
+    running_low, _ = _second(False)
+    returned = _second(True)
+    # With the first finished, the second gets its share of every
+    # worker's remaining time, capped at that time; with the first still
+    # running, no more.
+    expected = min(1.0, b.share(workers, second, second + sum(others)))
+    return _within(returned, expected) and running_low <= expected + 1e-9
+
+
+@context(g.int_range(-5, 5))
+@prop("finished needs a started property; a budget needs a worker")
+def _finished_errors(drawn: int) -> bool:
+    plans = _planned([10, 10])
+    budget = b.TimeBudget(1.0, plans, 2)
+    budget.allowance("p0")
+    budget.finished("p0")
+    for desc in ("p1", "unplanned"):
+        try:
+            budget.finished(desc)
+        except KeyError:
+            continue
+        return False
+    for workers in (-1, 0, 1, 2, drawn):
+        try:
+            b.TimeBudget(1.0, plans, workers)
+        except ValueError:
+            if workers >= 1:
+                return False
+            continue
+        if workers < 1:
+            return False
+    return True
+
+
 spec = conj(
     _limit_bounds,
     _coverage,
@@ -243,6 +430,10 @@ spec = conj(
     _once,
     _duplicate_plans,
     _rejects,
+    _worker_time,
+    _one_worker,
+    _returned,
+    _finished_errors,
 )
 
 

@@ -187,6 +187,60 @@ def _config(budget: float) -> bool:
     return budget > 0
 
 
+@context(g.int_range(-(10**6), 10**6))
+@prop("the configuration rejects exactly the non-positive jobs")
+def _config_jobs(drawn: int) -> bool:
+    for jobs in (-1, 0, 1, 2, drawn):
+        try:
+            config = o.RunConfig(1.0, jobs=jobs)
+        except ValueError:
+            if jobs >= 1:
+                return False
+            continue
+        if jobs < 1 or config.jobs != jobs:
+            return False
+    return True
+
+
+def _load_held() -> Spec:
+    return _threshold("loaded", 10**9)
+
+
+@context(g.int_range(2, 8), g.bools())
+@prop("several jobs need a loader for every module, before anything runs")
+def _loaders(jobs: int, first_loads: bool, seed: int) -> bool:
+    calls = 0
+
+    @prop("counted")
+    def _counted(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        return True
+
+    modules = [
+        o.TestModule("first", _counted, _load_held if first_loads else None),
+        o.TestModule("second", _threshold("second", 10**9)),
+    ]
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            o.run(
+                o.RunConfig(
+                    0.3, seed=seed, output=o.OutputMode.QUIET, jobs=jobs
+                ),
+                modules,
+            )
+    except ValueError as error:
+        message = str(error)
+        return (
+            buffer.getvalue() == ""
+            and calls == 0
+            and "second" in message
+            and ("first" in message) != first_loads
+        )
+    return False
+
+
 spec = conj(
     _holds_budget,
     _shrink_budget,
@@ -196,6 +250,8 @@ spec = conj(
     _declared_floor,
     _check,
     _config,
+    _config_jobs,
+    _loaders,
 )
 
 

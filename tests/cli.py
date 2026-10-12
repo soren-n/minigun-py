@@ -401,6 +401,100 @@ def _module_entry(seed: int) -> bool:
     return code in (0, None) and "Minigun" in buffer.getvalue()
 
 
+@context(g.int_range(1, 10**9), g.int_range(-(10**9), 0), g.words())
+@prop("--jobs takes a positive count or auto, and nothing else")
+def _jobs(positive: int, non_positive: int, word: str) -> bool:
+    import argparse
+    import os
+
+    accepted = {"1": 1, "2": 2, str(positive): positive}
+    accepted["auto"] = os.cpu_count() or 1
+    for text, jobs in accepted.items():
+        if cli._jobs(text) != jobs:
+            return False
+    rejected = ["0", "-0", "-1", str(non_positive), "", "x", "1.5", "two"]
+    if word != "auto":
+        rejected.append(word)
+    for text in rejected:
+        try:
+            cli._jobs(text)
+        except argparse.ArgumentTypeError:
+            continue
+        return False
+    return True
+
+
+@prop("load_test_module loads a spec and rejects broken or empty modules")
+def _load(seed: int) -> bool:
+    from minigun.specify import SpecificationError, collect
+
+    kinds = list(_SOURCES)
+    directory = _write(kinds)
+    for index, kind in enumerate(kinds):
+        name = f"m{index}_{kind}"
+        try:
+            loaded = cli.load_test_module(directory, name)
+        except SpecificationError:
+            if kind in _VALID:
+                return False
+            continue
+        if kind not in _VALID:
+            return False
+        if [p.desc for p in collect(loaded)] != ["holds"]:
+            return False
+    return True
+
+
+def _parallel_module(expected: int) -> str:
+    return (
+        "import minigun.generate as g\n"
+        "from minigun.specify import conj, context, prop\n"
+        "from ._helper import VALUE\n"
+        "@prop('the helper value is seen in a worker')\n"
+        "def _helper(x: int) -> bool:\n"
+        f"    return VALUE == {expected}\n"
+        "@context(g.int_range(0, 100))\n"
+        "@prop('a second property runs beside it')\n"
+        "def _other(x: int) -> bool:\n"
+        "    return 0 <= x <= 100\n"
+        "spec = conj(_helper, _other)\n"
+    )
+
+
+# Each run spawns worker processes, about a second, so both outcomes are
+# checked on each of a few attempts.
+@context(g.ints())
+@prop(
+    "worker processes import test modules and their helpers themselves",
+    attempts=2,
+)
+def _parallel(value: int, seed: int) -> bool:
+    def _run(expected: int) -> tuple[bool, str]:
+        directory = f.temporary_path()
+        (directory / "_helper.py").write_text(f"VALUE = {value}\n")
+        (directory / "parallel.py").write_text(_parallel_module(expected))
+        buffer = io.StringIO()
+        with _captured(buffer):
+            success = cli.run_tests(
+                0.5,
+                test_dir=directory,
+                output=OutputMode.QUIET,
+                seed=seed,
+                jobs=2,
+            )
+        return success, buffer.getvalue()
+
+    passed, passed_text = _run(value)
+    failed, failed_text = _run(value + 1)
+    return (
+        passed
+        and "Tests: PASS" in passed_text
+        and not failed
+        and "the helper value is seen in a worker" in failed_text
+        and "a second property" not in failed_text
+    )
+
+
 spec = conj(
     _discovery,
     _missing_dir,
@@ -419,6 +513,9 @@ spec = conj(
     _list,
     _list_edges,
     _module_entry,
+    _jobs,
+    _load,
+    _parallel,
 )
 
 

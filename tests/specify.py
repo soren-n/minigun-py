@@ -216,6 +216,99 @@ def _announced(tree: Tree, seed: int) -> bool:
 
 
 ###############################################################################
+# The pieces of evaluation
+###############################################################################
+
+
+def parities(tree: Tree, negated: bool = False) -> list[bool]:
+    """Whether each leaf, in order, is under an odd number of negations."""
+    match tree:
+        case Leaf():
+            return [negated]
+        case Not(inner):
+            return parities(inner, not negated)
+        case And(items):
+            return [
+                parity for item in items for parity in parities(item, negated)
+            ]
+        case _:
+            assert_never(tree)
+
+
+def relabel(tree: Tree, values: list[bool]) -> Tree:
+    """The tree with its leaves, in order, holding the given values."""
+    remaining = iter(values)
+
+    def _relabel(node: Tree) -> Tree:
+        match node:
+            case Leaf():
+                return Leaf(next(remaining))
+            case Not(inner):
+                return Not(_relabel(inner))
+            case And(items):
+                return And(tuple(_relabel(item) for item in items))
+            case _:
+                assert_never(node)
+
+    return _relabel(tree)
+
+
+@context(trees())
+@prop("leaves lists the collected properties, each with its negation parity")
+def _leaves(tree: Tree) -> bool:
+    spec = build(tree)
+    leaves = sp.leaves(spec)
+    return [p for p, _ in leaves] == sp.collect(spec) and [
+        negated for _, negated in leaves
+    ] == parities(tree)
+
+
+@context(trees())
+@prop("combine computes the truth of a tree from its properties' outcomes")
+def _combine(tree: Tree, seed: int, rng: random.Random) -> bool:
+    spec = build(tree)
+    holds, outcomes = run(spec, seed)
+    reported = {o.desc: o.holds for o in outcomes}
+    if sp.combine(spec, reported.__getitem__) != holds:
+        return False
+    # Drawn outcomes: a property's outcome under negation holds when its
+    # law fails, so the model's leaf holds the outcome flipped by parity.
+    descs = [p.desc for p in sp.collect(spec)]
+    drawn = {desc: rng.random() < 0.5 for desc in descs}
+    laws = [
+        drawn[desc] != negated
+        for desc, negated in zip(descs, parities(tree), strict=True)
+    ]
+    return sp.combine(spec, drawn.__getitem__) == truth(relabel(tree, laws))
+
+
+@context(trees())
+@prop("evaluate_property reports what evaluate does, announcing no negation")
+def _evaluate_property(tree: Tree, seed: int) -> bool:
+    spec = build(tree)
+    _, expected = run(spec, seed)
+    found: list[str] = []
+    outcomes = []
+    for p, negated in sp.leaves(spec):
+        outcome = sp.evaluate_property(
+            seed,
+            sp.resolve(p),
+            negated,
+            sp.Allowance(5),
+            lambda example, desc=p.desc: found.append(desc),
+        )
+        outcomes.append(outcome)
+    failed = [
+        o.desc
+        for o in outcomes
+        if o.counter_example is not None and not o.negated
+    ]
+    return found == failed and [stable(o) for o in outcomes] == [
+        stable(o) for o in expected
+    ]
+
+
+###############################################################################
 # Reproducibility and independence
 ###############################################################################
 
@@ -482,6 +575,9 @@ spec = conj(
     _select,
     _neg_unmet,
     _announced,
+    _leaves,
+    _combine,
+    _evaluate_property,
     _reproducible,
     _independent,
     _attempt_index,
