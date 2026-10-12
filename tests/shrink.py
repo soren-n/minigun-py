@@ -110,6 +110,37 @@ def _truncation(target: float, value: float) -> bool:
     return candidates[:2] == [target, truncated]
 
 
+def _bisects(bound: float, value: float, heads: list[float]) -> bool:
+    # After an optional integer truncation first, each alternative is the
+    # midpoint between the one before it (or the bound) and the value.
+    previous = bound
+    for index, head in enumerate(heads):
+        if index == 0 and head == float(math.trunc(value)):
+            previous = head
+            continue
+        if head != previous + (value - previous) / 2:
+            return False
+        previous = head
+    return True
+
+
+@prop("float alternatives are midpoints, each after the one before it")
+def _floating_midpoints(target: float, value: float) -> bool:
+    root = s.floating(target)(value)
+    children = list(root.shrinks())
+    if value == target or not math.isfinite(value):
+        return True
+    if children[0].head != target:
+        return False
+    previous = target
+    for child in children[1:]:
+        heads = [node.head for node in child.shrinks()]
+        if not _bisects(previous, child.head, heads):
+            return False
+        previous = child.head
+    return _bisects(target, value, [child.head for child in children[1:]])
+
+
 @prop("string alternatives are strictly shorter, emptiest first")
 def _string(value: str) -> bool:
     candidates = [node.head for node in s.string()(value).shrinks()]
@@ -228,6 +259,7 @@ spec = conj(
     _heads,
     _target_once,
     _truncation,
+    _floating_midpoints,
     _string,
     _string_min_length,
     _string_negative,
