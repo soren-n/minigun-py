@@ -714,9 +714,8 @@ def _draw_string(
     rng: a.Rng, lower_bound: int, upper_bound: int, alphabet: str
 ) -> s.Dissection[str]:
     length = a.draw_int(rng, lower_bound, upper_bound)
-    return _shrink_string(
-        "".join(a.choice(rng, alphabet) for _ in range(length))
-    )
+    shrink = _shrink_string if lower_bound == 0 else s.string(lower_bound)
+    return shrink("".join(a.choice(rng, alphabet) for _ in range(length)))
 
 
 def _check_alphabet(name: str, alphabet: str) -> None:

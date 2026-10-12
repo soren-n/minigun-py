@@ -294,12 +294,19 @@ def floating(target: float) -> Shrinker[float]:
 ###############################################################################
 # Strings
 ###############################################################################
-def string() -> Shrinker[str]:
-    """A shrinker for strings, removing chunks of characters."""
+def string(min_length: int = 0) -> Shrinker[str]:
+    """A shrinker for strings, removing chunks of characters while the
+    length stays at or above ``min_length``.
+
+    :raises ValueError: When ``min_length`` is negative.
+    """
+    if min_length < 0:
+        raise ValueError(f"string requires min_length >= 0, got {min_length}")
 
     def _trim(value: str) -> fs.Stream[str]:
         def _iterate() -> Iterator[str]:
-            for start, end in chunk_removals(len(value), len(value)):
+            removable = len(value) - min_length
+            for start, end in chunk_removals(len(value), removable):
                 yield value[:start] + value[end:]
 
         return _iterate

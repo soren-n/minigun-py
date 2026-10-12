@@ -121,6 +121,29 @@ def _string(value: str) -> bool:
     )
 
 
+@context(g.int_range(0, 10))
+@prop("string alternatives keep the minimum length, shortest first")
+def _string_min_length(min_length: int, value: str) -> bool:
+    dissection = s.string(min_length)(value)
+    candidates = [node.head for node in dissection.shrinks()]
+    if len(value) <= min_length:
+        return candidates == []
+    return len(candidates[0]) == min_length and all(
+        min_length <= len(node.head)
+        for node in breadth_first(dissection, 40)
+        if node is not dissection
+    )
+
+
+@prop("the string shrinker rejects a negative minimum length")
+def _string_negative(min_length: int) -> bool:
+    try:
+        s.string(min_length)
+    except ValueError:
+        return min_length < 0
+    return min_length >= 0
+
+
 @context(g.int_range(0, 50), g.int_range(1, 10))
 @prop("chunk removals cover every position with descending chunk sizes")
 def _chunks(length: int, max_removed: int) -> bool:
@@ -206,6 +229,8 @@ spec = conj(
     _target_once,
     _truncation,
     _string,
+    _string_min_length,
+    _string_negative,
     _chunks,
     _unfold_lazy,
     _map,

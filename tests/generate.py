@@ -692,6 +692,29 @@ def _bounded(
     )
 
 
+@context(
+    g.tuples(g.int_range(0, 6), g.int_range(0, 6)),
+    g.map("".join, g.bounded_sets(1, 6, g.one_of(list("abcxyz")))),
+)
+@prop("bounded strings respect their bounds and shrink no shorter")
+def _bounded_strings(
+    bounds: tuple[int, int], alphabet: str, rng: random.Random
+) -> bool:
+    # The alphabet is not drawn from a string generator: a broken string
+    # shrinker would shrink this property's own counterexamples.
+    lower, upper = min(bounds), max(bounds)
+    dissection = g.bounded_strings(lower, upper, alphabet).sample(rng)
+    if dissection is None:
+        return False
+    return (
+        all(
+            lower <= len(node.head) <= upper and set(node.head) <= set(alphabet)
+            for node in breadth_first(dissection, 30)
+        )
+        and lower <= len(greedy_leaf(dissection)) <= upper
+    )
+
+
 def _int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -816,6 +839,7 @@ spec = conj(
     _filter,
     _lazy,
     _bounded,
+    _bounded_strings,
     _infer,
 )
 

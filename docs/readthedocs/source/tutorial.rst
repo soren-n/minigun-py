@@ -348,7 +348,7 @@ A generator is a sampler paired with the cardinality of its domain. A sampler ta
 
 Use :code:`minigun.cardinality.finite(n)` when the domain has :code:`n` values and :code:`minigun.cardinality.INFINITE` when it is unbounded for practical purposes.
 
-The bundled shrinkers cover the primitive types: :code:`s.boolean()` shrinks :code:`True` to :code:`False`; :code:`s.integer(target)` and :code:`s.floating(target)` shrink toward a target; :code:`s.string()` removes chunks of characters, largest first. :code:`s.map` combines dissections with a function, shrinking one argument at a time, and :code:`s.filter` restricts a dissection to values satisfying a predicate. Please also check out the implementation of Minigun, where there are generators and shrinkers for all of Python's built-in types.
+The bundled shrinkers cover the primitive types: :code:`s.boolean()` shrinks :code:`True` to :code:`False`; :code:`s.integer(target)` and :code:`s.floating(target)` shrink toward a target; :code:`s.string(min_length)` removes chunks of characters, largest first, down to :code:`min_length` (0 by default). :code:`s.map` combines dissections with a function, shrinking one argument at a time, and :code:`s.filter` restricts a dissection to values satisfying a predicate. Please also check out the implementation of Minigun, where there are generators and shrinkers for all of Python's built-in types.
 
 Bounded domains
 ---------------

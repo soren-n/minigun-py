@@ -5,6 +5,18 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Bug Fixes
+
+- `bounded_strings` no longer shrinks below its lower bound. Its draws
+  were in bounds, but the string shrinker removed characters down to the
+  empty string, so a failing law saw strings shorter than the generator
+  promises and reported one as the minimal counterexample
+
+### Features
+
+- `shrink.string` takes a `min_length` (0 by default) and removes
+  characters only while the length stays at or above it
+
 ## v6.1.0 (2026-10-07)
 
 ### Bug Fixes
