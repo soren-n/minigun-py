@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.3.0 (2026-10-12)
+
 ### Features
 
 - Evaluate properties in parallel: `minigun --jobs N` (`-j`, or `auto`
