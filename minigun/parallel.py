@@ -16,9 +16,11 @@ argument or exception that does not survive pickling is sent back by its
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import dataclasses
 import multiprocessing
+import multiprocessing.util
 import pickle
 import queue
 import time
@@ -154,6 +156,20 @@ def _initialize(seed: int, loaders: list[SpecLoader], found: Any) -> None:
     }
     _scope.enter_context(fixture.scope())
     _worker = _Worker(seed, resolved, found)
+    # Ahead of the finalizers closing the queues (priority 10), which a
+    # process pool needs to shut down.
+    multiprocessing.util.Finalize(None, _exit_worker, exitpriority=100)
+
+
+def _exit_worker() -> None:
+    # A worker process joins its child processes before the interpreter's
+    # exit handlers would run, so a process pool a law left running, shut
+    # down at exit as in a sequential run or not at all, would keep the
+    # worker from ending. The handlers run first, as when an interpreter
+    # exits, and any child process still running is then terminated.
+    atexit._run_exitfuncs()
+    for child in multiprocessing.active_children():
+        child.terminate()
 
 
 def _to_wall(instant: float | None) -> float | None:

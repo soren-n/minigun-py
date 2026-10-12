@@ -196,7 +196,10 @@ Minigun is a property-based testing library organized in layers:
   Deadlines cross processes as `time.time` instants; worker temporary
   fixtures are adopted by the run's scope; counterexample arguments and
   exceptions that do not round-trip through pickle come back as `Shown`
-  and `RemoteException`.
+  and `RemoteException`. A worker ends by running its `atexit` handlers
+  and terminating its remaining child processes, from a finalizer ahead
+  of the queues' (priority 10); multiprocessing would otherwise join a
+  process pool a law left running and hang the run.
 - `cli.py` - Command-line interface and test discovery. Modules are
   registered in `sys.modules` before execution, as submodules of a package
   per test directory (`minigun_discovered.d<digest>`, `__path__` the

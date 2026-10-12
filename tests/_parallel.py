@@ -6,11 +6,15 @@ qualified name, so the loaders here are module-level functions, given
 their shapes through ``functools.partial``.
 """
 
+import atexit
 import functools
 import io
+import multiprocessing
 import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import minigun.fixture as fixture
@@ -91,6 +95,27 @@ def _marks(token: str, x: int) -> bool:
     return True
 
 
+#: A process pool kept by a worker process across its laws.
+_pool: ProcessPoolExecutor | None = None
+
+
+def _closed(directory: str) -> None:
+    if _pool is not None:
+        _pool.shutdown()
+    (Path(directory) / str(os.getpid())).touch()
+
+
+def _pools(directory: str | None, x: int) -> bool:
+    global _pool
+    if _pool is None:
+        _pool = ProcessPoolExecutor(
+            max_workers=1, mp_context=multiprocessing.get_context("spawn")
+        )
+        if directory is not None:
+            atexit.register(_closed, directory)
+    return _pool.submit(abs, x).result() == x
+
+
 def _fails_slowly(x: int) -> bool:
     time.sleep(0.03)
     return x < 300
@@ -113,9 +138,14 @@ KINDS = list(LAWS)
 #: process, ``slow`` is ``fails`` taking a while for each evaluation,
 #: so its shrinking takes a while, and ``marks <token>`` holds, creating a
 #: temporary fixture holding a file named ``token`` on every attempt.
+#: ``leaks`` holds, evaluated in a process pool its worker keeps and never
+#: shuts down; ``pools <directory>`` likewise, its pool shut down by an
+#: exit handler that then creates a file in ``directory`` named by the
+#: worker's process id.
 SPECIAL: dict[str, tuple[Any, g.Generator[Any]]] = {
     "exits": (_exits, g.int_range(0, 9)),
     "slow": (_fails_slowly, g.int_range(0, 1000)),
+    "leaks": (functools.partial(_pools, None), g.int_range(0, 9)),
 }
 
 
@@ -139,6 +169,9 @@ def _prop(desc: str, leaf: Leaf) -> Prop:
     if kind.startswith("marks "):
         law = functools.partial(_marks, kind.split()[1])
         generator: g.Generator[Any] = g.int_range(0, 9)
+    elif kind.startswith("pools "):
+        law = functools.partial(_pools, kind.partition(" ")[2])
+        generator = g.int_range(0, 9)
     else:
         law, generator = SPECIAL[kind] if kind in SPECIAL else LAWS[kind]
     return Prop(desc, law, {"x": generator}, attempts)

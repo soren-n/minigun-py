@@ -292,6 +292,30 @@ def _fixtures_adopted(seed: int, jobs: int, attempts: list[int]) -> bool:
     return not any(temporary.glob(pattern))
 
 
+# A worker process joins its child processes as it ends, so a process
+# pool a law leaves running would keep the evaluation from returning. Both
+# a pool shut down by an exit handler and one never shut down are left on
+# every attempt; every worker that evaluated the first runs its handler.
+@context(g.ints(), g.int_range(1, 3))
+@prop("workers end although laws leave process pools running", attempts=1)
+def _pools_left(seed: int, jobs: int) -> bool:
+    with fixture.scope():
+        directory = fixture.temporary_path()
+        shape: Shape = [
+            (False, False, [(f"pools {directory}", 1), ("leaks", 1)])
+        ]
+        reporter = _Recorder()
+        holds = p.evaluate(
+            seed,
+            [("pools", build(0, shape), functools.partial(build, 0, shape))],
+            reporter,
+            _declared,
+            lambda desc: None,
+            jobs,
+        )
+        return holds and any(directory.iterdir())
+
+
 ###############################################################################
 # Failures of the evaluation itself
 ###############################################################################
@@ -476,6 +500,7 @@ spec = conj(
     _deadlines,
     _announced_live,
     _fixtures_adopted,
+    _pools_left,
     _empty_modules,
     _rejects_jobs,
     _worker_failure,

@@ -5,6 +5,15 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Fixes
+
+- A parallel run no longer hangs after its report when a law leaves a
+  process pool running in a worker. A worker process joins its child
+  processes before the interpreter's exit handlers would run, so a pool
+  shut down at exit kept the worker alive. Workers now run their exit
+  handlers first, as a sequential run does, then terminate any child
+  process still running
+
 ## v6.3.0 (2026-10-12)
 
 ### Features
