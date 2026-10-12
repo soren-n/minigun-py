@@ -300,12 +300,17 @@ def _run_tests(
             cwd=root,
             env=dict(os.environ, PYTHONPATH=str(root)),
             capture_output=True,
+            text=True,
             timeout=budget * 8 + 30,
             check=False,
         )
     except subprocess.TimeoutExpired:
         return "timeout"
-    return "pass" if result.returncode == 0 else "fail"
+    # The exit code is computed by the code under test: a mutant of
+    # specify.combine can turn failing properties into a passing run, so
+    # the report must say so too.
+    passed = result.returncode == 0 and "Tests: PASS" in result.stdout
+    return "pass" if passed else "fail"
 
 
 def _worker(
