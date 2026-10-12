@@ -72,7 +72,7 @@ TARGETS: dict[str, Target] = {
         frozenset(
             {"attempt_limit", "baseline_attempts", "coverage_attempts"}
             | {"share", "_limit"}
-            | {"plan", "__init__", "allowance"}
+            | {"plan", "__init__", "allowance", "finished"}
         ),
         ("budget", "orchestrator", "specify"),
     ),
@@ -80,6 +80,7 @@ TARGETS: dict[str, Target] = {
         frozenset(
             {"_judge", "evaluate", "resolve_all", "resolve", "context"}
             | {"prop", "collect", "property_rng"}
+            | {"leaves", "combine", "evaluate_property"}
         ),
         ("specify", "orchestrator", "algebra"),
     ),
@@ -106,6 +107,13 @@ TARGETS: dict[str, Target] = {
             | {"seed", "draw_bool", "probability"}
         ),
         ("arbitrary", "generate"),
+    ),
+    "parallel": Target(
+        frozenset(
+            {"portable", "_round_trips", "_to_wall", "_to_perf", "_evaluate"}
+            | {"evaluate"}
+        ),
+        ("parallel",),
     ),
     "cardinality": Target(None, ("cardinality", "generate")),
     "stream": Target(None, ("stream", "shrink")),
