@@ -5,6 +5,8 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+## v6.2.0 (2026-10-12)
+
 ### Bug Fixes
 
 - `bounded_strings` no longer shrinks below its lower bound. Its draws
