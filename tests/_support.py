@@ -217,6 +217,11 @@ class MapSet:
     items: tuple["Program", ...]
 
 
+@dataclass(frozen=True)
+class Interleave:
+    programs: tuple[BoundedLists, ...]
+
+
 type Program = (
     Bools
     | BiasedBool
@@ -251,6 +256,7 @@ type Program = (
     | MapList
     | MapDict
     | MapSet
+    | Interleave
 )
 
 #: The tiered integer generators by name, with their documented bounds.
@@ -372,6 +378,8 @@ def interpret(program: Program) -> g.Generator[Any]:
             )
         case MapSet(items):
             return g.map_set({interpret(item) for item in items})
+        case Interleave(programs):
+            return g.interleave(*[interpret(program) for program in programs])
         case _:
             assert_never(program)
 
@@ -389,6 +397,26 @@ def _assigns(items: tuple["Program", ...], values: list[Any]) -> bool:
     return any(
         member(item, first) and _assigns(items[:i] + items[i + 1 :], rest)
         for i, item in enumerate(items)
+    )
+
+
+def _interleaves(programs: tuple[BoundedLists, ...], values: list[Any]) -> bool:
+    """Whether the values split into one subsequence per program, each in
+    its program's domain: the reachable counts of steps per program."""
+    counts = {tuple(0 for _ in programs)}
+    for value in values:
+        counts = {
+            (*count[:i], count[i] + 1, *count[i + 1 :])
+            for count in counts
+            for i, program in enumerate(programs)
+            if count[i] < program.upper and member(program.inner, value)
+        }
+    return any(
+        all(
+            program.lower <= n
+            for program, n in zip(programs, count, strict=True)
+        )
+        for count in counts
     )
 
 
@@ -568,6 +596,8 @@ def member(program: Program, value: Any) -> bool:
                 and 1 <= len(value) <= len(items)
                 and all(any(member(item, x) for item in items) for x in value)
             )
+        case Interleave(programs):
+            return isinstance(value, list) and _interleaves(programs, value)
         case _:
             assert_never(program)
 
@@ -773,6 +803,16 @@ def _sized(depth: int) -> g.Generator[Program]:
     def _map_set(items: list[Program]) -> Program:
         return MapSet(tuple(items))
 
+    def _interleave(programs: list[tuple[int, int, Program]]) -> Program:
+        return Interleave(
+            tuple(
+                BoundedLists(min(a, b), max(a, b), inner)
+                for a, b, inner in programs
+            )
+        )
+
+    step = g.tuples(g.int_range(0, 3), g.int_range(0, 3), sub)
+
     small = g.int_range(0, 5)
     weight = g.int_range(0, 3)
     return g.weighted_choice(
@@ -794,6 +834,7 @@ def _sized(depth: int) -> g.Generator[Program]:
         (1, g.map(_map_list, g.bounded_lists(1, 3, int_programs()), g.bools())),
         (1, g.map(_map_dict, g.bounded_lists(0, 3, sub))),
         (1, g.map(_map_set, g.bounded_lists(1, 3, hashable_programs()))),
+        (1, g.map(_interleave, g.bounded_lists(0, 3, step))),
     )
 
 

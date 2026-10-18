@@ -3,11 +3,13 @@
 import collections.abc
 import dataclasses
 import datetime
+import itertools
 import math
 import random
 import sys
 import typing
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import minigun.arbitrary as a
@@ -715,6 +717,135 @@ def _bounded_strings(
     )
 
 
+def _switches(schedule: list[Any]) -> int:
+    return sum(1 for x, y in itertools.pairwise(schedule) if x != y)
+
+
+def _tag(owner: int, values: list[int]) -> list[tuple[int, int]]:
+    return [(owner, value) for value in values]
+
+
+@context(g.bounded_lists(0, 4, g.tuples(g.int_range(0, 3), g.int_range(0, 3))))
+@prop("interleave keeps each program's order and bounds through shrinking")
+def _interleave_order(
+    bounds: list[tuple[int, int]], rng: random.Random
+) -> bool:
+    # Sorted programs over distinct owners: an interleaving that lost a
+    # program's order, or moved a step between programs, shows.
+    programs = [
+        g.map(
+            partial(_tag, owner),
+            g.bounded_lists(min(b), max(b), g.small_nats(), ordered=True),
+        )
+        for owner, b in enumerate(bounds)
+    ]
+    dissection = g.interleave(*programs).sample(rng)
+    if dissection is None:
+        return False
+
+    def _valid(merged: list[tuple[int, int]]) -> bool:
+        for owner, b in enumerate(bounds):
+            steps = [value for o, value in merged if o == owner]
+            if steps != sorted(steps) or not min(b) <= len(steps) <= max(b):
+                return False
+        return True
+
+    return all(_valid(node.head) for node in breadth_first(dissection, 40))
+
+
+@context(g.bounded_lists(0, 4, g.int_range(0, 4)))
+@prop("interleave moves remove switches and end with each program in one run")
+def _interleave_switches(sizes: list[int], rng: random.Random) -> bool:
+    # Fixed programs of one repeated step: every shrink is a move.
+    programs = [
+        g.bounded_lists(size, size, g.constant(owner))
+        for owner, size in enumerate(sizes)
+    ]
+    dissection = g.interleave(*programs).sample(rng)
+    if dissection is None:
+        return False
+    for node in breadth_first(dissection, 30):
+        switches = _switches(node.head)
+        if any(_switches(child.head) >= switches for child in node.shrinks()):
+            return False
+    leaf = greedy_leaf(dissection)
+    runs = sum(1 for size in sizes if size > 0)
+    return _switches(leaf) == max(runs - 1, 0) and all(
+        leaf.count(owner) == size for owner, size in enumerate(sizes)
+    )
+
+
+@prop("interleave draws every interleaving", attempts=20)
+def _interleave_uniform(rng: random.Random) -> bool:
+    # Two programs of two steps have six interleavings; 300 draws miss
+    # one with probability about 6 * (5/6)**300.
+    generator = g.interleave(
+        g.bounded_lists(2, 2, g.constant(0)),
+        g.bounded_lists(2, 2, g.constant(1)),
+    )
+    seen: set[tuple[int, ...]] = set()
+    for _ in range(300):
+        dissection = generator.sample(rng)
+        if dissection is None:
+            return False
+        seen.add(tuple(dissection.head))
+    return len(seen) == 6
+
+
+def _fresh(_: None) -> object:
+    return object()
+
+
+@prop("interleave removes exactly the steps a program shrink removes")
+def _interleave_realign(rng: random.Random) -> bool:
+    # Steps are distinct objects, which list shrinks keep: a removal that
+    # dropped the wrong place in the schedule would move a kept step
+    # relative to the other program's steps.
+    steps = g.bounded_lists(0, 5, g.map(_fresh, g.constant(None)))
+    dissection = g.interleave(steps, steps).sample(rng)
+    if dissection is None:
+        return False
+    for node in breadth_first(dissection, 30):
+        for child in node.shrinks():
+            if len(child.head) == len(node.head):
+                continue
+            kept = {id(step) for step in child.head}
+            if child.head != [x for x in node.head if id(x) in kept]:
+                return False
+    return True
+
+
+@prop("interleave places the steps a program shrink adds", attempts=1)
+def _interleave_grow(seed: int) -> bool:
+    # No library shrink adds steps, but a custom one may: the new steps go
+    # after the common prefix, and the kept steps keep their places
+    # relative to the other program's.
+    def _sample(rng: a.Rng) -> s.Dissection[list[str]] | None:
+        return s.prepend(["a", "z"], s.singleton(["a", "b", "c", "z"]))
+
+    growing = g.Generator(_sample, c.ONE)
+    for first in [growing, g.constant(["x"])], [g.constant(["x"]), growing]:
+        dissection = g.interleave(*first).sample(a.seed(seed))
+        if dissection is None:
+            return False
+        before = [step for step in dissection.head if step in "axz"]
+        for child in dissection.shrinks():
+            after = [step for step in child.head if step in "axz"]
+            if len(child.head) == 5 and after != before:
+                return False
+    return True
+
+
+@prop("interleave reports unbounded domains for two or more programs")
+def _interleave_cardinality(seed: int) -> bool:
+    one = g.bounded_lists(1, 1, g.bools())
+    return (
+        g.interleave().cardinality == c.ONE
+        and g.interleave(one).cardinality == one.cardinality
+        and not g.interleave(one, one).cardinality.is_finite
+    )
+
+
 def _int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -840,6 +971,12 @@ spec = conj(
     _lazy,
     _bounded,
     _bounded_strings,
+    _interleave_order,
+    _interleave_switches,
+    _interleave_uniform,
+    _interleave_realign,
+    _interleave_grow,
+    _interleave_cardinality,
     _infer,
 )
 

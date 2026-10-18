@@ -5,6 +5,14 @@ a release renames that heading to the version and date.
 
 ## Unreleased
 
+### Features
+
+- `generate.interleave(*programs)` draws one list from each generator
+  and merges them in a uniformly random order that keeps the order of
+  each, modelling requests from concurrent clients or messages between
+  nodes. It shrinks each program with its own generator's shrinks and
+  shrinks toward fewer switches between programs.
+
 ## v6.4.0 (2026-10-12)
 
 ### Changes

@@ -35,6 +35,7 @@ from typing import Any, cast, get_args, get_origin
 from minigun import arbitrary as a
 from minigun import cardinality as c
 from minigun import shrink as s
+from minigun import stream as fs
 
 __all__ = [
     "Sampler",
@@ -69,6 +70,7 @@ __all__ = [
     "lists",
     "map_list",
     "list_append",
+    "interleave",
     "bounded_dicts",
     "dicts",
     "map_dict",
@@ -873,6 +875,146 @@ def list_append[T](
         return [*values, value]
 
     return map(_append, items, item)
+
+
+###############################################################################
+# Interleavings
+###############################################################################
+def _runs(schedule: list[int]) -> list[tuple[int, int]]:
+    """The maximal runs of equal owners in a schedule, as half-open
+    ``(start, end)`` ranges."""
+    runs: list[tuple[int, int]] = []
+    start = 0
+    for index in range(1, len(schedule) + 1):
+        if index == len(schedule) or schedule[index] != schedule[start]:
+            runs.append((start, index))
+            start = index
+    return runs
+
+
+def _joined(schedule: list[int]) -> Iterator[list[int]]:
+    """Schedules with one run moved next to the owner's adjacent run.
+
+    For each two consecutive runs of one owner, the later run is moved
+    back to the earlier, then the earlier forward to the later. Each owner
+    keeps the order of its steps, and every move removes at least one
+    switch between owners, so repeated moves end.
+    """
+    runs = _runs(schedule)
+    previous: dict[int, tuple[int, int]] = {}
+    for start, end in runs:
+        owner = schedule[start]
+        if owner in previous:
+            first, last = previous[owner]
+            between = schedule[last:start]
+            run = schedule[start:end]
+            earlier = schedule[first:last]
+            rest = schedule[end:]
+            yield schedule[:last] + run + between + rest
+            yield schedule[:first] + between + earlier + run + rest
+        previous[owner] = (start, end)
+
+
+def _realigned(
+    schedule: list[int], owner: int, old: list[Any], new: list[Any]
+) -> list[int]:
+    """The schedule with an owner's steps realigned to a shrunk program.
+
+    Elements up to the first one that differs (by identity, else
+    equality) keep their places; steps beyond the common prefix are
+    removed from, or inserted at, the place where the programs first
+    differ.
+    """
+    prefix = 0
+    while prefix < min(len(old), len(new)) and (
+        old[prefix] is new[prefix] or old[prefix] == new[prefix]
+    ):
+        prefix += 1
+    places = [i for i, step in enumerate(schedule) if step == owner]
+    removed = len(old) - len(new)
+    if removed >= 0:
+        dropped = set(places[prefix : prefix + removed])
+        return [step for i, step in enumerate(schedule) if i not in dropped]
+    if prefix > 0:
+        at = places[prefix - 1] + 1
+    else:
+        at = places[0] if places else 0
+    return schedule[:at] + [owner] * -removed + schedule[at:]
+
+
+def _interleaving[T](
+    programs: list[s.Dissection[list[T]]], schedule: list[int]
+) -> s.Dissection[list[T]]:
+    def _merge() -> list[T]:
+        cursors = [0] * len(programs)
+        merged: list[T] = []
+        for owner in schedule:
+            merged.append(programs[owner].head[cursors[owner]])
+            cursors[owner] += 1
+        return merged
+
+    def _program(owner: int) -> fs.Stream[s.Dissection[list[T]]]:
+        def _iterate() -> Iterator[s.Dissection[list[T]]]:
+            old = programs[owner].head
+            for child in programs[owner].shrinks():
+                replaced = list(programs)
+                replaced[owner] = child
+                realigned = _realigned(schedule, owner, old, child.head)
+                yield _interleaving(replaced, realigned)
+
+        return _iterate
+
+    def _schedule() -> Iterator[s.Dissection[list[T]]]:
+        for joined in _joined(schedule):
+            yield _interleaving(programs, joined)
+
+    return s.Dissection(
+        _merge(),
+        fs.braid(
+            *[_program(owner) for owner in range(len(programs))], _schedule
+        ),
+    )
+
+
+def interleave[T](*programs: Generator[list[T]]) -> Generator[list[T]]:
+    """A generator of interleavings of programs: one list drawn from each
+    generator, merged in a random order that keeps the order of each.
+
+    Every interleaving of the drawn lists is equally likely. This models
+    nondeterministic arrival, such as requests from concurrent clients or
+    messages between nodes, when each step runs to completion before the
+    next starts.
+
+    An interleaving shrinks its programs, each with its own generator's
+    shrinks, so a program keeps whatever structure its generator gives
+    it. The steps of a shrunk program keep their places in the schedule
+    up to the first step that changed, matched by identity or else by
+    equality. An interleaving also shrinks toward fewer switches between
+    programs, by moving a run of one program's steps next to its
+    adjacent run, so a counterexample keeps only the switches it needs.
+
+    The domain of two or more programs is reported as unbounded, as for
+    ``bind``.
+    """
+
+    def _impl(rng: a.Rng) -> s.Dissection[list[T]] | None:
+        dissections = _sample_all(rng, programs)
+        if dissections is None:
+            return None
+        schedule = [
+            owner
+            for owner, dissection in enumerate(dissections)
+            for _ in dissection.head
+        ]
+        for index in range(len(schedule) - 1, 0, -1):
+            other = a.draw_int(rng, 0, index)
+            schedule[index], schedule[other] = schedule[other], schedule[index]
+        return _interleaving(dissections, schedule)
+
+    product = _product(programs)
+    if len(programs) < 2 or product.size == 0:
+        return Generator(_impl, product)
+    return Generator(_impl, c.INFINITE)
 
 
 ###############################################################################

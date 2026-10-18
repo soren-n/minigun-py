@@ -140,7 +140,10 @@ Minigun is a property-based testing library organized in layers:
   bounds and, when it holds zero, zero and tiny magnitudes down to 5e-324
   (`edges=False` for uniform only); `nonzero_int_range` excludes zero
   without discarding; `dates`/`datetimes` map `int_range`;
-  string domains take an `alphabet`. `Generator` and `Dissection` are
+  string domains take an `alphabet`; `interleave` merges one list per
+  generator in a random order keeping each list's order, shrinking the
+  lists by their own generators (realigned at the first changed step)
+  and toward fewer switches. `Generator` and `Dissection` are
   frozen, so both are covariant in `T`.
 
 ### Testing Framework
