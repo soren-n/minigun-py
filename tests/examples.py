@@ -9,6 +9,8 @@ import importlib.util
 import io
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import minigun.specify as sp
 from minigun import check
@@ -18,7 +20,7 @@ from tests._support import isolated_fixtures
 EXAMPLES = Path(__file__).resolve().parent.parent / "docs" / "examples"
 
 
-def _load(name: str) -> sp.Spec:
+def _module(name: str) -> ModuleType:
     path = EXAMPLES / f"{name}.py"
     qualified = f"minigun_examples.{name}"
     module_spec = importlib.util.spec_from_file_location(qualified, path)
@@ -27,7 +29,11 @@ def _load(name: str) -> sp.Spec:
     module = importlib.util.module_from_spec(module_spec)
     sys.modules[qualified] = module
     module_spec.loader.exec_module(module)
-    spec = module.spec
+    return module
+
+
+def _load(name: str) -> sp.Spec:
+    spec = _module(name).spec
     if not sp.is_spec(spec):
         raise TypeError(f"Example {name} does not export a specification")
     return spec
@@ -72,6 +78,32 @@ def _no_litter(seed: int) -> bool:
     return len(roots) == 1 and not roots[0].exists()
 
 
+@prop("racy replicas shrink to two writes from two nodes at one time")
+def _racy_replicas(seed: int) -> bool:
+    # The tutorial shows this counterexample. The racy replicas diverge
+    # in about one attempt in four, so 2000 attempts always find it.
+    example = _module("nondeterminism")
+    outcomes: list[sp.Outcome] = []
+    sp.evaluate(
+        seed,
+        example.converges("racy replicas converge", example.RacyReplica),
+        lambda resolved: sp.Allowance(2000),
+        lambda p: None,
+        outcomes.append,
+    )
+    found = outcomes[0].counter_example
+    if found is None:
+        return False
+    events: list[Any] = found.args["events"]
+    return (
+        len(events) == 2
+        and all(isinstance(event, example.Write) for event in events)
+        and events[0].node != events[1].node
+        and events[0].time == events[1].time
+        and {events[0].value, events[1].value} == {0, 1}
+    )
+
+
 @prop("every example file is covered by a property")
 def _all_covered(seed: int) -> bool:
     files = {path.stem for path in EXAMPLES.glob("*.py")}
@@ -95,7 +127,12 @@ _NAMES = [
     "programmatic",
 ]
 
-spec = conj(_all_covered, _no_litter, *[_example(name) for name in _NAMES])
+spec = conj(
+    _all_covered,
+    _no_litter,
+    _racy_replicas,
+    *[_example(name) for name in _NAMES],
+)
 
 
 if __name__ == "__main__":

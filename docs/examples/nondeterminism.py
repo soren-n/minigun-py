@@ -1,135 +1,143 @@
-"""Nondeterminism: random interleavings of concurrent clients."""
+"""Nondeterminism: replicas that converge under any delivery order."""
 
-from collections.abc import Callable, Iterator
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 
-import minigun.arbitrary as a
-import minigun.cardinality as c
 import minigun.generate as g
-import minigun.shrink as s
-import minigun.stream as fs
 from minigun import check
 from minigun.specify import Spec, context, prop
 
-
-# -- start: operations --
-@dataclass
-class Increment:
-    client: int
+#: The number of replicas in the simulated network.
+NODES = 3
 
 
-@dataclass
-class Decrement:
-    client: int
+# -- start: replica --
+@dataclass(frozen=True)
+class Message:
+    time: int
+    sender: int
+    value: int
 
 
-@dataclass
-class Read:
-    client: int
+class Replica:
+    """A last-writer-wins register: of all writes it has seen, a replica
+    holds the one with the latest time, the writing node breaking ties."""
+
+    def __init__(self, node: int) -> None:
+        self.node = node
+        self.stamp = (-1, -1)
+        self.value: int | None = None
+
+    def write(self, value: int, time: int) -> Message:
+        message = Message(time, self.node, value)
+        self.receive(message)
+        return message
+
+    def receive(self, message: Message) -> None:
+        stamp = (message.time, message.sender)
+        if stamp > self.stamp:
+            self.stamp = stamp
+            self.value = message.value
 
 
-type CounterOp = Increment | Decrement | Read
-type CounterProg = list[CounterOp]
+class RacyReplica(Replica):
+    """Compares times only, so of two writes at the same time the one
+    that arrives last wins."""
+
+    def receive(self, message: Message) -> None:
+        if message.time >= self.stamp[0]:
+            self.stamp = (message.time, message.sender)
+            self.value = message.value
 
 
-# Reference model
-def model_counter(prog: CounterProg) -> list[int]:
-    state = 0
-    reads: list[int] = []
-    for op in prog:
-        match op:
-            case Increment():
-                state += 1
-            case Decrement():
-                state -= 1
-            case Read():
-                reads.append(state)
-    return reads
+# -- end: replica --
 
 
-# -- end: operations --
+# -- start: events --
+@dataclass(frozen=True)
+class Write:
+    node: int
+    value: int
+    time: int
+
+
+@dataclass(frozen=True)
+class Receive:
+    node: int
+    sender: int
+
+
+type Event = Write | Receive
+# -- end: events --
+
+
+# -- start: simulation --
+def simulate(
+    replica: Callable[[int], Replica], events: list[Event]
+) -> list[int | None]:
+    """Run events against replicas joined by first-in first-out channels,
+    then deliver every message still in flight; the replicas' values."""
+    replicas = [replica(node) for node in range(NODES)]
+    channels: dict[tuple[int, int], deque[Message]] = {
+        (sender, receiver): deque()
+        for sender in range(NODES)
+        for receiver in range(NODES)
+        if sender != receiver
+    }
+    for event in events:
+        match event:
+            case Write(node, value, time):
+                message = replicas[node].write(value, time)
+                for receiver in range(NODES):
+                    if receiver != node:
+                        channels[node, receiver].append(message)
+            case Receive(node, sender):
+                # Receiving from an empty channel is waiting: nothing yet.
+                if channels[sender, node]:
+                    replicas[node].receive(channels[sender, node].popleft())
+    for (_, receiver), channel in channels.items():
+        while channel:
+            replicas[receiver].receive(channel.popleft())
+    return [replica.value for replica in replicas]
+
+
+# -- end: simulation --
 
 
 # -- start: generator --
-def interleavings(
-    num_clients: int, ops_per_client: int
-) -> g.Generator[CounterProg]:
-    def _trim(prog: CounterProg) -> fs.Stream[CounterProg]:
-        def _iterate() -> Iterator[CounterProg]:
-            for index in range(len(prog) - 1, -1, -1):
-                yield prog[:index] + prog[index + 1 :]
+def node_events(node: int) -> g.Generator[list[Event]]:
+    """What one node does: write values at times on a coarse clock, and
+    receive from the others."""
+    senders = [sender for sender in range(NODES) if sender != node]
+    event: g.Generator[Event] = g.choice(
+        g.map(partial(Write, node), g.small_nats(), g.int_range(0, 9)),
+        g.map(partial(Receive, node), g.one_of(senders)),
+    )
+    return g.lists(event)
 
-        return _iterate
 
-    def _sample(rng: a.Rng) -> s.Dissection[CounterProg] | None:
-        # Build per-client operation sequences
-        queues: list[CounterProg] = []
-        for client in range(num_clients):
-            ops: CounterProg = []
-            for _ in range(ops_per_client):
-                match a.choice(rng, ["inc", "dec", "read"]):
-                    case "inc":
-                        ops.append(Increment(client))
-                    case "dec":
-                        ops.append(Decrement(client))
-                    case _:
-                        ops.append(Read(client))
-            queues.append(ops)
-
-        # Randomly interleave the queues
-        prog: CounterProg = []
-        indices = [0] * num_clients
-        for _ in range(num_clients * ops_per_client):
-            active = [
-                client
-                for client in range(num_clients)
-                if indices[client] < len(queues[client])
-            ]
-            client = a.choice(rng, active)
-            prog.append(queues[client][indices[client]])
-            indices[client] += 1
-
-        return s.unfold(prog, _trim)
-
-    return g.Generator(_sample, c.INFINITE)
+def schedules() -> g.Generator[list[Event]]:
+    return g.interleave(*[node_events(node) for node in range(NODES)])
 
 
 # -- end: generator --
 
 
 # -- start: property --
-def counter_spec(impl_counter: Callable[[CounterProg], list[int]]) -> Spec:
-    @context(
-        g.bind(
-            lambda n: g.bind(lambda m: interleavings(n, m), g.small_nats()),
-            g.small_nats(),
-        )
-    )
-    @prop("Counter is consistent under any interleaving")
-    def _counter_consistent(prog: CounterProg) -> bool:
-        return model_counter(prog) == impl_counter(prog)
+def converges(desc: str, replica: Callable[[int], Replica]) -> Spec:
+    @context(schedules())
+    @prop(desc)
+    def _converges(events: list[Event]) -> bool:
+        values = simulate(replica, events)
+        return all(value == values[0] for value in values)
 
-    return _counter_consistent
+    return _converges
 
 
+spec = converges("replicas converge under any delivery order", Replica)
 # -- end: property --
-
-
-def _impl_counter(prog: CounterProg) -> list[int]:
-    """An implementation under test; here it happens to be correct."""
-    total = 0
-    reads: list[int] = []
-    for op in prog:
-        if isinstance(op, Increment):
-            total += 1
-        elif isinstance(op, Decrement):
-            total -= 1
-        else:
-            reads.append(total)
-    return reads
-
-
-spec = counter_spec(_impl_counter)
 
 if __name__ == "__main__":
     import sys

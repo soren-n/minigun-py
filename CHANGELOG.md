@@ -13,6 +13,14 @@ a release renames that heading to the version and date.
   nodes. It shrinks each program with its own generator's shrinks and
   shrinks toward fewer switches between programs.
 
+### Documentation
+
+- The tutorial's Nondeterminism section is rewritten around a
+  replicated last-writer-wins register whose replicas must converge
+  under any delivery order. A racy tie-break shrinks to two concurrent
+  writes. The section states that sequential interleavings cover systems
+  whose steps run to completion, and what that leaves out.
+
 ## v6.4.0 (2026-10-12)
 
 ### Changes

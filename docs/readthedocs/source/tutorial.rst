@@ -423,7 +423,7 @@ Lets consider modeling strategies for software with different challenges:
     E.g. datastructures or programs with IO. Create a denotation of programs over the system under test; e.g. for the stack example we can push, pop and get the size; we then implement a generator and shrinker for sequences of these denoted commands. Define a correct reference implementation of the system. Define an interpreter which will evaluate terms of the defined language of programs, while also managing an instance of the state of the system under test, as well an instance of the state of the reference implementation. Compare observable values of the two systems that are important with regards to the specification, e.g. outputs. Report failure and shrink the test case when the two systems diverge under evaluation.
 
 :Nondeterminism:
-    E.g. because of concurrency, asynchrony or IO. Generate randomly ordered sequences of modelled operations, representing the possible interleavings that could arise from concurrent access. Run these sequences sequentially against the system under test and verify that it behaves correctly regardless of ordering.
+    E.g. concurrent clients of a server, or nodes of a distributed system exchanging messages. Generate what each client or node does, interleave those programs in a random order, and run the interleaving sequentially against the system under test, checking that it behaves correctly whatever the order.
 
 Let us consider the modeling of the stack example from earlier. First the reference model:
 
@@ -470,39 +470,60 @@ Notice how the property is expressed at a high level: we simply state that runni
 
 Nondeterminism
 ^^^^^^^^^^^^^^
-When the system under test may be accessed by multiple clients or processes concurrently, the order in which operations arrive is not under our control. Different runs of the same set of operations may produce different results depending on scheduling decisions made by the runtime.
+When several clients use a system at once, or the nodes of a distributed system exchange messages, the order in which requests and messages arrive is not under our control. Different runs of the same work may produce different results, depending on scheduling and network delays.
 
-Rather than actually running things concurrently (which is difficult to reproduce and control), we can model this nondeterminism by generating random interleavings of operations. We then run each interleaving sequentially against the system under test and check that it behaves correctly. This makes our tests deterministic and reproducible (given the same seed), while still exploring the space of possible orderings.
+We do not need to run anything concurrently to test this. When each step runs to completion before the next one starts, such as a request handled by a server, a message handled by a node, or a transaction in a database, the order of arrival is the only nondeterminism there is. A generator can draw that order, and running the steps sequentially in that order then covers every behaviour the real system can have. The test stays reproducible from its seed, and a failing order shrinks like any other value.
 
-The approach extends the mutable state modeling technique as follows:
+:code:`g.interleave` draws one program from each of several generators, a list of steps per client or node, and merges them in a random order that keeps the order of each program. The interleaving shrinks each program with its own generator's shrinks, so a program keeps whatever structure its generator gives it, and it shrinks toward fewer switches between programs, so a counterexample keeps only the switches it needs.
 
-1. Define the set of operations that concurrent clients could perform, using the same modeling AST approach as before.
-2. Generate randomly ordered interleavings of operations from multiple clients.
-3. Execute each generated sequence sequentially against both the reference model and the system under test.
-4. Compare results; any valid ordering should produce consistent behavior.
-
-Lets consider a simple example with a shared counter that supports :code:`increment`, :code:`decrement` and :code:`read` operations, together with its reference model:
+Let us consider a replicated register, as found in distributed key-value stores. Each node holds a replica; a client writes a value at a node with a timestamp, and the node sends the write to every other node. A replica keeps the write with the latest timestamp, and when two writes have the same timestamp the node that wrote it breaks the tie. :code:`RacyReplica` gets that last part wrong: it compares timestamps only, so of two writes with the same timestamp the one that arrives last wins:
 
 .. literalinclude:: ../../examples/nondeterminism.py
    :language: python
-   :start-after: # -- start: operations --
-   :end-before: # -- end: operations --
+   :start-after: # -- start: replica --
+   :end-before: # -- end: replica --
 
-We then generate random interleavings of operations from multiple clients. The key is that each client has a fixed sequence of operations it wants to perform, but the order in which different clients' operations are interleaved is random:
+What can happen in the network are writes at a node and receipts of messages from another node:
+
+.. literalinclude:: ../../examples/nondeterminism.py
+   :language: python
+   :start-after: # -- start: events --
+   :end-before: # -- end: events --
+
+The simulation runs the events against the replicas, connected by first-in first-out channels, as TCP connections would be. A node receiving from an empty channel is waiting, so nothing happens. The network delivers every message eventually, so the simulation ends by delivering what is still in flight:
+
+.. literalinclude:: ../../examples/nondeterminism.py
+   :language: python
+   :start-after: # -- start: simulation --
+   :end-before: # -- end: simulation --
+
+Each node's program is a list of writes and receipts, and the schedule interleaves the programs of all nodes:
 
 .. literalinclude:: ../../examples/nondeterminism.py
    :language: python
    :start-after: # -- start: generator --
    :end-before: # -- end: generator --
 
-The property then checks that the system under test produces the same observable results as the model for any random interleaving:
+The property needs no reference model of the schedule. It states what the replicas must agree on once the network is quiet, whatever order the messages arrived in: they converge on the same value:
 
 .. literalinclude:: ../../examples/nondeterminism.py
    :language: python
    :start-after: # -- start: property --
    :end-before: # -- end: property --
 
-The key insight here is that the nondeterminism is entirely captured by the generator. We do not need threads, locks, or any concurrency primitives; the generator explores the space of possible interleavings, and the evaluator runs each one sequentially and deterministically. This means that when a counterexample is found, it is perfectly reproducible, and the shrinker can minimize it to a smallest failing interleaving.
+The correct replicas converge. Checking the racy ones instead, with :code:`check(converges("racy replicas converge", RacyReplica))`, finds a counterexample within a few attempts and shrinks it to two writes:
+
+.. code-block:: text
+
+    FAIL: racy replicas converge
+    A test case of "racy replicas converge" failed with the following counter example:
+    events = [Write(node=2, value=1, time=9), Write(node=1, value=0, time=9)]
+
+Two nodes write different values at the same time before either hears of the other's write. Each node then receives the other's write last and adopts it, so the replicas swap values and never agree. The timestamps do not shrink to zero, because shrinking either one alone would break the tie that the failure needs. Had either node received the other's write before writing its own, the replicas would have converged; the interleaving is what exposes the bug.
+
+.. note::
+
+    This works because every step runs to completion before the next one starts. A race *within* a step, such as two threads interleaving the read and the write of :code:`self.value += 1`, needs interleaving points inside the steps, for instance generator functions that :code:`yield` where another client may run, or :code:`await` points in asynchronous code. Races inside native code that runs in parallel are beyond what a generated schedule can reach.
 
 Filesystem fixtures
 -------------------

@@ -258,6 +258,31 @@ def test_shuffle(xs: list[int], rng: random.Random) -> bool:
     return sorted(shuffled) == sorted(xs)
 ```
 
+### Arrival Order
+
+`g.interleave` merges one list of steps per client (or per node of a distributed system) in a random order that keeps each list's order. Running the result sequentially tests a system under every order in which requests or messages can arrive, as long as each step runs to completion; a counterexample shrinks to the fewest steps and the fewest switches between clients:
+
+```python
+from minigun import prop, context, generate as g
+
+
+def writes(client: int) -> g.Generator[list[tuple[int, int]]]:
+    return g.lists(g.map(lambda value: (client, value), g.small_nats()))
+
+
+@context(g.interleave(writes(0), writes(1)))
+@prop("the log keeps each client's writes in order")
+def test_log(arrivals: list[tuple[int, int]]) -> bool:
+    log = Log()  # the system under test
+    for client, value in arrivals:
+        log.append(client, value)
+    return all(
+        log.entries(c) == [v for k, v in arrivals if k == c] for c in (0, 1)
+    )
+```
+
+See the tutorial's Nondeterminism section for a simulated network of replicas.
+
 ## FAQ
 
 **Q: What's a good time budget?**
