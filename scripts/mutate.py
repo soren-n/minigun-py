@@ -100,6 +100,7 @@ TARGETS: dict[str, Target] = {
             | {"_draw_set", "one_of", "subset_of", "weighted_choice"}
             | {"choice", "biased_bool", "infer", "_optional_inner", "lazy"}
             | {"_unsized", "floats", "_draw_string"}
+            | {"_runs", "_joined", "_realigned", "_interleaving", "interleave"}
         ),
         ("generate", "algebra"),
     ),
