@@ -45,14 +45,14 @@ type Arith = Number | Plus | Minus | Times | Divide
 def sized_arith(size: int) -> g.Generator[Arith]:
     if size == 0:
         return g.map(Number, g.ints())
-    _size = size // 2
-    _sub_arith: g.Generator[Arith] = g.lazy(lambda: sized_arith(_size))
+    half = size // 2
+    sub: g.Generator[Arith] = g.lazy(lambda: sized_arith(half))
     return g.weighted_choice(
         (1, g.map(Number, g.ints())),
-        (_size, g.map(Plus, _sub_arith, _sub_arith)),
-        (_size, g.map(Minus, _sub_arith, _sub_arith)),
-        (_size, g.map(Times, _sub_arith, _sub_arith)),
-        (_size, g.map(Divide, _sub_arith, _sub_arith)),
+        (half, g.map(Plus, sub, sub)),
+        (half, g.map(Minus, sub, sub)),
+        (half, g.map(Times, sub, sub)),
+        (half, g.map(Divide, sub, sub)),
     )
 
 
@@ -67,9 +67,12 @@ def leaves(expr: Arith) -> int:
     match expr:
         case Number():
             return 1
-        case Plus(left, right) | Minus(left, right):
-            return leaves(left) + leaves(right)
-        case Times(left, right) | Divide(left, right):
+        case (
+            Plus(left, right)
+            | Minus(left, right)
+            | Times(left, right)
+            | Divide(left, right)
+        ):
             return leaves(left) + leaves(right)
 
 

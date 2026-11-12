@@ -7,17 +7,11 @@ from minigun.specify import conj, context, prop
 
 # -- start: generators --
 def even_natural() -> g.Generator[int]:
-    def _impl(i: int) -> int:
-        return i * 2
-
-    return g.map(_impl, g.nats())
+    return g.map(lambda i: 2 * i, g.nats())
 
 
 def odd_natural() -> g.Generator[int]:
-    def _impl(i: int) -> int:
-        return ((i + 1) * 2) - 1
-
-    return g.map(_impl, g.nats())
+    return g.map(lambda i: 2 * i + 1, g.nats())
 
 
 # -- end: generators --

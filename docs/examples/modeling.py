@@ -30,19 +30,8 @@ def model_pop[T](stack: list[T]) -> tuple[list[T], T]:
 
 
 # -- start: programs --
-@dataclass
-class Constant[T]:
-    value: T
-
-
-@dataclass
-class Variable:
-    name: str
-
-
-type Value[T] = Constant[T] | Variable
-
-
+# Every operation makes a new stack version, named so that later
+# operations can refer to it.
 @dataclass
 class InitOp:
     after: str
@@ -52,14 +41,13 @@ class InitOp:
 class PushOp[T]:
     before: str
     after: str
-    item: Value[T]
+    item: T
 
 
 @dataclass
 class PopOp:
     before: str
     after: str
-    item: str
 
 
 type StackOp[T] = InitOp | PushOp[T] | PopOp
@@ -75,74 +63,39 @@ def stack_prog_generator[T](
         """Drop one operation, later operations first."""
 
         def _iterate() -> Iterator[StackProg[T]]:
-            for index in range(len(prog) - 1, -1, -1):
+            for index in reversed(range(len(prog))):
                 yield prog[:index] + prog[index + 1 :]
 
         return _iterate
 
-    def _visit(
-        fuel: int,
-        rng: a.Rng,
-        stack_ctr: int,
-        item_ctr: int,
-        stacks: list[str],
-        nonempty: list[str],
-    ) -> StackProg[T] | None:
-        if fuel <= 0 or (len(stacks) == 0 and fuel < 2):
-            return [InitOp(f"s{stack_ctr}")]
-        ops = ["init"]
-        if stacks:
-            ops.append("push")
-        if nonempty:
-            ops.append("pop")
-        match a.choice(rng, ops):
-            case "init":
-                name = f"s{stack_ctr}"
-                rest = _visit(
-                    fuel - 1,
-                    rng,
-                    stack_ctr + 1,
-                    item_ctr,
-                    [*stacks, name],
-                    nonempty,
-                )
-                return None if rest is None else [InitOp(name), *rest]
-            case "push":
-                before = a.choice(rng, stacks)
-                after = f"s{stack_ctr}"
-                dissection = value_generator.sample(rng)
-                if dissection is None:
-                    return None
-                rest = _visit(
-                    fuel - 1,
-                    rng,
-                    stack_ctr + 1,
-                    item_ctr,
-                    [*stacks, after],
-                    [*nonempty, after],
-                )
-                if rest is None:
-                    return None
-                return [PushOp(before, after, Constant(dissection.head)), *rest]
-            case _:
-                before = a.choice(rng, nonempty)
-                after = f"s{stack_ctr}"
-                item_name = f"v{item_ctr}"
-                rest = _visit(
-                    fuel - 1,
-                    rng,
-                    stack_ctr + 1,
-                    item_ctr + 1,
-                    [*stacks, after],
-                    nonempty,
-                )
-                if rest is None:
-                    return None
-                return [PopOp(before, after, item_name), *rest]
-
     def _sample(rng: a.Rng) -> s.Dissection[StackProg[T]] | None:
-        prog = _visit(size, rng, 0, 0, [], [])
-        return None if prog is None else s.unfold(prog, _trim)
+        prog: StackProg[T] = []
+        stacks: list[str] = []
+        nonempty: list[str] = []
+        for fuel in range(size, 0, -1):
+            if not stacks and fuel < 2:
+                break
+            ops = ["init"]
+            if stacks:
+                ops.append("push")
+            if nonempty:
+                ops.append("pop")
+            after = f"s{len(stacks)}"
+            match a.choice(rng, ops):
+                case "init":
+                    prog.append(InitOp(after))
+                case "push":
+                    before = a.choice(rng, stacks)
+                    dissection = value_generator.sample(rng)
+                    if dissection is None:
+                        return None
+                    prog.append(PushOp(before, after, dissection.head))
+                    nonempty.append(after)
+                case _:
+                    prog.append(PopOp(a.choice(rng, nonempty), after))
+            stacks.append(after)
+        prog.append(InitOp(f"s{len(stacks)}"))
+        return s.unfold(prog, _trim)
 
     return g.Generator(_sample, c.INFINITE)
 
@@ -163,30 +116,23 @@ def evaluate_stack_prog[S, T](
     pop: Callable[[S], tuple[S, T]],
     prog: StackProg[T],
 ) -> bool:
-    model_env: dict[str, list[T]] = {}
-    impl_env: dict[str, S] = {}
-    item_env: dict[str, T] = {}
+    """Run a program on the model and the implementation side by side;
+    whether every popped item agrees."""
+    models: dict[str, list[T]] = {}
+    impls: dict[str, S] = {}
     for op in prog:
         match op:
             case InitOp(after):
-                model_env[after] = model_init()
-                impl_env[after] = init()
+                models[after] = model_init()
+                impls[after] = init()
             case PushOp(before, after, item):
-                match item:
-                    case Constant(value):
-                        val = value
-                    case Variable(name):
-                        val = item_env[name]
-                model_env[after] = model_push(model_env[before], val)
-                impl_env[after] = push(impl_env[before], val)
-            case PopOp(before, after, item_name):
-                m_rest, m_item = model_pop(model_env[before])
-                i_rest, i_item = pop(impl_env[before])
-                if m_item != i_item:
+                models[after] = model_push(models[before], item)
+                impls[after] = push(impls[before], item)
+            case PopOp(before, after):
+                models[after], model_item = model_pop(models[before])
+                impls[after], impl_item = pop(impls[before])
+                if model_item != impl_item:
                     return False
-                model_env[after] = m_rest
-                impl_env[after] = i_rest
-                item_env[item_name] = m_item
     return True
 
 

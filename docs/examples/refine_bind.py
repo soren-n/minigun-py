@@ -7,20 +7,15 @@ from minigun.specify import context, prop
 
 # -- start: generators --
 def sized_directed_graph(size: int) -> g.Generator[dict[int, list[int]]]:
-    def _impl(graph_data: list[list[bool]]) -> dict[int, list[int]]:
-        result: dict[int, list[int]] = {}
-        for src_index, row_data in enumerate(graph_data):
-            result[src_index] = []
-            for dst_index, column_data in enumerate(row_data):
-                if not column_data:
-                    continue
-                result[src_index].append(dst_index)
-        return result
+    def _graph(matrix: list[list[bool]]) -> dict[int, list[int]]:
+        """Node ``src`` has an edge to ``dst`` where ``matrix[src][dst]``."""
+        return {
+            src: [dst for dst, edge in enumerate(row) if edge]
+            for src, row in enumerate(matrix)
+        }
 
-    return g.map(
-        _impl,
-        g.bounded_lists(size, size, g.bounded_lists(size, size, g.bools())),
-    )
+    row = g.bounded_lists(size, size, g.bools())
+    return g.map(_graph, g.bounded_lists(size, size, row))
 
 
 def directed_graph() -> g.Generator[dict[int, list[int]]]:
