@@ -3,7 +3,7 @@
 Entries are written by hand. Add changes under Unreleased as they land;
 a release renames that heading to the version and date.
 
-## Unreleased
+## v6.6.0 (2026-11-12)
 
 ### Features
 
