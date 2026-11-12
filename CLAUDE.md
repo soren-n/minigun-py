@@ -27,6 +27,12 @@ uv run minigun --time-budget 30 --seed 42 --select "shrinks to"
 # Evaluate properties in worker processes (N, or auto for one per CPU)
 uv run minigun --time-budget 30 --jobs auto
 
+# Replay counterexamples recorded in DIR/<module>.json first, record new ones
+uv run minigun --time-budget 30 --regressions /tmp/regressions
+
+# Show each counterexample's shrink path
+uv run minigun --time-budget 30 --verbose
+
 # List available test modules
 uv run minigun --list-modules
 
@@ -143,7 +149,8 @@ Minigun is a property-based testing library organized in layers:
   string domains take an `alphabet`; `interleave` merges one list per
   generator in a random order keeping each list's order, shrinking the
   lists by their own generators (realigned at the first changed step)
-  and toward fewer switches. `Generator` and `Dissection` are
+  and toward fewer switches. `examples(gen, n, seed)` draws values for
+  inspection, skipping discards. `Generator` and `Dissection` are
   frozen, so both are covariant in `T`.
 
 ### Testing Framework
@@ -158,6 +165,14 @@ Minigun is a property-based testing library organized in layers:
   a spec to the properties a predicate keeps. `evaluate` is a loop over
   `leaves` (properties with their negation, in order) calling
   `evaluate_property`, then `combine` for the truth of the tree.
+  A property with no counterexample fails when a `cover` requirement
+  lies above the Wilson upper bound at `COVERAGE_Z` (6) of its labels;
+  `Outcome` carries `labels` and `coverage`. `redraw(resolved, (seed,
+  attempt))` draws a recorded attempt again by sampling and dropping the
+  attempts before it (the law never draws from the property's source);
+  `evaluate_property(recorded=...)` and `evaluate(recorded_for=...)`
+  replay recorded draws first, and a replayed counterexample is never
+  judged untested by the discard check.
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
@@ -167,7 +182,16 @@ Minigun is a property-based testing library organized in layers:
   candidates; the counterexample then records `minimal=False`. `on_found`
   sees the counterexample before shrinking. A law raising `Discard` (via
   `assume`/`discard`) rejects its arguments: the attempt counts as a
-  discard and the shrunk alternative is skipped.
+  discard and the shrunk alternative is skipped. `label(name)` and
+  `cover(fraction, condition, name)` record into a recorder held in a
+  context variable, set per attempt (nested searches keep their own);
+  `Search.labels` counts tested attempts per label, without discards or
+  shrink candidates. Outside a search both do nothing. `replays`
+  (`Replay`: a recorded seed, attempt and the dissection drawn again)
+  are evaluated before the attempts, labels unrecorded; a failing one is
+  shrunk with no attempt made and its counterexample carries `seed`.
+  Every counterexample keeps `path`, the arguments found and those of
+  every accepted shrink step (empty when announced, before shrinking).
 - `budget.py` - Attempt policy (`attempt_limit`, `baseline_attempts`): a
   finite domain is worth its coverage count, the draws that see every
   value with 99.9% confidence (bool 11, ten values 88), capped at 10000
@@ -182,25 +206,44 @@ Minigun is a property-based testing library organized in layers:
   workers times the remaining time less what running properties hold
   (returned by `finished`), capped at the end of the run.
 - `reporter.py` - Passive sinks over `Outcome`: `PlainReporter` (for
-  `check`), `QuietReporter`, `RichReporter`, `JSONReporter`; the
+  `check`), `QuietReporter`, `RichReporter`, `JSONReporter`; label
+  distributions (`format_distribution`) are shown by plain and rich and
+  included in JSON; the
   `found_counter_example` hook announces a failure before shrinking
-  (stderr in quiet and JSON modes). Also the stdout encoding guard and
-  counterexample formatting.
+  (stderr in quiet and JSON modes). With `verbose`, every reporter shows
+  each counterexample's shrink path (`describe_path`: only the arguments
+  each step changed; JSON lists every step); the `recorded` hook says
+  where a run recorded a new counterexample. Also the stdout encoding
+  guard and counterexample formatting.
+- `regressions.py` - Regressions files: JSON with a format tag and
+  version, entries of property, seed, attempt and the shrunk arguments
+  and exception as text (for reading; nothing is replayed from them).
+  `load` validates strictly (`RegressionsError`), `record` dedupes by
+  (property, seed, attempt) and writes through a temporary file,
+  `check_properties` rejects entries naming properties a spec lacks,
+  `from_outcome` records only failures the run drew itself.
 - `fixture.py` - Filesystem fixtures under `.minigun`; temporary paths are
   removed by the enclosing `scope()`, so nested runs clean only their own.
 
 ### Orchestration
 - `orchestrator.py` - `run(RunConfig, modules)` for budgeted runs and
-  `check(spec, seed)` for standalone checks; `OutputMode` selects the
-  reporter. `RunConfig.jobs` > 1 evaluates in parallel, which needs a
-  picklable `TestModule.load` per module.
+  `check(spec, seed, regressions, verbose)` for standalone checks;
+  `OutputMode` selects the reporter. `RunConfig.jobs` > 1 evaluates in
+  parallel, which needs a picklable `TestModule.load` per module.
+  Modules hold whole specs: `RunConfig.select` prunes them in `run`
+  (unmatched patterns raise), after `RunConfig.regressions` files
+  (`<dir>/<module>.json`) are checked against every property. A new
+  counterexample is recorded right after its outcome is reported.
 - `parallel.py` - Parallel evaluation in a `spawn` process pool. Workers
   rebuild the specs from the loaders and evaluate whole properties;
   outcomes are reported in sequential order (the head property live).
   Deadlines cross processes as `time.time` instants; worker temporary
   fixtures are adopted by the run's scope; counterexample arguments and
   exceptions that do not round-trip through pickle come back as `Shown`
-  and `RemoteException`. A worker ends by running its `atexit` handlers
+  and `RemoteException` (shrink path arguments too); a property's
+  recorded draws travel in its task and are redrawn in the worker, and
+  `on_reported` sees each outcome after the reporter. A worker ends by
+  running its `atexit` handlers
   and terminating its remaining child processes, from a finalizer ahead
   of the queues' (priority 10); multiprocessing would otherwise join a
   process pool a law left running and hang the run.
@@ -211,7 +254,9 @@ Minigun is a property-based testing library organized in layers:
   selected modules (repeatable); `--select`/`-k` runs only properties
   whose descriptions contain a pattern, with unchanged draws;
   `--jobs`/`-j` sets the worker count, each worker loading modules with
-  `load_test_module`.
+  `load_test_module`; `--regressions`/`-r DIR` keeps regressions files;
+  `--verbose` shows shrink paths. Whole specs are passed to `run` with
+  the selection patterns.
 
 ## Key Patterns
 
@@ -233,14 +278,21 @@ generators) and composed with `conj()` and `neg()`. `neg` distributes over
 `conj` by De Morgan. Every property in a spec is evaluated and reported.
 A law rejects arguments outside a multi-parameter precondition with
 `assume(cond)` (counted as a discard), and `@prop(desc, attempts=n)`
-declares what an expensive or statistical property is worth.
+declares what an expensive or statistical property is worth. A law
+labels attempts with `label(name)` to report its test data distribution,
+and `cover(fraction, condition, name)` makes a share of the attempts a
+requirement. Self tests are laws too, so their own `label`/`cover` calls
+are recorded by the search evaluating them; a test of what the calls do
+outside a search runs them in a fresh `contextvars.Context()`.
 
 ### Seeded Reproducibility
 Every run has a concrete integer seed, printed in the run header and on
 failure. Each property draws from `property_rng(seed, desc)`, and its
 attempts draw in sequence from that source, so a property's samples depend
 only on the seed and its description; `--seed` replays a run exactly and
-the reported attempt index identifies the failing draw. Attempts are not
+the reported attempt index identifies the failing draw. Regressions files
+rest on this: an entry is just (property, seed, attempt), redrawn exactly
+while the generators are unchanged. Attempts are not
 forked individually: a fresh `random.Random` costs about 6 microseconds,
 more than a cheap attempt.
 
@@ -264,7 +316,9 @@ worker startup and module imports come out of the budget.
 Broken test modules, unknown module names, `--select` patterns matching
 no property, missing test directories, duplicate property descriptions (within a spec and across the modules of
 a run), missing generators and invalid arguments are hard errors
-(`SpecificationError`, `ValueError`, `TypeError`). A property most of
+(`SpecificationError`, `ValueError`, `TypeError`), as are malformed
+regressions files and entries naming a property the module does not
+define (`RegressionsError`, before anything runs). A property most of
 whose attempts are discarded fails loudly. Unreachable match arms use
 `typing.assert_never`.
 

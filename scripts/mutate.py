@@ -58,8 +58,8 @@ class Target:
 TARGETS: dict[str, Target] = {
     "search": Target(
         frozenset(
-            {"assume", "_evaluate", "_same_failure", "_trim"}
-            | {"find_counter_example"}
+            {"assume", "_evaluate", "_same_failure", "_trim", "label"}
+            | {"find_counter_example", "_attempts", "cover", "_replay"}
         ),
         ("search", "specify"),
     ),
@@ -83,12 +83,23 @@ TARGETS: dict[str, Target] = {
             {"_judge", "evaluate", "resolve_all", "resolve", "context"}
             | {"prop", "collect", "property_rng"}
             | {"leaves", "combine", "evaluate_property"}
+            | {"coverage_upper_bound", "coverage_shortfalls", "redraw"}
         ),
-        ("specify", "orchestrator", "algebra"),
+        ("specify", "orchestrator", "algebra", "regressions"),
     ),
     "orchestrator": Target(
-        frozenset({"_resolve_modules", "check", "run", "__post_init__"}),
-        ("orchestrator", "specify", "cli"),
+        frozenset(
+            {"_resolve_modules", "check", "run", "__post_init__", "_select"}
+            | {"_regressions", "record", "recorded_for", "_evaluate_modules"}
+        ),
+        ("orchestrator", "specify", "cli", "regressions"),
+    ),
+    "regressions": Target(
+        frozenset(
+            {"load", "_entry", "_is_int", "record", "_save", "module_file"}
+            | {"check_properties", "from_outcome"}
+        ),
+        ("regressions", "cli"),
     ),
     "generate": Target(
         frozenset(
@@ -101,6 +112,7 @@ TARGETS: dict[str, Target] = {
             | {"choice", "biased_bool", "infer", "_optional_inner", "lazy"}
             | {"_unsized", "floats", "_draw_string"}
             | {"_runs", "_joined", "_realigned", "_interleaving", "interleave"}
+            | {"examples"}
         ),
         ("generate", "algebra"),
     ),

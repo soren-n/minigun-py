@@ -58,6 +58,12 @@ minigun.parallel module
 .. automodule:: minigun.parallel
    :members:
 
+minigun.regressions module
+==========================
+
+.. automodule:: minigun.regressions
+   :members:
+
 minigun.reporter module
 =======================
 

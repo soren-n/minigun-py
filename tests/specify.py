@@ -94,6 +94,11 @@ def build(tree: Tree) -> Spec:
 
                 @prop(f"leaf {counter}")
                 def _leaf(x: int) -> bool:
+                    # Labels that depend on the draws, so outcomes compared
+                    # by stable() also compare what was drawn; the
+                    # requirement is too small for a few attempts to miss.
+                    sp.label(f"r{x % 3}")
+                    sp.cover(0.01, x % 2 == 0, "even")
                     return holds
 
                 return _leaf
@@ -117,6 +122,8 @@ def stable(outcome: sp.Outcome) -> tuple[Any, ...]:
         outcome.discards,
         outcome.counter_example,
         outcome.error,
+        outcome.labels,
+        outcome.coverage,
     )
 
 
@@ -166,14 +173,20 @@ def _select(tree: Tree, seed: int, rng: random.Random) -> bool:
     if selected is None:
         return not chosen
     _, outcomes = run(selected, seed)
+    _, whole = run(spec, seed)
     expected = [
         holds
         for desc, holds in zip(descs, expected_outcomes(tree), strict=True)
         if desc in chosen
     ]
-    return [o.desc for o in outcomes] == [
-        desc for desc in descs if desc in chosen
-    ] and [o.holds for o in outcomes] == expected
+    # A selected property draws what it draws in the whole run, so its
+    # outcome, labels included, is the same.
+    return (
+        [o.desc for o in outcomes] == [desc for desc in descs if desc in chosen]
+        and [o.holds for o in outcomes] == expected
+        and [stable(o) for o in outcomes]
+        == [stable(o) for o in whole if o.desc in chosen]
+    )
 
 
 @prop("an expected counterexample that is not found is reported as such")
@@ -316,6 +329,7 @@ def _evaluate_property(tree: Tree, seed: int) -> bool:
 def _threshold_prop(desc: str, threshold: int) -> Spec:
     @prop(desc)
     def _below(x: int) -> bool:
+        sp.label("low" if x < threshold // 2 else "high")
         return x < threshold
 
     return _below
@@ -539,7 +553,7 @@ def _context_validation(seed: int) -> bool:
     return (
         _raises(lambda: context(g.ints(), g.ints(), g.ints())(_law), TypeError)
         and _raises(lambda: context(z=g.ints())(_law), TypeError)
-        and _raises(lambda: context(g.ints())(conj(_law)), TypeError)  # type: ignore[arg-type]
+        and _raises(lambda: context(g.ints())(conj(_law)), TypeError)
         and context(g.ints(), y=g.bools())(_law).generators["y"] is not None
     )
 
@@ -569,6 +583,214 @@ def _check_prints(seed: int) -> bool:
     return not holds and "FAIL: threshold" in text and str(seed) in text
 
 
+###############################################################################
+# Coverage
+###############################################################################
+
+
+@context(g.int_range(1, 100000), g.int_range(0, 100000))
+@prop("the coverage bound lies between the observed fraction and one")
+def _coverage_bound(evaluations: int, drawn: int) -> bool:
+    hits = drawn % (evaluations + 1)
+    bound = sp.coverage_upper_bound(hits, evaluations)
+    more = sp.coverage_upper_bound(min(hits + 1, evaluations), evaluations)
+    return hits / evaluations <= bound <= more <= 1.0
+
+
+@context(g.int_range(-5, 5), g.int_range(-5, 5))
+@prop("the coverage bound rejects impossible counts")
+def _coverage_bound_rejects(hits: int, evaluations: int) -> bool:
+    try:
+        sp.coverage_upper_bound(hits, evaluations)
+        accepted = True
+    except ValueError:
+        accepted = False
+    return accepted == (evaluations >= 1 and 0 <= hits <= evaluations)
+
+
+def _shortfall(outcome: sp.Outcome, required: float) -> str:
+    hits = outcome.labels.get("low", 0)
+    share = 100 * hits / outcome.evaluations
+    return (
+        f"coverage over {outcome.evaluations} tested attempts: "
+        f'"low" on {hits} ({share:.1f}%), required {100 * required:g}%; '
+        '"never" on 0 (0.0%), required 50%'
+    )
+
+
+@context(g.int_range(1, 100000), g.int_range(0, 100000))
+@prop("the coverage bound is the upper root of the Wilson quadratic")
+def _coverage_root(evaluations: int, drawn: int) -> bool:
+    # The Wilson bound u solves n (u - p)^2 = z^2 u (1 - u) with u >= p;
+    # checked here in that form, independent of the closed form used.
+    hits = drawn % (evaluations + 1)
+    n, p, z = evaluations, hits / evaluations, sp.COVERAGE_Z
+    u = sp.coverage_upper_bound(hits, evaluations)
+    residual = n * (u - p) ** 2 - z * z * u * (1 - u)
+    return u >= p and abs(residual) <= 1e-9 * max(1.0, n * (u - p) ** 2)
+
+
+@context(
+    g.int_range(1, 1000),
+    g.bounded_dicts(0, 3, g.one_of(["a", "b", "c"]), g.int_range(0, 1000)),
+    g.bounded_dicts(0, 3, g.one_of(["a", "b", "c"]), g.float_range(0.01, 1)),
+)
+@prop("coverage shortfalls are the labels whose bound is below the requirement")
+def _coverage_shortfalls(
+    evaluations: int, labels: dict[str, int], coverage: dict[str, float]
+) -> bool:
+    counts = {name: n % (evaluations + 1) for name, n in labels.items()}
+    expected = [
+        name
+        for name, required in coverage.items()
+        if sp.coverage_upper_bound(counts.get(name, 0), evaluations) < required
+    ]
+    # A single evaluation without the label is short of requiring it on
+    # every attempt, checked on every attempt.
+    single = sp.coverage_shortfalls({}, {"all": 1.0}, 1)
+    return (
+        sp.coverage_shortfalls(counts, coverage, evaluations) == expected
+        and sp.coverage_shortfalls(counts, coverage, 0) == []
+        and single == ["all"]
+    )
+
+
+def _covered(required: float, below: int, never: bool = False) -> sp.Resolved:
+    @context(g.int_range(0, 99))
+    @prop("covered")
+    def _law(x: int) -> bool:
+        sp.cover(required, x < below, "low")
+        if never:
+            # A requirement no attempt meets, so a label without hits is
+            # reported on every attempt of the test.
+            sp.cover(0.5, False, "never")
+        return True
+
+    return sp.resolve(_law)
+
+
+# Over 1000 attempts the bound is at most about 0.1 above the observed
+# fraction, which deviates from the true one by far less than the 0.2
+# margin; a met requirement fails in fewer than one run in a billion.
+@context(g.int_range(0, 40))
+@prop("a coverage requirement fails a property exactly when clearly unmet")
+def _coverage(below: int, seed: int) -> bool:
+    met = _covered(max(below, 1) / 100 if below else 0.01, below)
+    required = min(1.0, 2 * below / 100 + 0.2)
+    unmet = _covered(required, below, never=True)
+    allowance = sp.Allowance(1000)
+    met_outcome = sp.evaluate_property(seed, met, False, allowance)
+    unmet_outcome = sp.evaluate_property(seed, unmet, False, allowance)
+    return (
+        (met_outcome.holds or below == 0)
+        and not unmet_outcome.holds
+        and unmet_outcome.counter_example is None
+        and unmet_outcome.error is not None
+        and unmet_outcome.error.endswith(_shortfall(unmet_outcome, required))
+        and unmet_outcome.labels == met_outcome.labels
+        and set(unmet_outcome.coverage) == {"low", "never"}
+    )
+
+
+@context(g.bools())
+@prop("coverage is not judged when the search found a counterexample")
+def _coverage_counterexample(negated: bool, seed: int) -> bool:
+    @context(g.int_range(0, 99))
+    @prop("uncovered and falsified")
+    def _law(x: int) -> bool:
+        sp.cover(1.0, False, "never")
+        return False
+
+    outcome = sp.evaluate_property(
+        seed,
+        sp.resolve(_law),
+        negated,
+        sp.Allowance(100),
+    )
+    return (
+        outcome.holds == negated
+        and outcome.error is None
+        and outcome.coverage == {"never": 1.0}
+    )
+
+
+@prop("too many discards and an unmet negation are reported before coverage")
+def _coverage_precedence(seed: int) -> bool:
+    # Each of the three verdicts is checked on every attempt; every law
+    # requires a label it never gives, over enough attempts to show it.
+    @context(g.int_range(0, 99))
+    @prop("mostly discarded")
+    def _discarded(x: int) -> bool:
+        sp.cover(1.0, False, "never")
+        assume(x == 0)
+        return True
+
+    @context(g.int_range(0, 99))
+    @prop("uncovered")
+    def _uncovered(x: int) -> bool:
+        sp.cover(1.0, False, "never")
+        return True
+
+    allowance = sp.Allowance(200)
+    discarded = sp.evaluate_property(
+        seed, sp.resolve(_discarded), False, allowance
+    )
+    negated = sp.evaluate_property(
+        seed, sp.resolve(_uncovered), True, allowance
+    )
+    plain = sp.evaluate_property(seed, sp.resolve(_uncovered), False, allowance)
+    return (
+        discarded.error is not None
+        and "was not tested" in discarded.error
+        and negated.error is not None
+        and "however one was expected" in negated.error
+        and plain.error is not None
+        and "did not reach its coverage" in plain.error
+    )
+
+
+###############################################################################
+# Recorded draws
+###############################################################################
+
+
+@context(g.int_range(1, 30))
+@prop("redraw draws a recorded attempt again, discarded draws counted")
+def _redraw(failing: int, seed: int) -> bool:
+    calls = 0
+
+    # Half the draws are discarded, so attempt indices run ahead of the
+    # law's evaluations.
+    @context(g.filter(lambda x: x % 2 == 0, g.int_range(0, 10**6)))
+    @prop("fails late")
+    def _law(x: int) -> bool:
+        nonlocal calls
+        calls += 1
+        return calls < failing
+
+    resolved = sp.resolve(_law)
+    found: list[s.CounterExample] = []
+    outcome = sp.evaluate_property(
+        seed, resolved, False, sp.Allowance(1000), found.append
+    )
+    example = outcome.counter_example
+    if example is None:
+        return False
+    replay = sp.redraw(resolved, (seed, example.attempt))
+    try:
+        sp.redraw(resolved, (seed, -1))
+        negative_rejected = False
+    except ValueError:
+        negative_rejected = True
+    return (
+        replay.dissection is not None
+        and replay.dissection.head == found[0].args
+        and (replay.seed, replay.attempt) == (seed, example.attempt)
+        and example.attempt == failing - 1 + outcome.discards
+        and negative_rejected
+    )
+
+
 spec = conj(
     _truth,
     _exhaustive,
@@ -594,6 +816,14 @@ spec = conj(
     _context_validation,
     _string_annotations,
     _check_prints,
+    _coverage_bound,
+    _coverage_bound_rejects,
+    _coverage_root,
+    _coverage_shortfalls,
+    _coverage,
+    _coverage_counterexample,
+    _coverage_precedence,
+    _redraw,
 )
 
 

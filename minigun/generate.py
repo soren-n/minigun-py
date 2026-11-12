@@ -86,6 +86,8 @@ __all__ = [
     "one_of",
     "subset_of",
     "infer",
+    "EXAMPLE_DRAWS_PER_VALUE",
+    "examples",
 ]
 
 
@@ -1364,3 +1366,53 @@ def infer(T: Any) -> Generator[Any] | None:
         items = _all(args)
         return None if items is None else dicts(items[0], items[1])
     return None
+
+
+###############################################################################
+# Examples
+###############################################################################
+
+#: Draws ``examples`` may make per value requested before it gives up on a
+#: generator that discards nearly everything it draws.
+EXAMPLE_DRAWS_PER_VALUE = 10
+
+
+def examples[T](
+    generator: Generator[T], n: int = 10, seed: int | str | None = None
+) -> list[T]:
+    """Values drawn from a generator, for looking at what it produces.
+
+    Discarded draws are skipped. The values are the ones a property over
+    the generator would be tested with, so checking them is a quick way
+    to see whether a generator produces the cases a law needs::
+
+        g.examples(g.int_range(0, 9), n=5, seed=1)  # [2, 9, 1, 4, 1]
+
+    :param generator: The generator to draw from.
+    :param n: The number of values.
+    :param seed: The seed of the random source; when None the source is
+        seeded from operating system entropy.
+
+    :return: ``n`` values in the order drawn.
+
+    :raises ValueError: When ``n`` is negative, or when the generator
+        discards so many draws that ``n`` values take more than
+        ``EXAMPLE_DRAWS_PER_VALUE * n`` draws.
+    """
+    if n < 0:
+        raise ValueError(f"examples requires n >= 0, got {n}")
+    rng = a.seed(seed)
+    values: list[T] = []
+    draws = EXAMPLE_DRAWS_PER_VALUE * n
+    for _ in range(draws):
+        if len(values) == n:
+            break
+        dissection = generator.sample(rng)
+        if dissection is not None:
+            values.append(dissection.head)
+    if len(values) < n:
+        raise ValueError(
+            f"examples drew {draws} times but the generator discarded all "
+            f"but {len(values)} of the draws; {n} values were requested"
+        )
+    return values

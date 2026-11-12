@@ -4,7 +4,9 @@ Each property that evaluates in workers spawns a pool of processes, so
 those declare their attempts and keep their specifications small.
 """
 
+import contextlib
 import functools
+import io
 import pickle
 import secrets
 import time
@@ -15,6 +17,7 @@ import minigun.fixture as fixture
 import minigun.generate as g
 import minigun.orchestrator as o
 import minigun.parallel as p
+import minigun.regressions as rg
 import minigun.reporter as r
 from minigun import check
 from minigun.search import CounterExample
@@ -22,8 +25,10 @@ from minigun.specify import (
     Allowance,
     AllowanceFor,
     Outcome,
+    Recorded,
     Resolved,
     Spec,
+    collect,
     conj,
     context,
     prop,
@@ -81,7 +86,16 @@ class _Recorder(r.Reporter):
                 r.describe_failure(outcome),
                 None
                 if example is None
-                else (example.attempt, example.shrinks, example.minimal),
+                else (
+                    example.attempt,
+                    example.shrinks,
+                    example.minimal,
+                    example.seed,
+                    r.describe_path(example),
+                ),
+                outcome.labels,
+                outcome.coverage,
+                outcome.replayed,
             )
         )
 
@@ -98,14 +112,23 @@ def _declared(resolved: Resolved) -> Allowance:
 
 
 def _sequential(
-    seed: int, shapes: list[Shape], allowance_for: AllowanceFor = _declared
+    seed: int,
+    shapes: list[Shape],
+    allowance_for: AllowanceFor = _declared,
+    recorded: dict[str, list[Recorded]] | None = None,
 ) -> tuple[bool, list[tuple[Any, ...]]]:
     reporter = _Recorder()
     modules = [
         o.TestModule(f"module {index}", build(index, shape))
         for index, shape in enumerate(shapes)
     ]
-    holds = o._evaluate_modules(seed, modules, reporter, allowance_for)
+    holds = o._evaluate_modules(
+        seed,
+        modules,
+        reporter,
+        allowance_for,
+        o._Regressions(seed, {}, recorded or {}),
+    )
     return holds, reporter.calls
 
 
@@ -115,9 +138,11 @@ def _parallel(
     jobs: int,
     events: list[tuple[str, str]],
     allowance_for: AllowanceFor = _declared,
+    recorded: dict[str, list[Recorded]] | None = None,
 ) -> tuple[bool, list[tuple[Any, ...]]]:
     """Evaluate in workers, logging each property as its allowance is
     decided ("sent") and as its worker is done with it ("finished")."""
+    kept = recorded or {}
     reporter = _Recorder()
     modules: list[tuple[str, Spec, p.SpecLoader]] = [
         (
@@ -139,6 +164,7 @@ def _parallel(
         _sent,
         lambda desc: events.append(("finished", desc)),
         jobs,
+        lambda prop: kept.get(prop.desc, []),
     )
     return holds, reporter.calls
 
@@ -495,6 +521,62 @@ def _remote_pickles(type_name: str, text: str) -> bool:
     )
 
 
+# Every property replays two recorded draws, from seeds other than the
+# run's, so failing laws mostly fail on a replay and holding ones go on to
+# their attempts.
+@context(g.ints(), g.int_range(2, 3), _shapes(2))
+@prop(
+    "a parallel evaluation replays recorded draws as a sequential one does",
+    attempts=3,
+)
+def _agrees_replaying(seed: int, jobs: int, shapes: list[Shape]) -> bool:
+    shapes = [EVERY_KIND, *shapes]
+    recorded = {
+        prop.desc: [(seed + 1, 0), (seed + 2, 1)]
+        for index, shape in enumerate(shapes)
+        for prop in collect(build(index, shape))
+    }
+    expected = _sequential(seed, shapes, recorded=recorded)
+    observed = _parallel(seed, shapes, jobs, [], recorded=recorded)
+    replays = [call for call in expected[1] if call[0] == "end_property"]
+    return observed == expected and any(call[-1] for call in replays)
+
+
+# Every kind of law, plain and negated, with declared attempts, so a
+# budgeted run makes the same attempts in workers as in one process; the
+# laws raising an exception that does not pickle, and failing on
+# arguments that do not, are recorded from their text.
+@context(g.ints(), g.int_range(2, 3))
+@prop(
+    "a parallel run records the counterexamples a sequential one does",
+    attempts=2,
+)
+def _records(seed: int, jobs: int) -> bool:
+    def _run(run_jobs: int) -> list[rg.Regression]:
+        directory = fixture.temporary_path()
+        config = o.RunConfig(
+            30.0,
+            seed=seed,
+            output=o.OutputMode.QUIET,
+            jobs=run_jobs,
+            regressions=directory,
+        )
+        module = o.TestModule(
+            "every kind",
+            build(0, EVERY_KIND),
+            functools.partial(build, 0, EVERY_KIND),
+        )
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            o.run(config, [module])
+        return rg.load(rg.module_file(directory, "every kind"))
+
+    sequential = _run(1)
+    return bool(sequential) and _run(jobs) == sequential
+
+
 spec = conj(
     _agrees,
     _deadlines,
@@ -506,6 +588,8 @@ spec = conj(
     _worker_failure,
     _portable,
     _remote_pickles,
+    _agrees_replaying,
+    _records,
 )
 
 

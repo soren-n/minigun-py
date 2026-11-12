@@ -2,6 +2,7 @@
 
 import ast
 import contextlib
+import dataclasses
 import io
 import json
 import textwrap
@@ -43,6 +44,9 @@ def _outcome(index: int, kind: str, attempts: int, value: int) -> Outcome:
         discards=attempts if kind == "error" else 0,
         counter_example=example,
         error=f"not tested {index}" if kind == "error" else None,
+        # Every third outcome labels its attempts, one label required.
+        labels={f"tag{index}": attempts} if value % 3 == 0 else {},
+        coverage={f"tag{index}": 0.5} if value % 3 == 0 else {},
     )
 
 
@@ -121,6 +125,8 @@ def _quiet(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
             for o in failures
         )
         and ((f"--seed {seed}" in text) == bool(failures))
+        and "LABELS" not in text
+        and "tag" not in text
     )
 
 
@@ -155,6 +161,8 @@ def _json(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
             for test in tests
         )
         and all(_json_failure(test) for test in tests)
+        and [(test["labels"], test["coverage"]) for test in tests]
+        == [(o.labels, o.coverage) for _, outcomes in modules for o in outcomes]
         and all(
             test["counter_example"]["arguments"]["x"]
             == repr(int(test["counter_example"]["arguments"]["x"]))
@@ -165,14 +173,21 @@ def _json(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
 
 
 @context(_modules())
-@prop("the plain reporter prints only failures and the seed")
+@prop("the plain reporter prints only failures, labels and the seed")
 def _plain(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
     text = _feed(r.PlainReporter(seed, None), modules)
     failures = _failures(modules)
+    labelled = [o for _, outcomes in modules for o in outcomes if o.labels]
     if not failures:
-        return text == ""
+        return text == "".join(
+            f"LABELS: {o.desc} ({o.evaluations} tested)\n"
+            + textwrap.indent(r.format_distribution(o) or "", "  ")
+            + "\n"
+            for o in labelled
+        )
     return (
         text.count("FAIL: ") == len(failures)
+        and text.count("LABELS: ") == len(labelled)
         and all(r.describe_failure(o) in text for o in failures)
         and text.rstrip().endswith(f"seed={seed})")
     )
@@ -344,6 +359,211 @@ def _format_multiline(xs: list[int]) -> bool:
     )
 
 
+###############################################################################
+# Label distributions
+###############################################################################
+
+
+def _labelled() -> g.Generator[Outcome]:
+    def _build(
+        evaluations: int, labels: dict[str, int], covered: list[str]
+    ) -> Outcome:
+        counts = {
+            name: count % (evaluations + 1) for name, count in labels.items()
+        }
+        return Outcome(
+            desc="labelled",
+            negated=False,
+            holds=True,
+            duration=0.01,
+            attempts=evaluations,
+            discards=0,
+            counter_example=None,
+            error=None,
+            labels={n: c for n, c in counts.items() if c},
+            coverage=dict.fromkeys(covered, 0.25),
+        )
+
+    return g.map(
+        _build,
+        g.int_range(1, 1000),
+        g.bounded_dicts(0, 5, g.words(), g.int_range(1, 1000)),
+        g.bounded_lists(0, 3, g.words()),
+    )
+
+
+@context(_labelled())
+@prop("a distribution lists every label most frequent first, with requirements")
+def _distribution(outcome: Outcome) -> bool:
+    text = r.format_distribution(outcome)
+    names = set(outcome.labels) | set(outcome.coverage)
+    if not names:
+        return text is None
+    if text is None:
+        return False
+    lines = text.splitlines()
+    counts = [int(line.rsplit("(", 1)[1].split(")")[0]) for line in lines]
+    return (
+        len(lines) == len(names)
+        and counts == sorted(counts, reverse=True)
+        and sum("required 25%" in line for line in lines)
+        == len(outcome.coverage)
+    )
+
+
+@context(_labelled())
+@prop("plain, rich and JSON reporters show a property's labels")
+def _distribution_reported(outcome: Outcome, seed: int) -> bool:
+    modules = [("labelled", [outcome])]
+    distribution = r.format_distribution(outcome)
+    plain = _feed(r.PlainReporter(seed, None), modules)
+    rich = _feed(r.RichReporter(seed, None), modules)
+    test = json.loads(_feed(r.JSONReporter(seed, None), modules))["modules"][0][
+        "tests"
+    ][0]
+    if distribution is None:
+        shown = plain == ""
+    else:
+        lines = distribution.splitlines()
+        shown = (
+            plain.startswith("LABELS: labelled")
+            and all(line in plain for line in lines)
+            and all(line.strip() in rich for line in lines)
+        )
+    return (
+        shown
+        and test["labels"] == outcome.labels
+        and test["coverage"] == outcome.coverage
+    )
+
+
+###############################################################################
+# Shrink paths, replays and recording
+###############################################################################
+
+
+def _paths() -> g.Generator[tuple[dict[str, int], ...]]:
+    # Few values, so consecutive steps often leave an argument unchanged.
+    args = g.map(
+        lambda a, b: {"a": a, "b": b}, g.int_range(0, 3), g.int_range(0, 3)
+    )
+    return g.map(tuple, g.bounded_lists(0, 6, args))
+
+
+@context(_paths())
+@prop("a shrink path lists the arguments found, then each step's changes")
+def _path(path: tuple[dict[str, int], ...]) -> bool:
+    text = r.describe_path(
+        s.CounterExample(path[-1] if path else {}, 0, path=path)
+    )
+    if len(path) < 2:
+        return text is None
+    if text is None:
+        return False
+    lines = text.splitlines()
+    steps = len(path) - 1
+    expected = [
+        f"Shrink path, {steps} step{'s' if steps != 1 else ''}:",
+        "found:",
+        *(f"  {name} = {value}" for name, value in path[0].items()),
+    ]
+    for step, (before, after) in enumerate(
+        zip(path, path[1:], strict=False), 1
+    ):
+        changed = [name for name in after if after[name] != before[name]]
+        expected.append(f"step {step}:")
+        expected.extend(
+            [f"  {name} = {after[name]}" for name in changed]
+            or ["  (the arguments print as before)"]
+        )
+    return lines == expected
+
+
+def _failing(seed: int | None) -> Outcome:
+    path = ({"x": 9}, {"x": 4}, {"x": 2})
+    return Outcome(
+        desc="falsified",
+        negated=False,
+        holds=False,
+        duration=0.01,
+        attempts=3,
+        discards=0,
+        counter_example=s.CounterExample(
+            {"x": 2}, 2, shrinks=2, path=path, seed=seed
+        ),
+        error=None,
+        replayed=0 if seed is None else 1,
+    )
+
+
+@context(g.bools(), g.optional(g.ints()))
+@prop("every reporter shows a shrink path exactly when verbose")
+def _verbose(verbose: bool, seed: int | None) -> bool:
+    modules = [("m", [_failing(seed)])]
+    texts = [
+        _feed(reporter, modules)
+        for reporter in (
+            r.PlainReporter(0, None, verbose),
+            r.QuietReporter(0, 1.0, verbose),
+            r.RichReporter(0, 1.0, verbose),
+        )
+    ]
+    data = json.loads(_feed(r.JSONReporter(0, 1.0, verbose), modules))
+    example = data["modules"][0]["tests"][0]["counter_example"]
+    return (
+        all(("Shrink path, 2 steps" in text) == verbose for text in texts)
+        and ("path" in example) == verbose
+        and (
+            not verbose
+            or example["path"] == [{"x": "9"}, {"x": "4"}, {"x": "2"}]
+        )
+        and example["seed"] == seed
+    )
+
+
+@context(g.optional(g.int_range(-(10**6), 10**6)), g.int_range(0, 100))
+@prop("a replayed counterexample says which recorded draw it replays")
+def _replayed(seed: int | None, attempt: int) -> bool:
+    example = s.CounterExample({"x": 1}, attempt, seed=seed)
+    outcome = dataclasses.replace(_failing(seed), counter_example=example)
+    failure = r.describe_failure(outcome)
+    found = r.describe_found("falsified", example)
+    note = f"replays a recorded failure: attempt {attempt + 1} of seed {seed}"
+    replaying = f"replaying attempt {attempt + 1} of seed {seed}"
+    if seed is None:
+        return "replay" not in failure and f"on attempt {attempt + 1}" in found
+    return note in failure and replaying in found
+
+
+@prop("every reporter says where a new counterexample was recorded")
+def _recorded(seed: int) -> bool:
+    modules = [("m", [_failing(None)])]
+    path = f"regressions/m{seed}.json"
+
+    def _text(reporter: r.Reporter) -> str:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            reporter.start_run(["m"], [])
+            reporter.start_module("m")
+            reporter.start_property("falsified")
+            reporter.end_property(modules[0][1][0])
+            reporter.recorded("falsified", path)
+            reporter.end_module()
+            reporter.finish()
+        return buffer.getvalue()
+
+    plain = _text(r.PlainReporter(seed, None))
+    quiet = _text(r.QuietReporter(seed, 1.0))
+    rich = _text(r.RichReporter(seed, 1.0))
+    data = json.loads(_text(r.JSONReporter(seed, 1.0)))
+    return (
+        f"RECORDED: falsified in {path}" in plain
+        and f"  Recorded in {path}" in quiet
+        and f"Recorded in {path}" in rich
+        and data["modules"][0]["tests"][0]["recorded"] == path
+    )
+
+
 spec = conj(
     _quiet,
     _json,
@@ -359,6 +579,12 @@ spec = conj(
     _format,
     _describe,
     _format_multiline,
+    _distribution,
+    _distribution_reported,
+    _path,
+    _verbose,
+    _replayed,
+    _recorded,
 )
 
 

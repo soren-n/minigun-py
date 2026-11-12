@@ -2,6 +2,8 @@
 
 import contextlib
 import io
+import json
+import re
 import time
 
 import minigun.generate as g
@@ -180,6 +182,28 @@ def _check(seed: int) -> bool:
     )
 
 
+@prop("check prints shrink paths only when asked to")
+def _check_verbose(seed: int) -> bool:
+    # Every draw fails; the plain output shows the value found and the
+    # one shrunk to, which differ exactly when the path has steps.
+    @context(g.int_range(1000, 10000))
+    @prop("t")
+    def _never(x: int) -> bool:
+        return False
+
+    def _text(**options: bool) -> str:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            check(_never, seed=seed, **options)
+        return buffer.getvalue()
+
+    plain, verbose = _text(), _text(verbose=True)
+    found, shrunk = re.findall(r"x = (\d+)", plain)
+    return "Shrink path" not in plain and (
+        ("Shrink path" in verbose) == (found != shrunk)
+    )
+
+
 @context(g.float_range(-1.0, 1.0))
 @prop("the configuration rejects exactly the non-positive budgets")
 def _config(budget: float) -> bool:
@@ -244,6 +268,51 @@ def _loaders(jobs: int, first_loads: bool, seed: int) -> bool:
     return False
 
 
+def _selected(
+    patterns: tuple[str, ...], seed: int
+) -> dict[str, list[str]] | None:
+    modules = [
+        o.TestModule(
+            "first", conj(_threshold("alpha", 10**9), _threshold("beta", 10**9))
+        ),
+        o.TestModule("second", _threshold("gamma", 10**9)),
+    ]
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            o.run(
+                o.RunConfig(
+                    0.2, seed=seed, output=o.OutputMode.JSON, select=patterns
+                ),
+                modules,
+            )
+    except SpecificationError:
+        return None if buffer.getvalue() == "" else {}
+    data = json.loads(buffer.getvalue())
+    return {
+        module["name"]: [test["name"] for test in module["tests"]]
+        for module in data["modules"]
+    }
+
+
+@prop("a run selects by pattern and rejects a pattern matching nothing")
+def _select(seed: int) -> bool:
+    try:
+        o.RunConfig(1.0, select=())
+        empty_rejected = False
+    except ValueError:
+        empty_rejected = True
+    return (
+        empty_rejected
+        and _selected(("alph",), seed) == {"first": ["alpha"]}
+        and _selected(("et", "gam"), seed)
+        == {"first": ["beta"], "second": ["gamma"]}
+        and _selected(("a",), seed)
+        == {"first": ["alpha", "beta"], "second": ["gamma"]}
+        and _selected(("alpha", "delta"), seed) is None
+    )
+
+
 spec = conj(
     _holds_budget,
     _shrink_budget,
@@ -252,9 +321,11 @@ spec = conj(
     _cross_module,
     _declared_floor,
     _check,
+    _check_verbose,
     _config,
     _config_jobs,
     _loaders,
+    _select,
 )
 
 

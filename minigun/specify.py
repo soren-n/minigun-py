@@ -30,6 +30,17 @@ Example::
 A law whose precondition involves several parameters rejects arguments
 outside it with ``assume``; a property that is expensive or statistical
 says how many attempts it is worth with ``@prop(desc, attempts=n)``.
+
+A law labels its attempts with ``label``, and each outcome reports how
+many tested attempts carried each label, so a run shows what the
+generators produced. ``cover(fraction, condition, name)`` also requires a
+label on a fraction of the attempts; a property whose attempts show with
+overwhelming confidence that the requirement is unmet fails.
+
+A property can be given recorded draws to replay: the run seed and attempt
+index of failing draws from earlier runs. A property's draws depend only on
+the seed and its description, so each is drawn again exactly, and is
+evaluated before the property's own attempts.
 """
 
 from __future__ import annotations
@@ -37,16 +48,17 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
+import math
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any, TypeGuard, assert_never, get_type_hints
 
 from minigun import arbitrary as a
 from minigun import cardinality as c
 from minigun import generate as g
 from minigun import search as s
-from minigun.search import Discard, assume, discard
+from minigun.search import Discard, assume, cover, discard, label
 
 
 class SpecificationError(Exception):
@@ -58,6 +70,8 @@ __all__ = [
     "Discard",
     "assume",
     "discard",
+    "label",
+    "cover",
     "Prop",
     "Neg",
     "Conj",
@@ -75,13 +89,19 @@ __all__ = [
     "resolve",
     "resolve_all",
     "MAX_DISCARD_RATIO",
+    "COVERAGE_Z",
+    "coverage_upper_bound",
+    "coverage_shortfalls",
     "Allowance",
     "Outcome",
     "AllowanceFor",
+    "Recorded",
+    "RecordedFor",
     "OnStart",
     "OnOutcome",
     "OnFound",
     "property_rng",
+    "redraw",
     "evaluate_property",
     "evaluate",
 ]
@@ -402,8 +422,13 @@ class Outcome:
         generator or by the law through ``assume``.
     :param counter_example: The counterexample found, if any.
     :param error: Why the property did not hold when the reason is not a
-        counterexample: no counterexample where one was expected, or too
-        many discards.
+        counterexample: no counterexample where one was expected, too
+        many discards, or unmet coverage.
+    :param labels: Per label, the attempts on which the law was evaluated
+        and gave it.
+    :param coverage: The required fraction of each covered label.
+    :param replayed: Recorded draws replayed before the attempts on which
+        the law was evaluated.
     """
 
     desc: str
@@ -414,10 +439,25 @@ class Outcome:
     discards: int
     counter_example: s.CounterExample | None
     error: str | None
+    labels: dict[str, int] = field(default_factory=dict)
+    coverage: dict[str, float] = field(default_factory=dict)
+    replayed: int = 0
+
+    @property
+    def evaluations(self) -> int:
+        """Attempts on which the law was actually evaluated."""
+        return self.attempts - self.discards
 
 
 #: Decides the allowance of a resolved property.
 type AllowanceFor = Callable[[Resolved], Allowance]
+
+#: A failing draw recorded by an earlier run: that run's seed and the
+#: zero-based index of the attempt that drew it.
+type Recorded = tuple[int, int]
+
+#: The recorded draws a property replays before its own attempts.
+type RecordedFor = Callable[[Prop], Sequence[Recorded]]
 
 #: Invoked when evaluation of a property starts.
 type OnStart = Callable[[Prop], None]
@@ -439,13 +479,61 @@ def property_rng(seed: int, desc: str) -> a.Rng:
     return a.seed(f"{seed}\x1f{desc}")
 
 
+#: The z score of the coverage test: a requirement fails when the upper
+#: bound of the Wilson score interval at this z lies below it. About six
+#: standard deviations, so a property whose true fraction meets its
+#: requirement fails on it in fewer than one run in a billion.
+COVERAGE_Z = 6.0
+
+
+def coverage_upper_bound(hits: int, evaluations: int) -> float:
+    """The upper bound of the Wilson score interval, at ``COVERAGE_Z``, of
+    the fraction of draws in a class seen ``hits`` times in
+    ``evaluations`` draws.
+
+    :raises ValueError: When ``evaluations`` is not positive or ``hits``
+        is outside ``0..evaluations``.
+    """
+    if evaluations < 1 or not 0 <= hits <= evaluations:
+        raise ValueError(
+            "coverage_upper_bound requires 0 <= hits <= evaluations and "
+            f"evaluations >= 1, got {hits} of {evaluations}"
+        )
+    n = evaluations
+    p = hits / n
+    z2 = COVERAGE_Z * COVERAGE_Z
+    centre = p + z2 / (2 * n)
+    spread = COVERAGE_Z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+    # The bound is never below the observed fraction; rounding can put
+    # it there by an ulp when every draw was in the class.
+    return max(p, min(1.0, (centre + spread) / (1 + z2 / n)))
+
+
+def coverage_shortfalls(
+    labels: dict[str, int], coverage: dict[str, float], evaluations: int
+) -> list[str]:
+    """The covered labels whose requirement the attempts show is unmet,
+    in the order they were first required."""
+    if evaluations < 1:
+        return []
+    return [
+        name
+        for name, required in coverage.items()
+        if coverage_upper_bound(labels.get(name, 0), evaluations) < required
+    ]
+
+
 def _judge(
     resolved: Resolved, search: s.Search, negated: bool
 ) -> tuple[bool, str | None]:
     """Decide whether a property held from its search, negation applied."""
     desc = resolved.prop.desc
-    if search.evaluations == 0 or (
-        search.discards > MAX_DISCARD_RATIO * search.attempts
+    example = search.counter_example
+    # A replayed counterexample was found before any attempt was made.
+    replayed = example is not None and example.seed is not None
+    if not replayed and (
+        search.evaluations == 0
+        or search.discards > MAX_DISCARD_RATIO * search.attempts
     ):
         return False, (
             f'Property "{desc}" was not tested: {search.discards} of '
@@ -458,8 +546,45 @@ def _judge(
                 f'Found no counter example for "{desc}" however one was '
                 "expected"
             )
+        shortfalls = coverage_shortfalls(
+            search.labels, search.coverage, search.evaluations
+        )
+        if shortfalls:
+            details = "; ".join(
+                f'"{name}" on {search.labels.get(name, 0)} '
+                f"({100 * search.labels.get(name, 0) / search.evaluations:.1f}%)"
+                f", required {100 * search.coverage[name]:g}%"
+                for name in shortfalls
+            )
+            return False, (
+                f'Property "{desc}" did not reach its coverage over '
+                f"{search.evaluations} tested attempts: {details}"
+            )
         return True, None
     return negated, None
+
+
+def redraw(resolved: Resolved, recorded: Recorded) -> s.Replay:
+    """Draw a recorded attempt of a property again.
+
+    The attempts of a run draw in sequence from the property's source, and
+    the law never draws from it, so the attempts before the recorded one
+    are drawn and dropped without evaluating the law.
+
+    :param resolved: The property.
+    :param recorded: The seed of the run that drew it and its attempt
+        index.
+
+    :raises ValueError: When the attempt index is negative.
+    """
+    seed, attempt = recorded
+    if attempt < 0:
+        raise ValueError(f"redraw requires attempt >= 0, got {attempt}")
+    rng = property_rng(seed, resolved.prop.desc)
+    arguments = g.argument_pack(resolved.generators)
+    for _ in range(attempt):
+        arguments.sample(rng)
+    return s.Replay(seed, attempt, arguments.sample(rng))
 
 
 def evaluate_property(
@@ -468,6 +593,7 @@ def evaluate_property(
     negated: bool,
     allowance: Allowance,
     on_found: Callable[[s.CounterExample], None] | None = None,
+    recorded: Sequence[Recorded] = (),
 ) -> Outcome:
     """Evaluate one property of a run.
 
@@ -477,6 +603,8 @@ def evaluate_property(
     :param allowance: What it may spend.
     :param on_found: Invoked when a counterexample is found that makes the
         property fail, before it is shrunk; never invoked under negation.
+    :param recorded: Failing draws recorded by earlier runs, drawn again
+        and replayed in order before the property's own attempts.
     """
     prop = resolved.prop
     started = time.perf_counter()
@@ -488,6 +616,7 @@ def evaluate_property(
         allowance.deadline,
         allowance.shrink_deadline,
         None if negated else on_found,
+        [redraw(resolved, entry) for entry in recorded],
     )
     duration = time.perf_counter() - started
     holds, error = _judge(resolved, search, negated)
@@ -500,6 +629,9 @@ def evaluate_property(
         search.discards,
         search.counter_example,
         error,
+        search.labels,
+        search.coverage,
+        search.replayed,
     )
 
 
@@ -510,6 +642,7 @@ def evaluate(
     on_start: OnStart,
     on_outcome: OnOutcome,
     on_found: OnFound | None = None,
+    recorded_for: RecordedFor | None = None,
 ) -> bool:
     """Evaluate a specification, reporting every property's outcome.
 
@@ -526,6 +659,8 @@ def evaluate(
         property fail, before it is shrunk, so a run whose shrinking is
         slow can say what failed. Not invoked under negation, where a
         counterexample is what the property expects.
+    :param recorded_for: The recorded draws each property replays before
+        its own attempts; none when omitted.
 
     :return: Whether the specification holds.
 
@@ -545,6 +680,7 @@ def evaluate(
             negated,
             allowance_for(resolved),
             None if on_found is None else functools.partial(on_found, prop),
+            () if recorded_for is None else recorded_for(prop),
         )
         held[prop.desc] = outcome.holds
         on_outcome(outcome)

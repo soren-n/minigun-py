@@ -108,11 +108,19 @@ minigun --time-budget 30 --seed 42
 
 # Evaluate four properties at once in worker processes ('auto': one per CPU)
 minigun --time-budget 30 --jobs 4
+
+# Replay recorded counterexamples first, and record new ones
+minigun --time-budget 30 --regressions tests/regressions
+
+# Show how each counterexample was shrunk
+minigun --time-budget 30 --verbose
 ```
 
 The CLI discovers Python files in the test directory that export a module-level `spec: Spec`. Every property in every module is evaluated and reported. Property descriptions identify properties across the whole run, so they must be unique across modules; a description used twice is reported as an error naming both modules before anything runs. The time budget is shared equally between properties, whatever their attempts cost: each runs until it has spent its share or reached the attempts its input domain is worth, and time a property leaves unspent flows to the properties after it. A small finite domain is worth enough attempts to draw every value with 99.9% confidence (11 for a `bool`, 88 for ten values); larger and unbounded domains share one cap. The summary counts the properties that held without reaching that number, and each one's line shows its attempts against it (for example `3/2029 attempts`). A property that declares its attempts always makes all of them (see Declaring Effort). Failures are reported with their shrunk counterexample in every output mode. A counterexample is announced as soon as it is found, before shrinking starts (on stderr in quiet and JSON output), and shrinking stops when the run's budget is spent: no further shrunk candidate is evaluated, and the smallest counterexample found so far is reported with a note that it may not be minimal.
 
 Every run is seeded. When a property fails, the seed is printed so the exact run can be replayed with `--seed`, and each property draws from its own source derived from that seed, so a property's samples never depend on what else ran. To replay one failing property cheaply, pass the seed together with `--select` and part of its description: the property draws the same values as in the full run.
+
+With `--regressions DIR`, a failing property's counterexample is recorded in `DIR/<module>.json`, and every later run replays the recorded counterexamples of a property before its own attempts, so a bug stays covered after it is fixed (see Recorded Counterexamples). With `--verbose`, each failure also shows its shrink path: the arguments found, then the arguments each shrink step changed.
 
 With `--jobs N`, N properties are evaluated at once, each in a worker process that imports the test modules itself. A property draws the same values whichever worker evaluates it, so a seed replays a parallel run too, and the report lists outcomes in the same order as a sequential run. The time budget is then worker time: N workers share out N times the remaining time, and no property runs past the end of the run. A law that scans or clears the fixture directories as a whole sees the fixtures of properties running beside it. Workers end with the run as an interpreter does: their `atexit` handlers run, so a process pool shared by a module's laws can be shut down there, and a child process still running after them is terminated.
 
@@ -136,6 +144,8 @@ if __name__ == "__main__":
 ```
 
 To run with several jobs, give each `TestModule` a `load`: a picklable callable, such as a module-level function, that returns the module's specification in a worker process, and set `RunConfig(jobs=...)`. Workers are started with `spawn`, so the entry point must be guarded by `if __name__ == "__main__":`.
+
+The CLI's other options are `RunConfig` fields as well: `select` (patterns, as `--select`; pass whole specifications and `run` prunes them), `regressions` (a directory, as `--regressions`) and `verbose`.
 
 For structured outcomes without a reporter, drive `minigun.specify.evaluate` directly; the tutorial's "Running specifications programmatically" section shows how.
 
@@ -221,6 +231,43 @@ def test_mean(rng: random.Random) -> bool:
     mean = sum(rng.random() for _ in range(1000)) / 1000
     return abs(mean - 0.5) < 0.1
 ```
+
+### Looking at the Test Data
+
+A passing property says nothing about cases it never drew. `g.examples` shows what a generator produces:
+
+```python
+from minigun import generate as g
+
+g.examples(g.dicts(g.ints(), g.ints()), n=3, seed=1)
+# [{4: 2}, {2: -10, -32: -42, -74: -938, 10: -3, 8: 35, 4: 132, -3: 94}, {}]
+```
+
+Inside a law, `label` tags each attempt and the run reports how often each label came up; `cover` also requires a share of the attempts:
+
+```python
+from minigun import prop, label, cover
+
+
+@prop("a deleted key is no longer in the table")
+def test_delete(key: int, table: dict[int, int]) -> bool:
+    label("present" if key in table else "absent")
+    cover(0.2, key in table, "present")
+    table.pop(key, None)
+    return key not in table
+```
+
+Here about nine keys in ten are absent, so the `cover` requirement fails the property: drawing keys independently of the table mostly tests deleting keys that are not there. The distribution is printed by `check` and the rich output, and included in JSON output as `labels`. Because attempt counts vary with the budget, a requirement fails only when the attempts show with overwhelming confidence that it is unmet; a short run does not fail on it. The fraction is a fraction, not a percentage.
+
+### Recorded Counterexamples
+
+A run given a regressions directory records the counterexample of every new failure in a JSON file per test module and replays the recorded ones before each property's own attempts:
+
+```bash
+minigun --time-budget 30 --regressions tests/regressions
+```
+
+`check(spec, regressions="tests/spec_regressions.json")` does the same with one file. An entry records the seed of the run that found the failure and the attempt that drew it. A property's draws depend only on the seed and its description, so the entry draws the same arguments again and shrinks to the same counterexample for as long as the property's generators are unchanged. The shrunk arguments are recorded as text beside it, for reading; nothing is replayed from them. Keep the directory in version control, so everyone who runs the tests replays the same failures. Entries are never removed automatically: delete one to stop replaying it. An entry naming a property that no longer exists is an error, so renaming a property cannot silently drop the failures recorded for it; rename the entry too. After a generator changes, an entry replays whatever the generator now draws at that attempt, and no longer reproduces the recorded case.
 
 ### Combining Properties
 
@@ -319,11 +366,15 @@ A: Yes: `minigun --modules name ...` imports only the selected modules.
 
 **Q: How do I reproduce a failing run?**
 
-A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation. Add `--select "<part of the description>"` to replay only the failing property; it draws the same values as in the full run.
+A: Every failing run prints its seed. Pass it back with `minigun --seed <n>` (or `check(spec, seed=n)`) to replay the exact same generation. Add `--select "<part of the description>"` to replay only the failing property; it draws the same values as in the full run. To have every run replay a failure until it is fixed, and afterwards, record it with `--regressions DIR` (see Recorded Counterexamples).
+
+**Q: How did minigun arrive at this counterexample?**
+
+A: Run with `--verbose` (or `check(spec, verbose=True)`): each failure then shows its shrink path, the arguments first found followed by the arguments each accepted shrink step changed. Every step fails the law in the same way as the arguments found.
 
 **Q: My property passed but was it tested?**
 
-A: A property whose generators or assumptions discard most of its attempts (for example an over-restrictive `g.filter` or `assume`) fails with a message saying how many attempts were discarded, rather than passing silently. A property that held without reaching its attempt limit, because its share of the time ran out, shows its attempts against the limit (for example `3/2029 attempts`), and the summary counts such properties; give the run a larger budget or `--jobs` to cover more.
+A: A property whose generators or assumptions discard most of its attempts (for example an over-restrictive `g.filter` or `assume`) fails with a message saying how many attempts were discarded, rather than passing silently. A property that held without reaching its attempt limit, because its share of the time ran out, shows its attempts against the limit (for example `3/2029 attempts`), and the summary counts such properties; give the run a larger budget or `--jobs` to cover more. To see whether the attempts exercised the cases that matter, label them with `label(...)` and require the important ones with `cover(fraction, condition, name)` (see Looking at the Test Data).
 
 # Real-World Usage
 

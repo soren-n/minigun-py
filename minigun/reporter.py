@@ -5,10 +5,15 @@ Reporters are passive sinks: the runner drives the run and calls the
 reporter's hooks; reporters accumulate outcomes and render them. A
 counterexample is announced as soon as it is found, before it is shrunk,
 so a run whose shrinking is slow still says what failed; quiet and JSON
-output announce it on stderr, keeping stdout for the final report. Four
-renderings are provided:
+output announce it on stderr, keeping stdout for the final report. The
+distribution of a property's labels is shown by the plain and rich
+reporters and included in the JSON output; quiet output shows unmet
+coverage only, as a failure. A verbose reporter also shows each
+counterexample's shrink path, and every reporter says where a run recorded
+a new counterexample. Four renderings are provided:
 
-    - PlainReporter: failures only, for the standalone ``check``
+    - PlainReporter: failures and label distributions, for the
+      standalone ``check``
     - QuietReporter: a pass/fail line per run and the failures, for CI
       pipelines
     - RichReporter: console tables and progress lines
@@ -18,6 +23,7 @@ renderings are provided:
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import pprint
 import sys
@@ -33,7 +39,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from minigun.budget import PropertyPlan
-from minigun.parallel import RemoteException
+from minigun.parallel import exception_name
 from minigun.search import CounterExample
 from minigun.specify import Outcome
 
@@ -42,6 +48,8 @@ __all__ = [
     "format_arguments",
     "describe_failure",
     "describe_found",
+    "describe_path",
+    "format_distribution",
     "ModuleResult",
     "Reporter",
     "PlainReporter",
@@ -71,14 +79,6 @@ def relax_stdout_errors() -> None:
 ###############################################################################
 # Formatting
 ###############################################################################
-def _exception_name(exception: Exception) -> str:
-    """The name of an exception's type, also for one raised in a worker
-    process and sent back as its text."""
-    if isinstance(exception, RemoteException):
-        return exception.type_name
-    return type(exception).__name__
-
-
 def format_arguments(args: dict[str, Any]) -> str:
     """Render counterexample arguments as ``name = value`` lines."""
     lines: list[str] = []
@@ -100,6 +100,15 @@ def _not_minimal(example: CounterExample) -> str:
     )
 
 
+def _replayed(example: CounterExample) -> str:
+    if example.seed is None:
+        return ""
+    return (
+        "\nIt replays a recorded failure: attempt "
+        f"{example.attempt + 1} of seed {example.seed}."
+    )
+
+
 def describe_failure(outcome: Outcome) -> str:
     """One paragraph explaining why an outcome did not hold."""
     if outcome.error is not None:
@@ -107,15 +116,16 @@ def describe_failure(outcome: Outcome) -> str:
     example = outcome.counter_example
     if example is None:
         return f'Property "{outcome.desc}" did not hold'
+    notes = f"{_not_minimal(example)}{_replayed(example)}"
     if example.exception is not None:
         return (
             f'A test case of "{outcome.desc}" raised '
-            f"{_exception_name(example.exception)}: {example.exception}\n"
-            f"{format_arguments(example.args)}{_not_minimal(example)}"
+            f"{exception_name(example.exception)}: {example.exception}\n"
+            f"{format_arguments(example.args)}{notes}"
         )
     return (
         f'A test case of "{outcome.desc}" failed with the following counter '
-        f"example:\n{format_arguments(example.args)}{_not_minimal(example)}"
+        f"example:\n{format_arguments(example.args)}{notes}"
     )
 
 
@@ -124,13 +134,67 @@ def describe_found(desc: str, example: CounterExample) -> str:
     failure = (
         "failed"
         if example.exception is None
-        else f"raised {_exception_name(example.exception)}: {example.exception}"
+        else f"raised {exception_name(example.exception)}: {example.exception}"
+    )
+    where = (
+        f"on attempt {example.attempt + 1}"
+        if example.seed is None
+        else (
+            f"again, replaying attempt {example.attempt + 1} of seed "
+            f"{example.seed}"
+        )
     )
     return (
-        f'A test case of "{desc}" {failure} on attempt '
-        f"{example.attempt + 1}; shrinking the counter example:\n"
-        f"{format_arguments(example.args)}"
+        f'A test case of "{desc}" {failure} {where}; shrinking the counter '
+        f"example:\n{format_arguments(example.args)}"
     )
+
+
+def describe_path(example: CounterExample) -> str | None:
+    """The shrink path of a counterexample: the arguments found, then at
+    each accepted shrink step the arguments it changed; None when it took
+    no step or its path was not recorded."""
+    path = example.path
+    if len(path) < 2:
+        return None
+    steps = len(path) - 1
+    blocks = [
+        f"Shrink path, {steps} step{'s' if steps != 1 else ''}:",
+        f"found:\n{textwrap.indent(format_arguments(path[0]), '  ')}",
+    ]
+    for step, (before, after) in enumerate(itertools.pairwise(path), 1):
+        changed = {
+            name: value
+            for name, value in after.items()
+            if name not in before or repr(value) != repr(before[name])
+        }
+        body = (
+            format_arguments(changed)
+            if changed
+            else "(the arguments print as before)"
+        )
+        blocks.append(f"step {step}:\n{textwrap.indent(body, '  ')}")
+    return "\n".join(blocks)
+
+
+def format_distribution(outcome: Outcome) -> str | None:
+    """The labels of a property's tested attempts as ``percent label``
+    lines, most frequent first, each covered label with its requirement;
+    None when the law gave no labels and required no coverage."""
+    names = set(outcome.labels) | set(outcome.coverage)
+    if not names:
+        return None
+    evaluations = outcome.evaluations
+    lines: list[str] = []
+    for name in sorted(names, key=lambda n: (-outcome.labels.get(n, 0), n)):
+        count = outcome.labels.get(name, 0)
+        share = 100 * count / evaluations if evaluations else 0.0
+        line = f"{share:5.1f}% {name} ({count})"
+        required = outcome.coverage.get(name)
+        if required is not None:
+            line += f", required {100 * required:g}%"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _truncate(name: str, max_length: int = 30) -> str:
@@ -179,12 +243,17 @@ class Reporter:
     :param seed: The run seed.
     :param time_budget: The run's time budget in seconds, or None when the
         run has no budget.
+    :param verbose: Whether to show the shrink path of each counterexample.
     """
 
-    def __init__(self, seed: int, time_budget: float | None):
+    def __init__(
+        self, seed: int, time_budget: float | None, verbose: bool = False
+    ):
         relax_stdout_errors()
         self.seed = seed
         self.time_budget = time_budget
+        self.verbose = verbose
+        self.recorded_in: dict[str, str] = {}
         self.modules: list[ModuleResult] = []
         self.plans: dict[str, PropertyPlan] = {}
         self._current: ModuleResult | None = None
@@ -270,6 +339,18 @@ class Reporter:
         """Evaluation of a property ended."""
         self._current_module().outcomes.append(outcome)
 
+    def recorded(self, desc: str, path: str) -> None:
+        """The counterexample of a property that just ended was recorded
+        in a regressions file."""
+        self.recorded_in[desc] = path
+
+    def shrink_path(self, outcome: Outcome) -> str | None:
+        """The shrink path of an outcome's counterexample when verbose."""
+        example = outcome.counter_example
+        if not self.verbose or example is None:
+            return None
+        return describe_path(example)
+
     def end_module(self) -> None:
         """Evaluation of a module's specification ended."""
         self.modules.append(self._current_module())
@@ -283,7 +364,8 @@ class Reporter:
 # Plain reporter
 ###############################################################################
 class PlainReporter(Reporter):
-    """Failures as they happen and the seed at the end; nothing on success."""
+    """Failures as they happen and the seed at the end; on success only
+    the label distributions of properties that label their attempts."""
 
     def found_counter_example(self, desc: str, example: CounterExample) -> None:
         print(f"FOUND: {desc}")
@@ -291,10 +373,21 @@ class PlainReporter(Reporter):
 
     def end_property(self, outcome: Outcome) -> None:
         super().end_property(outcome)
+        distribution = format_distribution(outcome)
+        if distribution is not None:
+            print(f"LABELS: {outcome.desc} ({outcome.evaluations} tested)")
+            print(textwrap.indent(distribution, "  "))
         if outcome.holds:
             return
         print(f"FAIL: {outcome.desc}")
         print(describe_failure(outcome))
+        path = self.shrink_path(outcome)
+        if path is not None:
+            print(path)
+
+    def recorded(self, desc: str, path: str) -> None:
+        super().recorded(desc, path)
+        print(f"RECORDED: {desc} in {path}")
 
     def finish(self) -> None:
         if not self.overall_success:
@@ -333,6 +426,11 @@ class QuietReporter(Reporter):
                 if not outcome.holds:
                     print(f"FAIL [{module.name}] {outcome.desc}")
                     print(textwrap.indent(describe_failure(outcome), "  "))
+                    path = self.shrink_path(outcome)
+                    if path is not None:
+                        print(textwrap.indent(path, "  "))
+                    if outcome.desc in self.recorded_in:
+                        print(f"  Recorded in {self.recorded_in[outcome.desc]}")
         print(f"Reproduce with: --seed {self.seed}")
 
 
@@ -342,8 +440,10 @@ class QuietReporter(Reporter):
 class RichReporter(Reporter):
     """Console output with tables and progress lines."""
 
-    def __init__(self, seed: int, time_budget: float | None):
-        super().__init__(seed, time_budget)
+    def __init__(
+        self, seed: int, time_budget: float | None, verbose: bool = False
+    ):
+        super().__init__(seed, time_budget, verbose)
         self.console = Console()
 
     def start_run(
@@ -383,10 +483,12 @@ class RichReporter(Reporter):
         self.console.print(f"  [yellow]Running:[/yellow] {desc}", end="")
 
     def found_counter_example(self, desc: str, example: CounterExample) -> None:
-        self.console.print(
-            f" [red]counter example found on attempt {example.attempt + 1}, "
-            "shrinking[/red]"
+        where = (
+            f"counter example found on attempt {example.attempt + 1}"
+            if example.seed is None
+            else "recorded counter example failed again"
         )
+        self.console.print(f" [red]{where}, shrinking[/red]")
         self.console.print(
             Panel(
                 format_arguments(example.args),
@@ -403,16 +505,26 @@ class RichReporter(Reporter):
         super().end_property(outcome)
         limit = self.short_of_limit(outcome)
         detail = (
-            f"{outcome.attempts}"
+            (f"{outcome.replayed} replayed, " if outcome.replayed else "")
+            + f"{outcome.attempts}"
             + ("" if limit is None else f"/{limit}")
             + " attempts"
             + (f", {outcome.discards} discarded" if outcome.discards else "")
             + f", {outcome.duration:.3f}s"
         )
+        status = "[green]PASS[/green]" if outcome.holds else "[red]FAIL[/red]"
+        self.console.print(f" {status} [dim]({detail})[/dim]")
+        distribution = format_distribution(outcome)
+        if distribution is not None:
+            self.console.print(
+                textwrap.indent(distribution, "      "),
+                style="dim",
+                highlight=False,
+                markup=False,
+                soft_wrap=True,
+            )
         if outcome.holds:
-            self.console.print(f" [green]PASS[/green] [dim]({detail})[/dim]")
             return
-        self.console.print(f" [red]FAIL[/red] [dim]({detail})[/dim]")
         self.console.print(
             Panel(
                 describe_failure(outcome),
@@ -422,6 +534,22 @@ class RichReporter(Reporter):
                 padding=(0, 1),
             )
         )
+        path = self.shrink_path(outcome)
+        if path is not None:
+            self.console.print(
+                Panel(
+                    path,
+                    title="[red]Shrink path[/red]",
+                    title_align="left",
+                    border_style="red",
+                    padding=(0, 1),
+                ),
+                highlight=False,
+            )
+
+    def recorded(self, desc: str, path: str) -> None:
+        super().recorded(desc, path)
+        self.console.print(f"  [dim]Recorded in {path}[/dim]", highlight=False)
 
     def end_module(self) -> None:
         module = self._current_module()
@@ -507,8 +635,10 @@ class JSONReporter(Reporter):
     """Structured output for tool integration, printed at the end.
     Counterexamples are announced on stderr as they are found."""
 
-    def __init__(self, seed: int, time_budget: float | None):
-        super().__init__(seed, time_budget)
+    def __init__(
+        self, seed: int, time_budget: float | None, verbose: bool = False
+    ):
+        super().__init__(seed, time_budget, verbose)
         self._module_names: list[str] = []
 
     def start_run(
@@ -537,13 +667,28 @@ class JSONReporter(Reporter):
                     name: repr(value) for name, value in example.args.items()
                 },
                 "attempt": example.attempt,
+                "seed": example.seed,
                 "shrinks": example.shrinks,
                 "minimal": example.minimal,
                 "exception": None
                 if example.exception is None
-                else f"{_exception_name(example.exception)}: {example.exception}",
+                else f"{exception_name(example.exception)}: {example.exception}",
+                **(
+                    {
+                        "path": [
+                            {name: repr(value) for name, value in args.items()}
+                            for args in example.path
+                        ]
+                    }
+                    if self.verbose
+                    else {}
+                ),
             },
             "error": outcome.error,
+            "labels": dict(outcome.labels),
+            "coverage": dict(outcome.coverage),
+            "replayed": outcome.replayed,
+            "recorded": self.recorded_in.get(outcome.desc),
             "domain_size": None if plan is None else str(plan.cardinality),
             "attempt_limit": None if plan is None else plan.attempt_limit,
         }

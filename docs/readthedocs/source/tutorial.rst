@@ -176,6 +176,49 @@ To use several cores, pass :code:`--jobs` with a number of worker processes, or 
 
 Each worker imports the test modules itself and evaluates whole properties. A property draws only from its own random source, so it draws the same values whichever worker evaluates it, and a seed replays a parallel run just as it does a sequential one. The report lists the outcomes in the same order as a sequential run: the property at the head of that order is reported as it runs, the others when their turn comes. The time budget becomes worker time: with four workers, each property's share comes out of four times the remaining time, less what the properties already running hold, and no property runs past the end of the run. Starting the workers and importing the test modules in each takes some of the budget. A law that scans or clears the fixture directories as a whole, such as one calling :code:`cleanup_temporary`, sees the fixtures of the properties running beside it. Workers end with the run as an interpreter does: the exit handlers registered in them run, so a process pool shared by a module's laws can be shut down with :code:`atexit.register`, and a child process still running after them is terminated.
 
+A seed replays a failure on demand. To have every run replay it, before the fix and long after, give the run a regressions directory:
+
+.. code-block:: shell
+
+    $ minigun --time-budget 30 --regressions tests/regressions
+
+When a property fails, its counterexample is recorded in :code:`tests/regressions/<module>.json`, and from then on every run replays the property's recorded counterexamples before its own attempts. A replay that still fails is shrunk and reported like any counterexample, marked with the recorded seed and attempt; a replay that holds, because the bug was fixed, lets the property go on to its attempts. A failure found by a replay is not recorded again. :code:`check(spec, regressions="spec_regressions.json")` does the same with a single file.
+
+An entry records the seed of the run that found the failure and the index of the attempt that drew it, together with the shrunk arguments as text for whoever reads the file:
+
+.. code-block:: json
+
+    {
+      "property": "sums stay small",
+      "seed": 7,
+      "attempt": 4,
+      "arguments": {"xs": "[64, 59, 53, 74, 82, 68]", "k": "0"},
+      "exception": null
+    }
+
+A property's draws depend only on the seed and its description, so the entry draws exactly the same arguments again, and shrinking reaches the same counterexample, for as long as the property's generators are unchanged. Nothing is replayed from the recorded text, so no value has to survive being written to a file. After a generator changes, the entry replays whatever the generator now draws at that attempt, a value of the property's domain but no longer the recorded case; the text shows what it used to find, should you want to turn it into a test of its own. Keep the directory in version control so that everyone replays the same failures. Entries are only removed by hand, and an entry naming a property the module no longer defines is an error reported before anything runs, so renaming a property cannot silently drop the failures recorded for it.
+
+A shrunk counterexample can be surprising. :code:`--verbose` shows how it was reached: the arguments first found, then, at each accepted shrink step, the arguments it changed:
+
+.. code-block:: text
+
+    Shrink path, 8 steps:
+    found:
+      xs = [67, 66, 81, 61, 86, 38, 97, 82, 58, 91, 85, 75, 4, 68, 63, 53, 74, 0, 17, 82, 24, 68]
+      k = 29
+    step 1:
+      xs = [75, 4, 68, 63, 53, 74, 0, 17, 82, 24, 68]
+    step 2:
+      xs = [68, 63, 53, 74, 0, 17, 82, 24, 68]
+    ...
+    step 5:
+      k = 0
+    ...
+    step 8:
+      xs = [64, 59, 53, 74, 82, 68]
+
+Every step fails the law in the same way as the arguments found. :code:`check(spec, verbose=True)` prints the path too, and with :code:`--output json` each counterexample then carries its path as a list of the arguments at every step.
+
 See :code:`minigun --help` for all available options, including :code:`--modules` to select specific test modules (given once with several names, or repeated) and :code:`--output quiet` or :code:`--output json` for CI and tool integration. With :code:`--modules`, only the selected modules are imported, so a module that fails to load does not stop the others from running on their own.
 
 Files whose names start with an underscore are not test modules; use them for helpers shared between test modules. Test modules are imported as a package of their directory, so they import helpers with relative imports, including from subdirectories:
@@ -408,6 +451,41 @@ By default the number of attempts a property gets follows the size of its argume
 
 :code:`check` makes exactly that many attempts, and so does a budgeted run. A declared count is what the property needs, such as the sample size of a statistical test, so the time budget never cuts it short: the property has no deadline and runs until it has made every attempt. It still counts as one of the properties sharing the time, so the others leave it a share of room; when its attempts take longer than that room, the run takes longer than its budget, and the summary shows the time used against the budget. Every other property is held to its share.
 
+Looking at the test data
+------------------------
+A property that passes says nothing about the cases it never drew, and generators are easy to get subtly wrong: a key drawn independently of a table is rarely in it, so a law about lookups mostly tests lookups that miss. Before trusting a generator, look at what it produces. :code:`minigun.generate.examples(generator, n, seed)` draws :code:`n` values, skipping discards, exactly as a property over the generator would see them:
+
+.. code-block:: python
+
+    >>> g.examples(g.dicts(g.ints(), g.ints()), n=3, seed=1)
+    [{4: 2}, {2: -10, -32: -42, -74: -938, 10: -3, 8: 35, 4: 132, -3: 94}, {}]
+
+Examples show what values look like, but not how often the interesting cases come up. For that, a law labels its attempts with :code:`minigun.label(name)`, and the run reports what fraction of the tested attempts carried each label:
+
+.. literalinclude:: ../../examples/distribution.py
+   :language: python
+   :start-after: # -- start: label --
+   :end-before: # -- end: label --
+
+:code:`check` draws a fresh seed on every run, so the counts vary a little; one run printed:
+
+.. code-block:: text
+
+    LABELS: A deleted key is no longer in the table (1000 tested)
+       91.9% absent (919)
+        8.1% present (81)
+
+Nine attempts in ten delete a key that was never there. The plain reporter of :code:`check` prints the distribution of every property that labels its attempts, the rich reporter prints it under the property's result, and the JSON output has the counts under :code:`labels`. A label counts once per attempt however often it is given; discarded attempts and the candidates tried while shrinking are not counted.
+
+Once the cases that matter are known, :code:`minigun.cover(fraction, condition, name)` turns the observation into a requirement: it labels the attempt :code:`name` when :code:`condition` holds and fails the property when too few attempts do. Here the key and the table's keys are drawn from the same small range, so a good share of the deletions find their key:
+
+.. literalinclude:: ../../examples/distribution.py
+   :language: python
+   :start-after: # -- start: cover --
+   :end-before: # -- end: cover --
+
+The fraction is a fraction, not a percentage, and must lie in :code:`(0, 1]`. Attempt counts vary with the time budget, so the requirement is checked statistically: the property fails when its attempts show with overwhelming confidence, about one chance in a billion of a false alarm, that the condition holds less often than required. With the first table generator above, a requirement of :code:`0.2` fails over a thousand attempts; a run of a few dozen attempts is too short to tell and does not fail on it. Coverage is only checked when no counterexample was found. Outside a search, such as when a law is called directly, :code:`label` and :code:`cover` do nothing.
+
 Modeling
 --------
 Modeling in the context of property-based testing is a general technique where we build a simplified, unoptimized and ideally correct reference implementation for an interface under test. We then use this implementation as the ground truth to test other implementations against; think of it as running both systems side-by-side and comparing their behavior. There are various strategies for doing this, depending on what we are testing.
@@ -554,7 +632,9 @@ Tools that embed Minigun have two entry points below the CLI. :code:`minigun.orc
 
 A :code:`RunConfig` with :code:`jobs` greater than one evaluates in worker processes, which cannot be handed the specifications themselves: give each :code:`TestModule` a :code:`load`, a picklable callable such as a module-level function or a :code:`functools.partial` of one, that returns the module's specification in a worker. Workers are started with :code:`spawn` on every platform, so the program's entry point must be guarded by :code:`if __name__ == "__main__":`.
 
-Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample. An optional :code:`on_found` callback receives each counterexample that makes a property fail as soon as it is found, before it is shrunk, and :code:`Allowance(shrink_deadline=...)` bounds the shrinking with a :code:`time.perf_counter` instant.
+The other options of the CLI are fields of :code:`RunConfig` too. :code:`select` holds the patterns of :code:`--select`: give :code:`run` whole specifications and it prunes them itself, raising :code:`SpecificationError` for a pattern that matches no property. :code:`regressions` is the directory of :code:`--regressions`, whose files are checked against every property, selected or not, before anything runs, raising :code:`RegressionsError` from :code:`minigun.regressions` for a file it cannot read or an entry naming a property the module does not define. :code:`verbose` shows shrink paths.
+
+Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample. An optional :code:`on_found` callback receives each counterexample that makes a property fail as soon as it is found, before it is shrunk, and :code:`Allowance(shrink_deadline=...)` bounds the shrinking with a :code:`time.perf_counter` instant. An optional :code:`recorded_for` callback gives each property recorded draws to replay before its attempts, as pairs of a seed and an attempt index; a counterexample's :code:`seed` is set when it came from one, and its :code:`path` holds the arguments of every shrink step.
 
 .. literalinclude:: ../../examples/programmatic.py
    :language: python
@@ -576,6 +656,7 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to abstract over specifications.
 * Learned how to make user defined generators and shrinkers.
 * Learned about bounded domains, preconditions and declaring effort.
+* Learned how to look at the test data with examples, labels and coverage requirements.
 * Learned about modeling.
 * Learned about testing nondeterministic systems by generating random operation orderings.
 * Learned about filesystem fixtures and running specifications from your own tools.

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from minigun import __version__
 from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
+from minigun.regressions import RegressionsError
 from minigun.specify import (
     Prop,
     Spec,
@@ -209,18 +210,24 @@ def run_tests(
     seed: int | None = None,
     patterns: list[str] | None = None,
     jobs: int = 1,
+    regressions: Path | None = None,
+    verbose: bool = False,
 ) -> bool:
     """Discover and run test modules under a time budget.
 
     Only the selected modules are imported when ``modules`` is given, and
     only the properties whose descriptions contain one of ``patterns``
     run when it is given. With several ``jobs``, properties are evaluated
-    in that many worker processes, each importing the test modules.
+    in that many worker processes, each importing the test modules. With
+    a ``regressions`` directory, each module's recorded counterexamples
+    are replayed first and new ones recorded there; ``verbose`` shows
+    each counterexample's shrink path.
 
     :return: Whether every selected module's specification holds. Broken
         modules, unknown module names, selected modules without a
-        specification, patterns matching no property and unresolvable
-        specifications are reported as errors and count as failure.
+        specification, patterns matching no property, unresolvable
+        specifications and unreadable or stale regressions files are
+        reported as errors and count as failure.
     """
     try:
         candidates = find_test_modules(test_dir)
@@ -253,14 +260,22 @@ def run_tests(
         print("Tip: Test modules export a module-level 'spec: Spec'")
         return False
     if patterns:
-        specs, unmatched = select_properties(specs, patterns)
+        _, unmatched = select_properties(specs, patterns)
         if unmatched:
             for pattern in unmatched:
                 print(f"Error: No property description contains '{pattern}'")
             return False
 
+    # The whole specifications are run, pruned by the selection, so that
+    # regressions files are checked against every property.
     config = RunConfig(
-        time_budget=time_budget, seed=seed, output=output, jobs=jobs
+        time_budget=time_budget,
+        seed=seed,
+        output=output,
+        jobs=jobs,
+        select=tuple(patterns) if patterns else None,
+        regressions=regressions,
+        verbose=verbose,
     )
     test_modules = [
         TestModule(
@@ -270,7 +285,7 @@ def run_tests(
     ]
     try:
         return run(config, test_modules)
-    except SpecificationError as error:
+    except (SpecificationError, RegressionsError) as error:
         print(f"Error: {error}")
         return False
 
@@ -311,6 +326,8 @@ Examples:
   minigun -t 30 --output json              # JSON output for tools
   minigun -t 30 --seed 42                  # Reproduce a run
   minigun -t 30 --jobs auto                # One worker process per CPU
+  minigun -t 30 --regressions tests/regressions  # Replay and record failures
+  minigun -t 30 --verbose                  # Show each shrink path
   minigun --list-modules                   # List discovered test modules
         """,
     )
@@ -360,6 +377,22 @@ Examples:
         help="Evaluate N properties at once in worker processes, or 'auto' "
         "for one per CPU; the time budget is shared out as worker time "
         "(default: 1)",
+    )
+    parser.add_argument(
+        "--regressions",
+        "-r",
+        type=Path,
+        metavar="DIR",
+        help="Replay the counterexamples recorded in DIR/<module>.json "
+        "before each property's own attempts, and record the "
+        "counterexample of every new failure there; keep DIR in version "
+        "control",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show the shrink path of each counterexample: the arguments "
+        "found and those of every shrink step",
     )
     parser.add_argument(
         "--output",
@@ -420,6 +453,8 @@ Examples:
         seed=args.seed,
         patterns=args.select,
         jobs=args.jobs,
+        regressions=args.regressions,
+        verbose=args.verbose,
     )
     sys.exit(0 if success else 1)
 

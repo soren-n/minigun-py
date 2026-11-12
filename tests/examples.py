@@ -121,6 +121,7 @@ _NAMES = [
     "custom_generator",
     "domains",
     "preconditions",
+    "distribution",
     "modeling",
     "nondeterminism",
     "fixtures",

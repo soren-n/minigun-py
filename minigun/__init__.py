@@ -12,7 +12,9 @@ from minigun.specify import (
     assume,
     conj,
     context,
+    cover,
     discard,
+    label,
     neg,
     prop,
 )
@@ -32,8 +34,10 @@ __all__ = [
     "check",
     "conj",
     "context",
+    "cover",
     "discard",
     "generate",
+    "label",
     "neg",
     "prop",
 ]

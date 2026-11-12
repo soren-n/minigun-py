@@ -19,7 +19,7 @@ from typing import Any
 
 import minigun.fixture as fixture
 import minigun.generate as g
-from minigun.search import assume
+from minigun.search import assume, cover, label
 from minigun.specify import Conj, Neg, Prop, Spec
 
 ###############################################################################
@@ -86,6 +86,12 @@ def _discards(x: int) -> bool:
     return True
 
 
+def _labels(x: int) -> bool:
+    label(f"r{x % 3}")
+    cover(0.01, x < 500, "low")
+    return True
+
+
 def _exits(x: int) -> bool:
     os._exit(3)
 
@@ -129,6 +135,7 @@ LAWS: dict[str, tuple[Any, g.Generator[Any]]] = {
     "twofold": (_raises_twofold, g.int_range(0, 1000)),
     "opaque": (_fails_opaque, g.map(Opaque, g.int_range(0, 1000))),
     "discards": (_discards, g.int_range(0, 1000)),
+    "labels": (_labels, g.int_range(0, 1000)),
 }
 
 #: The kinds a specification shape may draw.

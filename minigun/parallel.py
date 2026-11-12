@@ -11,7 +11,8 @@ the module's specification. Outcomes are reported in the order a
 sequential run reports them; the property at the head of that order is
 reported live, the others when their turn comes. A counterexample
 argument or exception that does not survive pickling is sent back by its
-``repr``.
+``repr``, as are the arguments of its shrink path. A property's recorded
+draws are sent with it and drawn again in the worker.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import pickle
 import queue
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor
 from concurrent.futures import wait as wait_futures
 from concurrent.futures.process import BrokenProcessPool
@@ -35,7 +36,15 @@ from typing import TYPE_CHECKING, Any
 
 from minigun import fixture, specify
 from minigun.search import CounterExample
-from minigun.specify import Allowance, Outcome, Prop, Resolved, Spec
+from minigun.specify import (
+    Allowance,
+    Outcome,
+    Prop,
+    Recorded,
+    RecordedFor,
+    Resolved,
+    Spec,
+)
 
 if TYPE_CHECKING:
     from minigun.reporter import Reporter
@@ -44,6 +53,7 @@ __all__ = [
     "SpecLoader",
     "RemoteException",
     "Shown",
+    "exception_name",
     "portable",
     "evaluate",
 ]
@@ -90,6 +100,14 @@ class Shown:
         return hash(self.text)
 
 
+def exception_name(exception: Exception) -> str:
+    """The name of an exception's type, also for one raised in a worker
+    process and sent back as its text."""
+    if isinstance(exception, RemoteException):
+        return exception.type_name
+    return type(exception).__name__
+
+
 def _round_trips(value: Any) -> bool:
     try:
         pickle.loads(pickle.dumps(value))
@@ -98,17 +116,26 @@ def _round_trips(value: Any) -> bool:
     return True
 
 
-def portable(example: CounterExample) -> CounterExample:
-    """A counterexample that can be sent from a worker: arguments and an
-    exception that do not survive pickling are replaced by their text."""
-    args = {
+def _portable_args(args: dict[str, Any]) -> dict[str, Any]:
+    return {
         name: value if _round_trips(value) else Shown(repr(value))
-        for name, value in example.args.items()
+        for name, value in args.items()
     }
+
+
+def portable(example: CounterExample) -> CounterExample:
+    """A counterexample that can be sent from a worker: arguments, the
+    arguments of its shrink path and an exception that do not survive
+    pickling are replaced by their text."""
     exception = example.exception
     if exception is not None and not _round_trips(exception):
         exception = RemoteException(type(exception).__name__, str(exception))
-    return dataclasses.replace(example, args=args, exception=exception)
+    return dataclasses.replace(
+        example,
+        args=_portable_args(example.args),
+        exception=exception,
+        path=tuple(_portable_args(args) for args in example.path),
+    )
 
 
 ###############################################################################
@@ -124,6 +151,7 @@ class _Task:
     max_attempts: int
     deadline: float | None
     shrink_deadline: float | None
+    recorded: tuple[Recorded, ...]
 
 
 @dataclass(frozen=True)
@@ -206,6 +234,7 @@ def _evaluate(task: _Task) -> _Done:
         task.negated,
         allowance,
         _found,
+        task.recorded,
     )
     if outcome.counter_example is not None:
         outcome = dataclasses.replace(
@@ -237,6 +266,8 @@ def evaluate(
     allowance_for: Callable[[Resolved], Allowance],
     finished: Callable[[str], None],
     jobs: int,
+    recorded_for: RecordedFor | None = None,
+    on_reported: Callable[[Outcome], None] | None = None,
 ) -> bool:
     """Evaluate the specifications of a run's modules in worker processes.
 
@@ -252,6 +283,10 @@ def evaluate(
     :param finished: Invoked with a property's description when its
         worker is done with it.
     :param jobs: The number of worker processes.
+    :param recorded_for: The recorded draws each property replays before
+        its own attempts; none when omitted.
+    :param on_reported: Invoked with each outcome after the reporter has
+        seen it.
 
     :return: Whether every module's specification holds.
 
@@ -320,6 +355,8 @@ def evaluate(
             if outcome is None:
                 return
             reporter.end_property(outcome)
+            if on_reported is not None:
+                on_reported(outcome)
             head += 1
             head_started = False
 
@@ -336,12 +373,16 @@ def evaluate(
             while pending and len(running) < jobs:
                 entry = pending.popleft()
                 allowance = allowance_for(resolved[entry.prop.desc])
+                recorded: Sequence[Recorded] = (
+                    () if recorded_for is None else recorded_for(entry.prop)
+                )
                 task = _Task(
                     entry.prop.desc,
                     entry.negated,
                     allowance.max_attempts,
                     _to_wall(allowance.deadline),
                     _to_wall(allowance.shrink_deadline),
+                    tuple(recorded),
                 )
                 running[pool.submit(_evaluate, task)] = entry.prop.desc
             _report()

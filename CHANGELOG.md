@@ -3,6 +3,78 @@
 Entries are written by hand. Add changes under Unreleased as they land;
 a release renames that heading to the version and date.
 
+## Unreleased
+
+### Features
+
+- `generate.examples(generator, n=10, seed=None)` returns `n` values
+  drawn from a generator, skipping discards, for looking at what a
+  generator produces. It raises `ValueError` when the generator discards
+  so much that `n` values take more than ten draws each.
+- `label(name)` labels the current attempt of a law. Each outcome
+  carries `labels`, the number of tested attempts that had each label.
+  The plain and rich reporters print the distribution under the
+  property, and the JSON output includes it as `labels`. Discarded
+  attempts and shrink candidates are not counted.
+- `cover(fraction, condition, name)` labels the attempt `name` when
+  `condition` holds and requires that label on at least `fraction` of
+  the tested attempts. A property fails when the upper bound of a Wilson
+  score interval at z = 6 (`specify.COVERAGE_Z`) lies below the
+  requirement, so a requirement that is met fails less than once in a
+  billion runs, and a run too short to tell does not fail. The check
+  applies only when no counterexample was found. The requirements are in
+  `Outcome.coverage` and in the JSON output as `coverage`.
+- The plain reporter used by `check` now prints the label distribution
+  of a property that labels its attempts, also when it passes.
+- Recorded counterexamples. `minigun --regressions DIR` (`-r`) records
+  the counterexample of every new failure in `DIR/<module>.json` and
+  replays a property's recorded counterexamples before its own attempts,
+  so a bug stays covered after it is fixed; `check(spec,
+  regressions=path)` does the same with one file, and
+  `RunConfig(regressions=...)` for `run`. An entry records the run seed
+  and the attempt index that drew the failure: a property's draws depend
+  only on the seed and its description, so the replay draws the same
+  arguments and shrinks to the same counterexample while the generators
+  are unchanged. The shrunk arguments are stored as text for reading
+  only; no value is serialized. A failure found by a replay is not
+  recorded again, and entries are only removed by hand. A file that
+  cannot be read, or names a property its module does not define, is a
+  `regressions.RegressionsError` raised before anything runs.
+  `minigun.regressions` reads and writes the files.
+- A replayed counterexample carries `CounterExample.seed` (the recorded
+  run seed; its `attempt` is the attempt in that run), outcomes count
+  their replays in `Outcome.replayed`, and the reports say which
+  recorded draw a failure replays and where a new one was recorded. The
+  JSON output adds `replayed`, `recorded` and the counterexample's
+  `seed`.
+- Shrink paths. Every counterexample keeps `CounterExample.path`: the
+  arguments first found and those of every accepted shrink step.
+  `minigun --verbose`, `check(spec, verbose=True)` and
+  `RunConfig(verbose=True)` show it with every failure, listing at each
+  step only the arguments it changed (`reporter.describe_path`); the
+  JSON output then includes it as `path`.
+
+### Changes
+
+- Property selection moved into `run`: `RunConfig(select=patterns)`
+  prunes the modules' whole specifications, and a pattern matching no
+  property raises `SpecificationError`. The CLI passes whole
+  specifications with the patterns, so regressions files are checked
+  against every property, selected or not.
+- `search.find_counter_example` takes `replays`, `specify.evaluate_property`
+  takes `recorded` and `specify.evaluate` takes `recorded_for`;
+  `specify.redraw` draws a recorded attempt again. `parallel.evaluate`
+  takes `recorded_for` and `on_reported`. Reporters take `verbose` and
+  have a `recorded(desc, path)` hook; `parallel.exception_name` names an
+  exception's type, also for one sent back from a worker.
+
+### Documentation
+
+- A new tutorial section, "Looking at the test data", covers
+  `examples`, `label` and `cover`.
+- The tutorial and README describe recorded counterexamples and shrink
+  paths.
+
 ## v6.5.0 (2026-10-18)
 
 ### Features

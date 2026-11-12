@@ -978,6 +978,41 @@ def _infer(rng: random.Random) -> bool:
     return all(_inferred(*case) for case in _INFERENCE)
 
 
+###############################################################################
+# Examples
+###############################################################################
+
+
+@context(programs(), g.int_range(0, 20), g.int_range(0, 20))
+@prop("examples draw values of the domain, a shorter list a prefix")
+def _examples(program: Program, n: int, m: int, seed: int) -> bool:
+    generator = interpret(program)
+    shorter, longer = sorted((n, m))
+    try:
+        values = g.examples(generator, longer, seed)
+        prefix = g.examples(generator, shorter, seed)
+    except ValueError:
+        # A generator that discards nearly every draw gives up, the
+        # shorter list sooner for its fewer draws.
+        assume(False)
+    return (
+        len(values) == longer
+        and all(member(program, value) for value in values)
+        and repr(prefix) == repr(values[:shorter])
+    )
+
+
+@context(g.int_range(-20, 20))
+@prop("examples reject a negative count and a generator that always discards")
+def _examples_rejects(n: int, seed: int) -> bool:
+    never = g.filter(lambda _: False, g.ints())
+    try:
+        values = g.examples(never, n, seed)
+    except ValueError:
+        return n != 0
+    return n == 0 and values == []
+
+
 spec = conj(
     _heads_in_domain,
     _tree_in_domain,
@@ -1027,6 +1062,8 @@ spec = conj(
     _interleave_grow,
     _interleave_cardinality,
     _infer,
+    _examples,
+    _examples_rejects,
 )
 
 

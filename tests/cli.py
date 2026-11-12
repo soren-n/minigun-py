@@ -11,6 +11,7 @@ from typing import Any
 import minigun.cli as cli
 import minigun.fixture as f
 import minigun.generate as g
+import minigun.regressions as rg
 from minigun import assume, check
 from minigun.orchestrator import OutputMode
 from minigun.specify import conj, context, prop
@@ -495,6 +496,39 @@ def _parallel(value: int, seed: int) -> bool:
     )
 
 
+@prop("--regressions records a failure, replays it and rejects a stale file")
+def _regressions(seed: int) -> bool:
+    directory = f.temporary_path()
+    kept = directory / "regressions"
+    (directory / "a.py").write_text(_named_module("alpha holds", 101))
+    (directory / "b.py").write_text(_named_module("beta fails", 50))
+    common = ["-t", "0.2", "-d", str(directory), "-r", str(kept)]
+    first_code, first = _main([*common, "-o", "quiet", "-s", str(seed)])
+    entries = rg.load(kept / "b.json")
+    alpha_recorded = (kept / "a.json").exists()
+    second_code, second = _json_main(
+        [*common, "-s", str(seed + 1), "--verbose"]
+    )
+    replayed = _tests(second).get("beta fails", {}).get("counter_example") or {}
+    rg.record(kept / "a.json", rg.Regression("gone", 0, 0, {}))
+    stale_code, stale = _main([*common, "-o", "quiet", "-k", "beta"])
+    return (
+        first_code == 1
+        and f"Recorded in {kept / 'b.json'}" in first
+        and [entry.desc for entry in entries] == ["beta fails"]
+        and entries[0].seed == seed
+        and not alpha_recorded
+        and second_code == 1
+        and replayed.get("seed") == seed
+        and replayed.get("attempt") == entries[0].attempt
+        and "path" in replayed
+        and stale_code == 1
+        and "Error: The regressions file" in stale
+        and '"gone"' in stale
+        and "Tests:" not in stale
+    )
+
+
 spec = conj(
     _discovery,
     _missing_dir,
@@ -516,6 +550,7 @@ spec = conj(
     _jobs,
     _load,
     _parallel,
+    _regressions,
 )
 
 
