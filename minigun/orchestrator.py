@@ -137,11 +137,14 @@ class _Regressions:
     :param files: The regressions file of each property by description;
         empty when the run keeps no regressions.
     :param recorded: The recorded draws of each property by description.
+    :param resolved: Each property with a file by description, to draw
+        the attempt of a new counterexample again when it is recorded.
     """
 
     seed: int
     files: dict[str, Path] = field(default_factory=dict)
     recorded: dict[str, list[Recorded]] = field(default_factory=dict)
+    resolved: dict[str, Resolved] = field(default_factory=dict)
 
     def recorded_for(self, prop: Prop) -> list[Recorded]:
         return self.recorded.get(prop.desc, [])
@@ -150,8 +153,24 @@ class _Regressions:
         """Record the counterexample of a reported outcome, when it is a
         new one drawn by the run, and tell the reporter where."""
         path = self.files.get(outcome.desc)
-        regression = regressions.from_outcome(self.seed, outcome)
-        if path is None or regression is None:
+        example = outcome.counter_example
+        if path is None or example is None:
+            return
+        # The law may have changed the arguments it was given, so what the
+        # attempt drew is drawn again.
+        drawn = specify.drawn_text(
+            specify.redraw(
+                self.resolved[outcome.desc], self.seed, example.attempt
+            ).dissection
+        )
+        if drawn is None:
+            raise RuntimeError(
+                f'The failing attempt {example.attempt} of "{outcome.desc}" '
+                "is discarded when drawn again; its generators are not "
+                "deterministic"
+            )
+        regression = regressions.from_outcome(self.seed, outcome, drawn)
+        if regression is None:
             return
         if regressions.record(path, regression):
             reporter.recorded(outcome.desc, str(path))
@@ -165,16 +184,16 @@ def _regressions(seed: int, files: list[tuple[Spec, Path]]) -> _Regressions:
     """
     by_desc: dict[str, Path] = {}
     recorded: dict[str, list[Recorded]] = {}
+    resolved: dict[str, Resolved] = {}
     for spec, path in files:
         entries = regressions.load(path)
         descs = [prop.desc for prop in collect(spec)]
         regressions.check_properties(path, entries, descs)
         by_desc.update(dict.fromkeys(descs, path))
+        resolved.update((r.prop.desc, r) for r in specify.resolve_all(spec))
         for entry in entries:
-            recorded.setdefault(entry.desc, []).append(
-                (entry.seed, entry.attempt)
-            )
-    return _Regressions(seed, by_desc, recorded)
+            recorded.setdefault(entry.desc, []).append(entry.recorded)
+    return _Regressions(seed, by_desc, recorded, resolved)
 
 
 def _evaluate_modules(

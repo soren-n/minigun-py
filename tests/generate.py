@@ -17,7 +17,7 @@ import minigun.cardinality as c
 import minigun.generate as g
 import minigun.shrink as s
 import minigun.stream as fs
-from minigun import assume, check
+from minigun import assume, canonical, check
 from minigun.specify import conj, context, prop
 from tests._support import (
     TIERED,
@@ -106,8 +106,8 @@ def _monotone(program: Program) -> bool:
 @context(programs(), programs())
 @prop("cardinality of tuples multiplies and of choice adds")
 def _arithmetic(left: Program, right: Program) -> bool:
-    # Products are compared up to rounding: map_set multiplies its
-    # generators in set order, which differs between interpretations.
+    # Products are compared up to rounding: float products depend on the
+    # order of multiplication.
     def _same(x: c.Cardinality, y: c.Cardinality) -> bool:
         if x.is_finite != y.is_finite:
             return False
@@ -616,6 +616,40 @@ def _subset_of(values: set[int], rng: random.Random) -> bool:
     return dissection is not None and dissection.head <= values
 
 
+@context(g.bounded_sets(1, 8, g.words()), g.ints())
+@prop("subset_of draws by the canonical order of its values, not set order")
+def _subset_of_order(values: set[str], seed: int) -> bool:
+    # A set of strings iterates in an order that differs between
+    # processes; the subsets drawn must not depend on it. The draw is
+    # the drawn indices into the values in canonical order.
+    ordered = sorted(values, key=canonical.text)
+    indices = g.bounded_sets(0, len(values), g.int_range(0, len(values) - 1))
+    expected = indices.sample(a.seed(seed))
+    drawn = g.subset_of(values).sample(a.seed(seed))
+    return (
+        expected is not None
+        and drawn is not None
+        and drawn.head == {ordered[index] for index in expected.head}
+    )
+
+
+@context(g.lists(g.ints()))
+@prop("one_of and map_set reject sets, whose order differs between processes")
+def _rejects_sets(values: list[int]) -> bool:
+    generators = [g.constant(value) for value in values]
+    return (
+        _rejects(lambda: g.one_of(set(values)), TypeError)
+        and _rejects(lambda: g.one_of(frozenset(values)), TypeError)
+        and _rejects(lambda: g.map_set(set(generators)), TypeError)
+        and _rejects(lambda: g.map_set(frozenset(generators)), TypeError)
+        and (
+            not values
+            or not _rejects(lambda: g.one_of(tuple(values)), Exception)
+        )
+        and not _rejects(lambda: g.map_set(tuple(generators)), Exception)
+    )
+
+
 @prop("biased_bool honours certain biases")
 def _biased_bool(rng: random.Random) -> bool:
     never = g.biased_bool(0.0).sample(rng)
@@ -1048,6 +1082,8 @@ spec = conj(
     _bounded_rejects,
     _one_of,
     _subset_of,
+    _subset_of_order,
+    _rejects_sets,
     _biased_bool,
     _rngs,
     _optional_none,

@@ -33,6 +33,9 @@ uv run minigun --time-budget 30 --regressions /tmp/regressions
 # Show each counterexample's shrink path
 uv run minigun --time-budget 30 --verbose
 
+# Print the first arguments of matching properties, running no law
+uv run minigun --examples 5 --seed 42 --select "shrinks to"
+
 # List available test modules
 uv run minigun --list-modules
 
@@ -134,6 +137,10 @@ Minigun is a property-based testing library organized in layers:
   so a first-failing-child walk is a bisection to the exact boundary.
 - `cardinality.py` - Domain sizes as a saturating non-negative float
   (math.inf for unbounded), with `+`, `*`, `**`.
+- `canonical.py` - `text(value)`: `repr` made the same in every process
+  (set elements sorted by their own text, `random.Random` by a state
+  digest, addresses elided, containers and dataclasses element by
+  element). Regressions files and worker `Shown` arguments use it.
 
 ### Generation System
 - `generate.py` - `Generator[T]` (a sampler `Rng -> Dissection | None` plus
@@ -150,7 +157,10 @@ Minigun is a property-based testing library organized in layers:
   generator in a random order keeping each list's order, shrinking the
   lists by their own generators (realigned at the first changed step)
   and toward fewer switches. `examples(gen, n, seed)` draws values for
-  inspection, skipping discards. `Generator` and `Dissection` are
+  inspection, skipping discards. Draws never follow set iteration order
+  (it differs between processes): `map_set` takes a sequence, `one_of`
+  rejects sets, `subset_of` orders values by canonical text.
+  `Generator` and `Dissection` are
   frozen, so both are covariant in `T`.
 
 ### Testing Framework
@@ -171,8 +181,12 @@ Minigun is a property-based testing library organized in layers:
   attempt))` draws a recorded attempt again by sampling and dropping the
   attempts before it (the law never draws from the property's source);
   `evaluate_property(recorded=...)` and `evaluate(recorded_for=...)`
-  replay recorded draws first, and a replayed counterexample is never
-  judged untested by the discard check.
+  replay recorded draws first (`Recorded(seed, attempt, drawn)`), and a
+  replayed counterexample is never judged untested by the discard
+  check. A recorded draw whose `drawn_text` no longer matches `drawn`
+  is stale: not replayed, listed in `Outcome.stale`, and the property
+  fails. `first_arguments(resolved, seed, n)` gives the arguments of a
+  run's first n kept draws (`--examples`).
   Knows nothing about reporters or printing.
 - `search.py` - Counterexample search: one law evaluation per candidate,
   attempts drawn in sequence from the property's source, discards
@@ -213,15 +227,31 @@ Minigun is a property-based testing library organized in layers:
   (stderr in quiet and JSON modes). With `verbose`, every reporter shows
   each counterexample's shrink path (`describe_path`: only the arguments
   each step changed; JSON lists every step); the `recorded` hook says
-  where a run recorded a new counterexample. Also the stdout encoding
-  guard and counterexample formatting.
+  where a run recorded a new counterexample. Quiet, rich and JSON show
+  each failure's `reproduce_flags` (`--seed`, `--modules=`,
+  `--select=`). Also the stdout encoding guard and counterexample
+  formatting.
 - `regressions.py` - Regressions files: JSON with a format tag and
-  version, entries of property, seed, attempt and the shrunk arguments
-  and exception as text (for reading; nothing is replayed from them).
+  version (2), entries of property, seed, attempt, `drawn` (canonical
+  text of the attempt's arguments, computed by drawing the attempt
+  again at record time, checked on replay for staleness) and the shrunk
+  arguments and exception as text (for reading; nothing is replayed
+  from them).
   `load` validates strictly (`RegressionsError`), `record` dedupes by
   (property, seed, attempt) and writes through a temporary file,
   `check_properties` rejects entries naming properties a spec lacks,
   `from_outcome` records only failures the run drew itself.
+- `stateful.py` - State machines: `machine(initial, *commands)`,
+  `command(name, run, arguments, precondition, next_state,
+  postcondition)` (every function gets the arguments; `arguments` is a
+  generator or a function of the model, None when the command cannot
+  run). `programs(machine, max_steps)` draws programs meeting every
+  precondition (a step that finds no runnable command ends the program)
+  and shrinks them by chunk removal then argument shrinks, filtered to
+  valid programs. `Program.run(system)` raises `ModelMismatch` at the
+  first rejected postcondition; system exceptions propagate. Programs
+  are equal by command names and arguments. The model must never be
+  changed in place.
 - `fixture.py` - Filesystem fixtures under `.minigun`; temporary paths are
   removed by the enclosing `scope()`, so nested runs clean only their own.
 
@@ -255,8 +285,10 @@ Minigun is a property-based testing library organized in layers:
   whose descriptions contain a pattern, with unchanged draws;
   `--jobs`/`-j` sets the worker count, each worker loading modules with
   `load_test_module`; `--regressions`/`-r DIR` keeps regressions files;
-  `--verbose` shows shrink paths. Whole specs are passed to `run` with
-  the selection patterns.
+  `--verbose` shows shrink paths; `--examples`/`-e N` prints each
+  selected property's first arguments for a seed without running laws
+  (rejects run-only flags). Whole specs are passed to `run` with the
+  selection patterns.
 
 ## Key Patterns
 
@@ -318,8 +350,10 @@ no property, missing test directories, duplicate property descriptions (within a
 a run), missing generators and invalid arguments are hard errors
 (`SpecificationError`, `ValueError`, `TypeError`), as are malformed
 regressions files and entries naming a property the module does not
-define (`RegressionsError`, before anything runs). A property most of
-whose attempts are discarded fails loudly. Unreachable match arms use
+define (`RegressionsError`, before anything runs). A regressions
+entry whose attempt no longer draws its recorded arguments (a changed
+generator) fails its property. A property most of whose attempts are
+discarded fails loudly. `--examples` rejects the flags of a run. Unreachable match arms use
 `typing.assert_never`.
 
 ### Self-testing

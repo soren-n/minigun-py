@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, assert_never
 
+import minigun.canonical as cn
 import minigun.fixture as f
 import minigun.generate as g
 import minigun.shrink as s
+import minigun.stateful as st
 
 ###############################################################################
 # Generator programs
@@ -222,6 +224,16 @@ class Interleave:
     programs: tuple[BoundedLists, ...]
 
 
+@dataclass(frozen=True)
+class Stateful:
+    """Programs of the machine ``stateful_machine`` builds: a put command
+    per argument program and a take command drawing from the model."""
+
+    puts: tuple["Program", ...]
+    modulus: int
+    max_steps: int
+
+
 type Program = (
     Bools
     | BiasedBool
@@ -257,6 +269,7 @@ type Program = (
     | MapDict
     | MapSet
     | Interleave
+    | Stateful
 )
 
 #: The tiered integer generators by name, with their documented bounds.
@@ -377,9 +390,11 @@ def interpret(program: Program) -> g.Generator[Any]:
                 {f"k{i}": interpret(item) for i, item in enumerate(items)}
             )
         case MapSet(items):
-            return g.map_set({interpret(item) for item in items})
+            return g.map_set([interpret(item) for item in items])
         case Interleave(programs):
             return g.interleave(*[interpret(program) for program in programs])
+        case Stateful(_, _, max_steps):
+            return st.programs(stateful_machine(program), max_steps)
         case _:
             assert_never(program)
 
@@ -418,6 +433,77 @@ def _interleaves(programs: tuple[BoundedLists, ...], values: list[Any]) -> bool:
         )
         for count in counts
     )
+
+
+def _put_allowed(
+    index: int, modulus: int, model: tuple[str, ...], args: Any
+) -> bool:
+    # An arbitrary precondition over the model and the arguments.
+    return (len(model) + len(cn.text(args)) + index) % modulus != 0
+
+
+def stateful_machine(program: Stateful) -> st.Machine[tuple[str, ...], None]:
+    """The machine of a ``Stateful`` program. Its model is the canonical
+    text of what was put and not yet taken; ``put<i>`` puts an argument
+    of program ``i`` when an arbitrary precondition allows, ``take``
+    takes something put, its arguments drawn from the model."""
+
+    def _put(index: int, inner: Program) -> st.Command[tuple[str, ...], None]:
+        return st.command(
+            f"put{index}",
+            lambda system, args: None,
+            arguments=interpret(inner),
+            precondition=lambda model, args: _put_allowed(
+                index, program.modulus, model, args
+            ),
+            next_state=lambda model, args: (*model, cn.text(args)),
+        )
+
+    def _taken(model: tuple[str, ...], args: str) -> tuple[str, ...]:
+        index = model.index(args)
+        return model[:index] + model[index + 1 :]
+
+    take: st.Command[tuple[str, ...], None] = st.command(
+        "take",
+        lambda system, args: None,
+        arguments=lambda model: g.one_of(list(model)) if model else None,
+        precondition=lambda model, args: args in model,
+        next_state=_taken,
+    )
+    return st.machine(
+        (),
+        *[_put(index, inner) for index, inner in enumerate(program.puts)],
+        take,
+    )
+
+
+def _runs_in(program: Stateful, value: Any) -> bool:
+    """Whether a value is a program of the machine of ``program``: no
+    longer than its bound, every step meeting its precondition and every
+    put's arguments in its argument program's domain."""
+    if not isinstance(value, st.Program) or len(value) > program.max_steps:
+        return False
+    model: tuple[str, ...] = ()
+    for step in value.steps:
+        name, args = step.command.name, step.args
+        if name == "take":
+            if args not in model:
+                return False
+            index = model.index(args)
+            model = model[:index] + model[index + 1 :]
+            continue
+        # A value of another machine may name puts this one lacks.
+        names = [f"put{i}" for i in range(len(program.puts))]
+        if name not in names:
+            return False
+        index = names.index(name)
+        if not (
+            member(program.puts[index], args)
+            and _put_allowed(index, program.modulus, model, args)
+        ):
+            return False
+        model = (*model, cn.text(args))
+    return True
 
 
 def member(program: Program, value: Any) -> bool:
@@ -598,6 +684,8 @@ def member(program: Program, value: Any) -> bool:
             )
         case Interleave(programs):
             return isinstance(value, list) and _interleaves(programs, value)
+        case Stateful():
+            return _runs_in(program, value)
         case _:
             assert_never(program)
 
@@ -693,10 +781,15 @@ def _biased_bool() -> g.Generator[Program]:
 
 
 def _subset_of() -> g.Generator[Program]:
-    def _make(values: list[int]) -> Program:
+    # Strings too: a set of them iterates in an order that differs
+    # between processes, which the drawn subsets must not follow.
+    def _make(values: list[Any]) -> Program:
         return SubsetOf(tuple(values))
 
-    return g.map(_make, g.bounded_lists(0, 6, g.small_ints()))
+    return g.choice(
+        g.map(_make, g.bounded_lists(0, 6, g.small_ints())),
+        g.map(_make, g.bounded_lists(0, 6, g.words())),
+    )
 
 
 def _one_of() -> g.Generator[Program]:
@@ -813,6 +906,9 @@ def _sized(depth: int) -> g.Generator[Program]:
 
     step = g.tuples(g.int_range(0, 3), g.int_range(0, 3), sub)
 
+    def _stateful(puts: list[Program], modulus: int, max_steps: int) -> Program:
+        return Stateful(tuple(puts), modulus, max_steps)
+
     small = g.int_range(0, 5)
     weight = g.int_range(0, 3)
     return g.weighted_choice(
@@ -835,6 +931,15 @@ def _sized(depth: int) -> g.Generator[Program]:
         (1, g.map(_map_dict, g.bounded_lists(0, 3, sub))),
         (1, g.map(_map_set, g.bounded_lists(1, 3, hashable_programs()))),
         (1, g.map(_interleave, g.bounded_lists(0, 3, step))),
+        (
+            1,
+            g.map(
+                _stateful,
+                g.bounded_lists(1, 3, sub),
+                g.int_range(2, 4),
+                g.int_range(0, 8),
+            ),
+        ),
     )
 
 

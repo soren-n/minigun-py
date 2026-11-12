@@ -104,6 +104,29 @@ def _racy_replicas(seed: int) -> bool:
     )
 
 
+@prop("a leaky store shrinks to a put, its delete and a size")
+def _leaky_store(seed: int) -> bool:
+    # The tutorial shows this counterexample.
+    example = _module("stateful")
+    outcomes: list[sp.Outcome] = []
+    sp.evaluate(
+        seed,
+        example.behaves("leaky store behaves like a dict", example.LeakyStore),
+        lambda resolved: sp.Allowance(1000),
+        lambda p: None,
+        outcomes.append,
+    )
+    found = outcomes[0].counter_example
+    if found is None:
+        return False
+    steps = found.args["program"].steps
+    return (
+        [step.command.name for step in steps] == ["put", "delete", "size"]
+        and steps[0].args[1] == 0
+        and steps[1].args == steps[0].args[0]
+    )
+
+
 @prop("every example file is covered by a property")
 def _all_covered(seed: int) -> bool:
     files = {path.stem for path in EXAMPLES.glob("*.py")}
@@ -124,6 +147,7 @@ _NAMES = [
     "distribution",
     "modeling",
     "nondeterminism",
+    "stateful",
     "fixtures",
     "programmatic",
 ]
@@ -132,6 +156,7 @@ spec = conj(
     _all_covered,
     _no_litter,
     _racy_replicas,
+    _leaky_store,
     *[_example(name) for name in _NAMES],
 )
 

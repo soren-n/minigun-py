@@ -3,6 +3,84 @@
 Entries are written by hand. Add changes under Unreleased as they land;
 a release renames that heading to the version and date.
 
+## Unreleased
+
+### Features
+
+- Stateful testing, `minigun.stateful`. A `machine(initial, *commands)`
+  holds a model of a fresh system and its commands, each made with
+  `command(name, run, arguments=..., precondition=..., next_state=...,
+  postcondition=...)`; a command's arguments may be a generator or a
+  function of the model, which returns None when the command cannot
+  run. `programs(machine, max_steps=30)` draws programs whose every
+  step meets its precondition; a failing program shrinks by removing
+  steps, largest chunks first, and by shrinking a step's arguments,
+  keeping only programs whose every step still meets its precondition.
+  `Program.run(system)` runs one against a system, raising
+  `ModelMismatch` at the first step whose postcondition rejects its
+  result, with the step and the model; `Program.models()` lists the
+  models along it. Programs show as `[put('a', 0), delete('a'),
+  size()]`. A new tutorial section, "State machines", tests a
+  key-value store.
+- Stale regressions entries fail. An entry now records `drawn`, the
+  canonical text of the arguments its attempt drew, drawn again when it
+  is recorded so a law that changes its arguments cannot skew it. A
+  replay that draws something else, because a generator changed, is not
+  replayed, and its property fails naming the stale entries.
+  `Outcome.stale` holds them, and the JSON output lists them as `stale`.
+- `minigun.canonical.text(value)` renders a value like `repr`, but the
+  same in every process: set elements in order of their own text,
+  `random.Random` by a digest of its state, memory addresses elided,
+  and lists, tuples, dicts, named tuples and dataclasses element by
+  element (a container that contains itself shows `[...]`, `{...}` or
+  `...` where it recurs, as `repr` does). Regressions files use it for
+  the arguments they record, so
+  their text no longer changes with the hash seed, and arguments that
+  cannot be sent back from a worker are shown by it.
+- `minigun --examples N` (`-e`) prints the arguments of the first N
+  attempts of each selected property in a run with `--seed`, without
+  running any law, as text or, with `--output json`, as JSON.
+  `specify.first_arguments(resolved, seed, n)` draws them and
+  `cli.show_examples` prints them.
+- Every failure in the rich and quiet output ends with the flags that
+  run it alone again, `Reproduce with: --seed S --modules=M
+  --select=DESC`, quoted for a POSIX shell (`reporter.reproduce_flags`);
+  the JSON output gives them as `reproduce`.
+
+### Fixes
+
+- `generate.map_set` drew its generators in the iteration order of a set
+  of generators, which follows memory addresses and differs between
+  processes, so a seed could draw other values in another process, in a
+  worker of `--jobs`, or when a regressions entry was replayed. It now
+  takes a sequence of generators and draws them in that order.
+- `generate.subset_of` mapped drawn indices onto its values in set
+  order, which for strings differs between processes. It now orders
+  the values by their canonical text, so a seed draws the same subsets
+  everywhere; subsets shrink toward the values that come first.
+
+### Changes
+
+- `generate.map_set` takes a sequence of generators instead of a set,
+  and raises `TypeError` for a set or frozenset. `generate.one_of` takes
+  any sequence and raises `TypeError` for a set or frozenset, whose
+  order would make its draws differ between processes.
+- Regressions files are version 2. Version 1 files, written by 6.6.0,
+  are rejected with a message saying to remove the file and record the
+  failures again, since their entries cannot be checked for staleness.
+- `specify.Recorded` is a dataclass of `seed`, `attempt` and `drawn`,
+  `specify.redraw(resolved, seed, attempt)` takes the seed and attempt
+  as arguments, and `specify.drawn_text` gives the canonical text of
+  drawn arguments. `regressions.Regression` has a `drawn` field and a
+  `recorded` property, and `regressions.from_outcome` takes `drawn`.
+- `reporter.describe_failure` shows an outcome's error and its
+  counterexample when it has both.
+
+### Documentation
+
+- The code of the modeling, map, bind and choice examples of the
+  tutorial is simpler; the modeling example's unused variables are gone.
+
 ## v6.6.0 (2026-11-12)
 
 ### Features

@@ -88,7 +88,7 @@ def _render_sizes(size: int) -> bool:
 
 @prop("cardinalities are hashable values")
 def _hashable(size: int) -> bool:
-    # Generators are hashed with their cardinality, e.g. by map_set.
+    # Cardinalities are frozen values, usable in sets and as keys.
     size = abs(size)
     return len({c.finite(size), c.finite(size), c.INFINITE}) == 2
 

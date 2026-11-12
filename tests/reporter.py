@@ -1,10 +1,12 @@
 """Properties of the reporters, fed synthetic outcomes."""
 
 import ast
+import collections
 import contextlib
 import dataclasses
 import io
 import json
+import shlex
 import textwrap
 from typing import Any
 
@@ -535,6 +537,45 @@ def _replayed(seed: int | None, attempt: int) -> bool:
     return note in failure and replaying in found
 
 
+@context(_modules(), g.int_range(0, 999))
+@prop("run reporters give the flags that reproduce each failure alone")
+def _reproduce(modules: list[tuple[str, list[Outcome]]], seed: int) -> bool:
+    quiet = _feed(r.QuietReporter(seed, 1.0), modules)
+    rich = _feed(r.RichReporter(seed, 1.0), modules)
+    data = json.loads(_feed(r.JSONReporter(seed, 1.0), modules))
+    # Modules may share names and descriptions, so lines are counted.
+    expected: collections.Counter[str] = collections.Counter()
+    for (name, outcomes), shown in zip(modules, data["modules"], strict=True):
+        for outcome, test in zip(outcomes, shown["tests"], strict=True):
+            flags = f"--seed {seed} --modules={name} --select='{outcome.desc}'"
+            if test["reproduce"] != (None if outcome.holds else flags):
+                return False
+            if not outcome.holds:
+                expected[f"  Reproduce with: {flags}"] += 1
+    shown_lines = collections.Counter(
+        line
+        for line in quiet.splitlines()
+        if line.startswith("  Reproduce with: ")
+    )
+    if shown_lines != expected:
+        return False
+    failed = len(_failures(modules))
+    return rich.count("Reproduce with: --seed") == failed + (failed > 0)
+
+
+@context(g.strings(), g.words())
+@prop("reproduce flags quote a description for a POSIX shell")
+def _reproduce_quoting(desc: str, module: str, seed: int) -> bool:
+    flags = r.reproduce_flags(seed, module, desc)
+    expected = [
+        "--seed",
+        str(seed),
+        f"--modules={module}",
+        f"--select={desc}",
+    ]
+    return shlex.split(flags) == expected
+
+
 @prop("every reporter says where a new counterexample was recorded")
 def _recorded(seed: int) -> bool:
     modules = [("m", [_failing(None)])]
@@ -585,6 +626,8 @@ spec = conj(
     _verbose,
     _replayed,
     _recorded,
+    _reproduce,
+    _reproduce_quoting,
 )
 
 

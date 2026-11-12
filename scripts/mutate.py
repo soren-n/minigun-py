@@ -84,6 +84,7 @@ TARGETS: dict[str, Target] = {
             | {"prop", "collect", "property_rng"}
             | {"leaves", "combine", "evaluate_property"}
             | {"coverage_upper_bound", "coverage_shortfalls", "redraw"}
+            | {"drawn_text", "first_arguments", "_stale_error"}
         ),
         ("specify", "orchestrator", "algebra", "regressions"),
     ),
@@ -97,7 +98,7 @@ TARGETS: dict[str, Target] = {
     "regressions": Target(
         frozenset(
             {"load", "_entry", "_is_int", "record", "_save", "module_file"}
-            | {"check_properties", "from_outcome"}
+            | {"check_properties", "from_outcome", "_texts"}
         ),
         ("regressions", "cli"),
     ),
@@ -112,7 +113,7 @@ TARGETS: dict[str, Target] = {
             | {"choice", "biased_bool", "infer", "_optional_inner", "lazy"}
             | {"_unsized", "floats", "_draw_string"}
             | {"_runs", "_joined", "_realigned", "_interleaving", "interleave"}
-            | {"examples"}
+            | {"examples", "map_set"}
         ),
         ("generate", "algebra"),
     ),
@@ -130,6 +131,16 @@ TARGETS: dict[str, Target] = {
         ),
         ("parallel",),
     ),
+    "reporter": Target(
+        frozenset({"reproduce_flags", "describe_failure", "_describe_example"}),
+        ("reporter", "cli"),
+    ),
+    "cli": Target(
+        frozenset({"show_examples", "_count", "_discover"}),
+        ("cli",),
+    ),
+    "canonical": Target(None, ("canonical", "regressions")),
+    "stateful": Target(None, ("stateful", "generate")),
     "cardinality": Target(None, ("cardinality", "generate")),
     "stream": Target(None, ("stream", "shrink")),
 }

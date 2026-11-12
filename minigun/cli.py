@@ -14,20 +14,27 @@ import argparse
 import functools
 import hashlib
 import importlib.util
+import json
 import os
+import secrets
 import sys
+import textwrap
 import types
 from pathlib import Path
+from typing import Any
 
-from minigun import __version__
+from minigun import __version__, canonical
 from minigun.orchestrator import OutputMode, RunConfig, TestModule, run
 from minigun.regressions import RegressionsError
+from minigun.reporter import format_arguments
 from minigun.specify import (
     Prop,
     Spec,
     SpecificationError,
     collect,
+    first_arguments,
     is_spec,
+    resolve_all,
     select,
 )
 
@@ -36,6 +43,7 @@ __all__ = [
     "discover_test_modules",
     "load_test_module",
     "select_properties",
+    "show_examples",
     "run_tests",
     "main",
 ]
@@ -202,6 +210,129 @@ def select_properties(
     return selected, unmatched
 
 
+def _discover(
+    test_dir: Path, modules: list[str] | None, patterns: list[str] | None
+) -> dict[str, Spec] | None:
+    """The whole specifications of the selected modules by name, checked
+    for the errors a run reports before it starts.
+
+    :return: The specifications, or None when an error was printed:
+        a missing test directory, broken modules, unknown module names,
+        selected modules without a specification, no modules, or
+        patterns matching no property.
+    """
+    try:
+        candidates = find_test_modules(test_dir)
+    except NotADirectoryError as error:
+        print(f"Error: {error}")
+        return None
+
+    if modules:
+        unknown = [name for name in modules if name not in candidates]
+        if unknown:
+            for name in unknown:
+                print(f"Error: Module '{name}' not found.")
+            print(f"Available modules: {', '.join(sorted(candidates))}")
+            return None
+    specs, broken = discover_test_modules(test_dir, modules or None)
+
+    if broken:
+        for name, reason in sorted(broken.items()):
+            print(f"Error: Test module '{name}' failed to load: {reason}")
+        return None
+    if modules:
+        missing = [name for name in modules if name not in specs]
+        if missing:
+            for name in missing:
+                print(f"Error: Module '{name}' exports no 'spec: Spec'")
+            return None
+        specs = {name: specs[name] for name in modules}
+    if not specs:
+        print(f"No test modules found in {test_dir}")
+        print("Tip: Test modules export a module-level 'spec: Spec'")
+        return None
+    if patterns:
+        _, unmatched = select_properties(specs, patterns)
+        if unmatched:
+            for pattern in unmatched:
+                print(f"Error: No property description contains '{pattern}'")
+            return None
+
+    return specs
+
+
+def show_examples(
+    n: int,
+    test_dir: Path = Path("tests"),
+    modules: list[str] | None = None,
+    output: OutputMode = OutputMode.RICH,
+    seed: int | None = None,
+    patterns: list[str] | None = None,
+) -> bool:
+    """Print the arguments of the first ``n`` attempts of each selected
+    property in a run with the seed, without running any law.
+
+    The arguments are those a run with the same seed tests the property
+    with (``specify.first_arguments``), so ``--examples`` shows what
+    ``--seed`` would test. Text is printed for the rich and quiet output
+    modes, a JSON document for the JSON mode.
+
+    :return: Whether every selected property's arguments were drawn.
+        Errors a run would report before starting, and generators that
+        discard nearly every draw, are reported and count as failure.
+    """
+    specs = _discover(test_dir, modules, patterns)
+    if specs is None:
+        return False
+    seed_value = seed if seed is not None else secrets.randbits(64)
+    shown: list[dict[str, Any]] = []
+    try:
+        if patterns:
+            specs, _ = select_properties(specs, patterns)
+        for name, spec in specs.items():
+            for resolved in resolve_all(spec):
+                shown.append(
+                    {
+                        "module": name,
+                        "name": resolved.prop.desc,
+                        "examples": first_arguments(resolved, seed_value, n),
+                    }
+                )
+    except (SpecificationError, ValueError) as error:
+        print(f"Error: {error}")
+        return False
+    if output is OutputMode.JSON:
+        document = {
+            "seed": seed_value,
+            "properties": [
+                {
+                    **entry,
+                    "examples": [
+                        {
+                            key: canonical.text(value)
+                            for key, value in args.items()
+                        }
+                        for args in entry["examples"]
+                    ],
+                }
+                for entry in shown
+            ],
+        }
+        print(json.dumps(document, indent=2))
+        return True
+    print(f"Seed: {seed_value}")
+    for entry in shown:
+        print(f"\n[{entry['module']}] {entry['name']}")
+        for index, args in enumerate(entry["examples"], start=1):
+            print(f"  Example {index}:")
+            print(
+                textwrap.indent(
+                    format_arguments(args) or "(no arguments)", "    "
+                )
+            )
+    return True
+
+
 def run_tests(
     time_budget: float,
     test_dir: Path = Path("tests"),
@@ -226,45 +357,13 @@ def run_tests(
     :return: Whether every selected module's specification holds. Broken
         modules, unknown module names, selected modules without a
         specification, patterns matching no property, unresolvable
-        specifications and unreadable or stale regressions files are
-        reported as errors and count as failure.
+        specifications, unreadable regressions files and entries naming
+        properties a module does not define are reported as errors and
+        count as failure.
     """
-    try:
-        candidates = find_test_modules(test_dir)
-    except NotADirectoryError as error:
-        print(f"Error: {error}")
+    specs = _discover(test_dir, modules, patterns)
+    if specs is None:
         return False
-
-    if modules:
-        unknown = [name for name in modules if name not in candidates]
-        if unknown:
-            for name in unknown:
-                print(f"Error: Module '{name}' not found.")
-            print(f"Available modules: {', '.join(sorted(candidates))}")
-            return False
-    specs, broken = discover_test_modules(test_dir, modules or None)
-
-    if broken:
-        for name, reason in sorted(broken.items()):
-            print(f"Error: Test module '{name}' failed to load: {reason}")
-        return False
-    if modules:
-        missing = [name for name in modules if name not in specs]
-        if missing:
-            for name in missing:
-                print(f"Error: Module '{name}' exports no 'spec: Spec'")
-            return False
-        specs = {name: specs[name] for name in modules}
-    if not specs:
-        print(f"No test modules found in {test_dir}")
-        print("Tip: Test modules export a module-level 'spec: Spec'")
-        return False
-    if patterns:
-        _, unmatched = select_properties(specs, patterns)
-        if unmatched:
-            for pattern in unmatched:
-                print(f"Error: No property description contains '{pattern}'")
-            return False
 
     # The whole specifications are run, pruned by the selection, so that
     # regressions files are checked against every property.
@@ -307,6 +406,19 @@ def _jobs(text: str) -> int:
     return jobs
 
 
+def _count(text: str) -> int:
+    """Parse ``--examples``: a positive count."""
+    try:
+        count = int(text)
+    except ValueError:
+        count = 0
+    if count < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got '{text}'"
+        )
+    return count
+
+
 def main() -> None:
     """The CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -328,6 +440,7 @@ Examples:
   minigun -t 30 --jobs auto                # One worker process per CPU
   minigun -t 30 --regressions tests/regressions  # Replay and record failures
   minigun -t 30 --verbose                  # Show each shrink path
+  minigun --examples 5 -k "reverse"        # Show what properties are tested with
   minigun --list-modules                   # List discovered test modules
         """,
     )
@@ -395,6 +508,14 @@ Examples:
         "found and those of every shrink step",
     )
     parser.add_argument(
+        "--examples",
+        "-e",
+        type=_count,
+        metavar="N",
+        help="Print the arguments of the first N attempts of each selected "
+        "property in a run with --seed, without running any law, and exit",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         type=OutputMode,
@@ -434,6 +555,35 @@ Examples:
             print(f"No test modules found in {args.test_dir}")
             print("Tip: Test modules export a module-level 'spec: Spec'")
         sys.exit(1 if broken else 0)
+
+    if args.examples is not None:
+        conflicting = [
+            flag
+            for flag, given in (
+                ("--time-budget", args.time_budget is not None),
+                ("--jobs", args.jobs != 1),
+                ("--regressions", args.regressions is not None),
+                ("--verbose", args.verbose),
+            )
+            if given
+        ]
+        if conflicting:
+            print(
+                "Error: --examples runs no tests and takes no "
+                + ", ".join(conflicting)
+            )
+            sys.exit(1)
+        shown = show_examples(
+            args.examples,
+            test_dir=args.test_dir,
+            modules=None
+            if args.modules is None
+            else list(dict.fromkeys(args.modules)),
+            output=args.output,
+            seed=args.seed,
+            patterns=args.select,
+        )
+        sys.exit(0 if shown else 1)
 
     if args.time_budget is None:
         print("Error: --time-budget is required to run tests")

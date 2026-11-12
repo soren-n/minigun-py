@@ -16,15 +16,19 @@ tasks:
   - ../minigun/__init__.py
   - ../minigun/arbitrary.py
   - ../minigun/budget.py
+  - ../minigun/canonical.py
   - ../minigun/cardinality.py
   - ../minigun/cli.py
+  - ../minigun/fixture.py
   - ../minigun/generate.py
   - ../minigun/orchestrator.py
+  - ../minigun/parallel.py
+  - ../minigun/regressions.py
   - ../minigun/reporter.py
   - ../minigun/search.py
   - ../minigun/shrink.py
   - ../minigun/specify.py
+  - ../minigun/stateful.py
   - ../minigun/stream.py
-  - ../minigun/util.py
   outputs:
   - build/html/index.html

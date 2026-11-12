@@ -168,6 +168,14 @@ To replay only the failing property, add :code:`--select` with part of its descr
 
     $ minigun --time-budget 30 --seed 5015299433215186410 --select "sensitivities"
 
+Every failure in the rich and quiet output ends with these flags spelled out, its module included, as in :code:`Reproduce with: --seed 5015299433215186410 --modules=lists --select='sensitivities hold'`, quoted for a POSIX shell, and the JSON output gives them as :code:`reproduce`.
+
+To see what a property is tested with without running it, :code:`--examples N` prints the arguments of the first N attempts of each selected property in a run with :code:`--seed` (a fresh seed, printed, when none is given). No law runs, so a slow or failing property can be looked at too:
+
+.. code-block:: shell
+
+    $ minigun --examples 3 --seed 5015299433215186410 --select "sensitivities"
+
 To use several cores, pass :code:`--jobs` with a number of worker processes, or :code:`auto` for one per CPU:
 
 .. code-block:: shell
@@ -184,7 +192,7 @@ A seed replays a failure on demand. To have every run replay it, before the fix 
 
 When a property fails, its counterexample is recorded in :code:`tests/regressions/<module>.json`, and from then on every run replays the property's recorded counterexamples before its own attempts. A replay that still fails is shrunk and reported like any counterexample, marked with the recorded seed and attempt; a replay that holds, because the bug was fixed, lets the property go on to its attempts. A failure found by a replay is not recorded again. :code:`check(spec, regressions="spec_regressions.json")` does the same with a single file.
 
-An entry records the seed of the run that found the failure and the index of the attempt that drew it, together with the shrunk arguments as text for whoever reads the file:
+An entry records the seed of the run that found the failure and the index of the attempt that drew it, the arguments that attempt drew, and the shrunk arguments for whoever reads the file, all as text:
 
 .. code-block:: json
 
@@ -192,11 +200,14 @@ An entry records the seed of the run that found the failure and the index of the
       "property": "sums stay small",
       "seed": 7,
       "attempt": 4,
+      "drawn": {"xs": "[64, 59, 53, 74, 82, 68, 91, 77]", "k": "12"},
       "arguments": {"xs": "[64, 59, 53, 74, 82, 68]", "k": "0"},
       "exception": null
     }
 
-A property's draws depend only on the seed and its description, so the entry draws exactly the same arguments again, and shrinking reaches the same counterexample, for as long as the property's generators are unchanged. Nothing is replayed from the recorded text, so no value has to survive being written to a file. After a generator changes, the entry replays whatever the generator now draws at that attempt, a value of the property's domain but no longer the recorded case; the text shows what it used to find, should you want to turn it into a test of its own. Keep the directory in version control so that everyone replays the same failures. Entries are only removed by hand, and an entry naming a property the module no longer defines is an error reported before anything runs, so renaming a property cannot silently drop the failures recorded for it.
+A property's draws depend only on the seed and its description, so the entry draws exactly the same arguments again, and shrinking reaches the same counterexample, for as long as the property's generators are unchanged. Nothing is replayed from the recorded text, so no value has to survive being written to a file. The text is canonical, the same in every process for the same value: set elements are listed in order of their own text rather than hash order, a :code:`random.Random` is shown by a digest of its state and memory addresses are left out (:code:`minigun.canonical`).
+
+After a generator changes, the entry's attempt draws something else, which no longer covers the recorded failure. The replay compares the text of what it draws with :code:`drawn`, and an entry that does not match is stale: it is not replayed, and its property fails, naming the stale entries, so the lost coverage cannot go unnoticed. Remove the stale entries, after turning the recorded case into a test of its own if it is worth keeping. A value whose :code:`repr` shows other per-process state, such as an object identifier, makes its entries stale in every other process; give its type a :code:`repr` of its own. A generator that draws in the iteration order of a set draws differently in every process too, since string hashes are salted per process: :code:`map_set` and :code:`one_of` reject a set for this reason, and :code:`subset_of` orders its values by their canonical text. Sort a set before drawing from it, as in :code:`g.one_of(sorted(names))`; :code:`list(names)` keeps the per-process order. Keep the directory in version control so that everyone replays the same failures. Entries are only removed by hand, and an entry naming a property the module no longer defines is an error reported before anything runs, so renaming a property cannot silently drop the failures recorded for it.
 
 A shrunk counterexample can be surprising. :code:`--verbose` shows how it was reached: the arguments first found, then, at each accepted shrink step, the arguments it changed:
 
@@ -460,6 +471,8 @@ A property that passes says nothing about the cases it never drew, and generator
     >>> g.examples(g.dicts(g.ints(), g.ints()), n=3, seed=1)
     [{4: 2}, {2: -10, -32: -42, -74: -938, 10: -3, 8: 35, 4: 132, -3: 94}, {}]
 
+For a property in a test module, :code:`minigun --examples N --select "<part of its description>"` prints the arguments of its first N attempts, all its parameters together, without running the law (see Basic usage).
+
 Examples show what values look like, but not how often the interesting cases come up. For that, a law labels its attempts with :code:`minigun.label(name)`, and the run reports what fraction of the tested attempts carried each label:
 
 .. literalinclude:: ../../examples/distribution.py
@@ -545,6 +558,41 @@ Notice how the property is expressed at a high level: we simply state that runni
     If you would like to see an example of modeling in the real world, we would like to plug Typeset (one of our other projects); where modeling is used to test a more complex and performant implementation of a compiler of a DSL for pretty printers, via a much simpler and slower implementation of the compiler.
 
     `Typeset - An embedded DSL for defining source code pretty printers <https://github.com/soren-n/typeset-py>`_
+
+State machines
+^^^^^^^^^^^^^^
+The stack example built every piece by hand: the denotation of programs, their generator and shrinker, and the evaluator. :code:`minigun.stateful` provides those pieces for any system with mutable state. We describe each command once: how it draws its arguments, when it may run (its precondition, over the model), how it changes the model (its next state) and what it must return (its postcondition, over the model before it ran). :code:`programs(machine)` then draws programs whose every step meets its precondition, and :code:`Program.run` runs one against a fresh system, checking every result against the model.
+
+Let us consider a key-value store that keeps a count of its entries, and a leaky one that forgets to count down when a key is deleted:
+
+.. literalinclude:: ../../examples/stateful.py
+   :language: python
+   :start-after: # -- start: system --
+   :end-before: # -- end: system --
+
+The model is a plain dict. It must never be changed in place, because generation and shrinking replay it through a program many times, so each next state is a new dict. Every function of a command gets the command's arguments, None for a command without :code:`arguments`. A deletion draws its key from the model, and says so in its precondition: the arguments function returns None when the model is empty, meaning the command cannot run yet, and the precondition keeps a shrunk program from deleting a key whose put was removed:
+
+.. literalinclude:: ../../examples/stateful.py
+   :language: python
+   :start-after: # -- start: machine --
+   :end-before: # -- end: machine --
+
+The property runs each program against a fresh store:
+
+.. literalinclude:: ../../examples/stateful.py
+   :language: python
+   :start-after: # -- start: property --
+   :end-before: # -- end: property --
+
+The store holds. Checking the leaky store instead, with :code:`check(behaves("leaky store behaves like a dict", LeakyStore))`, fails within a few attempts, and the program shrinks to the three steps that show the bug:
+
+.. code-block:: text
+
+    FAIL: leaky store behaves like a dict
+    A test case of "leaky store behaves like a dict" raised ModelMismatch: Step 3, size(), returned 1, which its postcondition rejects in the model {}
+    program = [put('a', 0), delete('a'), size()]
+
+A failing program shrinks by removing steps, largest chunks first, then by shrinking the arguments of single steps, and only programs whose every step meets its precondition are tried. A run raises :code:`ModelMismatch` at the first step whose postcondition rejects its result, saying which step it was and in which model; an exception the system raises itself propagates as it is. The key above may shrink to :code:`'b'` or :code:`'c'` instead of :code:`'a'` in another run: the delete's key was drawn from the model, so changing the put's key alone would make the delete invalid.
 
 Nondeterminism
 ^^^^^^^^^^^^^^
@@ -634,14 +682,14 @@ A :code:`RunConfig` with :code:`jobs` greater than one evaluates in worker proce
 
 The other options of the CLI are fields of :code:`RunConfig` too. :code:`select` holds the patterns of :code:`--select`: give :code:`run` whole specifications and it prunes them itself, raising :code:`SpecificationError` for a pattern that matches no property. :code:`regressions` is the directory of :code:`--regressions`, whose files are checked against every property, selected or not, before anything runs, raising :code:`RegressionsError` from :code:`minigun.regressions` for a file it cannot read or an entry naming a property the module does not define. :code:`verbose` shows shrink paths.
 
-Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample. An optional :code:`on_found` callback receives each counterexample that makes a property fail as soon as it is found, before it is shrunk, and :code:`Allowance(shrink_deadline=...)` bounds the shrinking with a :code:`time.perf_counter` instant. An optional :code:`recorded_for` callback gives each property recorded draws to replay before its attempts, as pairs of a seed and an attempt index; a counterexample's :code:`seed` is set when it came from one, and its :code:`path` holds the arguments of every shrink step.
+Below that, :code:`minigun.specify.evaluate` runs a specification with an allowance of your choosing and hands every property's :code:`Outcome` to a callback: whether it held, attempts and discards, the counterexample with the attempt that found it, and the reason when the failure is not a counterexample. An optional :code:`on_found` callback receives each counterexample that makes a property fail as soon as it is found, before it is shrunk, and :code:`Allowance(shrink_deadline=...)` bounds the shrinking with a :code:`time.perf_counter` instant. An optional :code:`recorded_for` callback gives each property recorded draws to replay before its attempts, as :code:`Recorded` values of a seed, an attempt index and the canonical text of what it drew (:code:`drawn_text` of :code:`redraw`), and an outcome's :code:`stale` lists those that drew something else; a counterexample's :code:`seed` is set when it came from one, and its :code:`path` holds the arguments of every shrink step.
 
 .. literalinclude:: ../../examples/programmatic.py
    :language: python
    :start-after: # -- start: evaluate --
    :end-before: # -- end: evaluate --
 
-Both resolve the specification before anything runs, raising :code:`SpecificationError` for a parameter without a generator or a duplicate description.
+Both resolve the specification before anything runs, raising :code:`SpecificationError` for a parameter without a generator or a duplicate description. :code:`minigun.specify.first_arguments(resolve(prop), seed, n)` gives the arguments of a property's first :code:`n` attempts in a run with a seed, as :code:`--examples` prints them.
 
 Summary
 -------
@@ -657,7 +705,7 @@ Let us end this tutorial with a brief summary of what we covered:
 * Learned how to make user defined generators and shrinkers.
 * Learned about bounded domains, preconditions and declaring effort.
 * Learned how to look at the test data with examples, labels and coverage requirements.
-* Learned about modeling.
+* Learned about modeling, and testing systems with mutable state as state machines.
 * Learned about testing nondeterministic systems by generating random operation orderings.
 * Learned about filesystem fixtures and running specifications from your own tools.
 

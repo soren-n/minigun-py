@@ -70,6 +70,18 @@ minigun.reporter module
 .. automodule:: minigun.reporter
    :members:
 
+minigun.stateful module
+=======================
+
+.. automodule:: minigun.stateful
+   :members:
+
+minigun.canonical module
+========================
+
+.. automodule:: minigun.canonical
+   :members:
+
 minigun.fixture module
 ======================
 

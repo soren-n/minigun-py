@@ -31,7 +31,10 @@ from minigun.specify import (
     collect,
     conj,
     context,
+    drawn_text,
     prop,
+    redraw,
+    resolve,
 )
 from tests._parallel import (
     EVERY_KIND,
@@ -531,8 +534,18 @@ def _remote_pickles(type_name: str, text: str) -> bool:
 )
 def _agrees_replaying(seed: int, jobs: int, shapes: list[Shape]) -> bool:
     shapes = [EVERY_KIND, *shapes]
+    # A draw a filter discards is recorded with no arguments, so it is
+    # stale, as it is in either evaluation.
     recorded = {
-        prop.desc: [(seed + 1, 0), (seed + 2, 1)]
+        prop.desc: [
+            Recorded(
+                run,
+                attempt,
+                drawn_text(redraw(resolve(prop), run, attempt).dissection)
+                or {},
+            )
+            for run, attempt in ((seed + 1, 0), (seed + 2, 1))
+        ]
         for index, shape in enumerate(shapes)
         for prop in collect(build(index, shape))
     }

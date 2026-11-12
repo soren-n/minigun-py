@@ -38,9 +38,11 @@ label on a fraction of the attempts; a property whose attempts show with
 overwhelming confidence that the requirement is unmet fails.
 
 A property can be given recorded draws to replay: the run seed and attempt
-index of failing draws from earlier runs. A property's draws depend only on
-the seed and its description, so each is drawn again exactly, and is
-evaluated before the property's own attempts.
+index of failing draws from earlier runs, with the canonical text of what
+they drew. A property's draws depend only on the seed and its description,
+so each is drawn again exactly, and is evaluated before the property's own
+attempts; one that draws something else than it recorded is stale, because
+a generator changed, and the property fails.
 """
 
 from __future__ import annotations
@@ -55,9 +57,11 @@ from dataclasses import dataclass, field
 from typing import Any, TypeGuard, assert_never, get_type_hints
 
 from minigun import arbitrary as a
+from minigun import canonical
 from minigun import cardinality as c
 from minigun import generate as g
 from minigun import search as s
+from minigun import shrink as sh
 from minigun.search import Discard, assume, cover, discard, label
 
 
@@ -101,7 +105,9 @@ __all__ = [
     "OnOutcome",
     "OnFound",
     "property_rng",
+    "drawn_text",
     "redraw",
+    "first_arguments",
     "evaluate_property",
     "evaluate",
 ]
@@ -410,6 +416,21 @@ class Allowance:
 
 
 @dataclass(frozen=True)
+class Recorded:
+    """A failing draw recorded by an earlier run.
+
+    :param seed: The seed of the run that drew it.
+    :param attempt: The zero-based index of the attempt that drew it.
+    :param drawn: The canonical text of the arguments it drew by name
+        (``drawn_text``), which its replay must draw again.
+    """
+
+    seed: int
+    attempt: int
+    drawn: dict[str, str]
+
+
+@dataclass(frozen=True)
 class Outcome:
     """The outcome of evaluating one property.
 
@@ -429,6 +450,9 @@ class Outcome:
     :param coverage: The required fraction of each covered label.
     :param replayed: Recorded draws replayed before the attempts on which
         the law was evaluated.
+    :param stale: Recorded draws that no longer draw the arguments they
+        drew when recorded, so a generator changed; they are not replayed
+        and the property does not hold.
     """
 
     desc: str
@@ -442,6 +466,7 @@ class Outcome:
     labels: dict[str, int] = field(default_factory=dict)
     coverage: dict[str, float] = field(default_factory=dict)
     replayed: int = 0
+    stale: tuple[Recorded, ...] = ()
 
     @property
     def evaluations(self) -> int:
@@ -451,10 +476,6 @@ class Outcome:
 
 #: Decides the allowance of a resolved property.
 type AllowanceFor = Callable[[Resolved], Allowance]
-
-#: A failing draw recorded by an earlier run: that run's seed and the
-#: zero-based index of the attempt that drew it.
-type Recorded = tuple[int, int]
 
 #: The recorded draws a property replays before its own attempts.
 type RecordedFor = Callable[[Prop], Sequence[Recorded]]
@@ -564,20 +585,31 @@ def _judge(
     return negated, None
 
 
-def redraw(resolved: Resolved, recorded: Recorded) -> s.Replay:
-    """Draw a recorded attempt of a property again.
+def drawn_text(
+    dissection: sh.Dissection[dict[str, Any]] | None,
+) -> dict[str, str] | None:
+    """The canonical text of drawn arguments by name, or None for a
+    discarded draw."""
+    if dissection is None:
+        return None
+    return {
+        name: canonical.text(value) for name, value in dissection.head.items()
+    }
+
+
+def redraw(resolved: Resolved, seed: int, attempt: int) -> s.Replay:
+    """Draw an attempt of a property in a run again.
 
     The attempts of a run draw in sequence from the property's source, and
     the law never draws from it, so the attempts before the recorded one
     are drawn and dropped without evaluating the law.
 
     :param resolved: The property.
-    :param recorded: The seed of the run that drew it and its attempt
-        index.
+    :param seed: The seed of the run.
+    :param attempt: The zero-based index of the attempt.
 
     :raises ValueError: When the attempt index is negative.
     """
-    seed, attempt = recorded
     if attempt < 0:
         raise ValueError(f"redraw requires attempt >= 0, got {attempt}")
     rng = property_rng(seed, resolved.prop.desc)
@@ -585,6 +617,41 @@ def redraw(resolved: Resolved, recorded: Recorded) -> s.Replay:
     for _ in range(attempt):
         arguments.sample(rng)
     return s.Replay(seed, attempt, arguments.sample(rng))
+
+
+def first_arguments(
+    resolved: Resolved, seed: int, n: int
+) -> list[dict[str, Any]]:
+    """The arguments of the first ``n`` attempts of a property in a run
+    with the given seed whose draws its generators keep, for looking at
+    what the property is tested with.
+
+    These are the arguments the run's attempts draw, in order, skipping
+    draws a generator discards; an attempt whose arguments the law
+    rejects with ``assume`` is included, since the law is not evaluated.
+
+    :raises ValueError: When ``n`` is negative, or when the generators
+        discard so many draws that ``n`` arguments take more than
+        ``generate.EXAMPLE_DRAWS_PER_VALUE * n`` draws.
+    """
+    if n < 0:
+        raise ValueError(f"first_arguments requires n >= 0, got {n}")
+    rng = property_rng(seed, resolved.prop.desc)
+    arguments = g.argument_pack(resolved.generators)
+    kept: list[dict[str, Any]] = []
+    draws = g.EXAMPLE_DRAWS_PER_VALUE * n
+    for _ in range(draws):
+        if len(kept) == n:
+            break
+        dissection = arguments.sample(rng)
+        if dissection is not None:
+            kept.append(dissection.head)
+    if len(kept) < n:
+        raise ValueError(
+            f'The generators of "{resolved.prop.desc}" discarded all but '
+            f"{len(kept)} of {draws} draws; {n} arguments were requested"
+        )
+    return kept
 
 
 def evaluate_property(
@@ -604,10 +671,20 @@ def evaluate_property(
     :param on_found: Invoked when a counterexample is found that makes the
         property fail, before it is shrunk; never invoked under negation.
     :param recorded: Failing draws recorded by earlier runs, drawn again
-        and replayed in order before the property's own attempts.
+        and replayed in order before the property's own attempts. One that
+        no longer draws its recorded arguments is stale: it is not
+        replayed, and the property does not hold.
     """
     prop = resolved.prop
     started = time.perf_counter()
+    replays: list[s.Replay] = []
+    stale: list[Recorded] = []
+    for entry in recorded:
+        replay = redraw(resolved, entry.seed, entry.attempt)
+        if drawn_text(replay.dissection) == entry.drawn:
+            replays.append(replay)
+        else:
+            stale.append(entry)
     search = s.find_counter_example(
         property_rng(seed, prop.desc),
         prop.law,
@@ -616,10 +693,15 @@ def evaluate_property(
         allowance.deadline,
         allowance.shrink_deadline,
         None if negated else on_found,
-        [redraw(resolved, entry) for entry in recorded],
+        replays,
     )
     duration = time.perf_counter() - started
     holds, error = _judge(resolved, search, negated)
+    if stale:
+        holds = False
+        error = _stale_error(prop.desc, stale) + (
+            "" if error is None else f"\n{error}"
+        )
     return Outcome(
         prop.desc,
         negated,
@@ -632,6 +714,19 @@ def evaluate_property(
         search.labels,
         search.coverage,
         search.replayed,
+        tuple(stale),
+    )
+
+
+def _stale_error(desc: str, stale: list[Recorded]) -> str:
+    entries = ", ".join(
+        f"attempt {entry.attempt + 1} of seed {entry.seed}" for entry in stale
+    )
+    return (
+        f'Property "{desc}" has recorded counter examples that no longer '
+        "draw the arguments they drew when recorded, so one of its "
+        f"generators changed: {entries}. They no longer cover the failures "
+        "they recorded; remove them from the regressions file"
     )
 
 

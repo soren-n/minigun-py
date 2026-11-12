@@ -776,9 +776,9 @@ def _redraw(failing: int, seed: int) -> bool:
     example = outcome.counter_example
     if example is None:
         return False
-    replay = sp.redraw(resolved, (seed, example.attempt))
+    replay = sp.redraw(resolved, seed, example.attempt)
     try:
-        sp.redraw(resolved, (seed, -1))
+        sp.redraw(resolved, seed, -1)
         negative_rejected = False
     except ValueError:
         negative_rejected = True
@@ -791,7 +791,52 @@ def _redraw(failing: int, seed: int) -> bool:
     )
 
 
+@context(g.int_range(0, 20))
+@prop("first_arguments are the arguments of a run's first tested attempts")
+def _first_arguments(n: int, seed: int) -> bool:
+    tested: list[dict[str, int]] = []
+
+    # Half the draws are discarded, so attempts and arguments differ.
+    @context(
+        g.filter(lambda x: x % 2 == 0, g.int_range(0, 10**6)),
+        g.int_range(-5, 5),
+    )
+    @prop("records its arguments")
+    def _law(x: int, y: int) -> bool:
+        tested.append({"x": x, "y": y})
+        return len(tested) < n
+
+    resolved = sp.resolve(_law)
+    sp.evaluate_property(seed, resolved, False, sp.Allowance(10**4))
+    first = sp.first_arguments(resolved, seed, n)
+    try:
+        sp.first_arguments(resolved, seed, -1)
+        negative_rejected = False
+    except ValueError:
+        negative_rejected = True
+
+    @context(g.filter(lambda x: False, g.int_range(0, 9)))
+    @prop("discards everything")
+    def _never(x: int) -> bool:
+        return True
+
+    try:
+        sp.first_arguments(sp.resolve(_never), seed, n)
+        discarding_rejected = n == 0
+    except ValueError as error:
+        discarding_rejected = n > 0 and "discards everything" in str(error)
+    return (
+        first == tested[:n]
+        and len(first) == n
+        # The boundary on every attempt, not only when n is drawn as 0.
+        and sp.first_arguments(resolved, seed, 0) == []
+        and negative_rejected
+        and discarding_rejected
+    )
+
+
 spec = conj(
+    _first_arguments,
     _truth,
     _exhaustive,
     _select,

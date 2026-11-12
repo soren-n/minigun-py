@@ -10,8 +10,9 @@ specifications from a loader per module: a picklable callable returning
 the module's specification. Outcomes are reported in the order a
 sequential run reports them; the property at the head of that order is
 reported live, the others when their turn comes. A counterexample
-argument or exception that does not survive pickling is sent back by its
-``repr``, as are the arguments of its shrink path. A property's recorded
+argument that does not survive pickling is sent back by its canonical
+text (``minigun.canonical``), as are the arguments of its shrink path,
+and such an exception by its type name and message. A property's recorded
 draws are sent with it and drawn again in the worker.
 """
 
@@ -34,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from minigun import fixture, specify
+from minigun import canonical, fixture, specify
 from minigun.search import CounterExample
 from minigun.specify import (
     Allowance,
@@ -85,7 +86,7 @@ class RemoteException(Exception):
 
 class Shown:
     """A counterexample argument that could not be sent back from a
-    worker, standing in for it by its ``repr``."""
+    worker, standing in for it by its canonical text."""
 
     def __init__(self, text: str):
         self.text = text
@@ -118,7 +119,7 @@ def _round_trips(value: Any) -> bool:
 
 def _portable_args(args: dict[str, Any]) -> dict[str, Any]:
     return {
-        name: value if _round_trips(value) else Shown(repr(value))
+        name: value if _round_trips(value) else Shown(canonical.text(value))
         for name, value in args.items()
     }
 

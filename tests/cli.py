@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import shlex
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -12,9 +13,10 @@ import minigun.cli as cli
 import minigun.fixture as f
 import minigun.generate as g
 import minigun.regressions as rg
-from minigun import assume, check
+import minigun.specify as sp
+from minigun import assume, canonical, check
 from minigun.orchestrator import OutputMode
-from minigun.specify import conj, context, prop
+from minigun.specify import conj, context, prop, resolve_all
 
 _SOURCES: dict[str, str] = {
     "valid": (
@@ -496,7 +498,7 @@ def _parallel(value: int, seed: int) -> bool:
     )
 
 
-@prop("--regressions records a failure, replays it and rejects a stale file")
+@prop("--regressions records, replays, and fails stale and unknown entries")
 def _regressions(seed: int) -> bool:
     directory = f.temporary_path()
     kept = directory / "regressions"
@@ -510,8 +512,14 @@ def _regressions(seed: int) -> bool:
         [*common, "-s", str(seed + 1), "--verbose"]
     )
     replayed = _tests(second).get("beta fails", {}).get("counter_example") or {}
-    rg.record(kept / "a.json", rg.Regression("gone", 0, 0, {}))
-    stale_code, stale = _main([*common, "-o", "quiet", "-k", "beta"])
+    # A source of another length: one of the same length written within
+    # the same second would be imported from its stale bytecode.
+    (directory / "b.py").write_text(
+        _named_module("beta fails", 50).replace("(0, 100)", "(10, 1000)")
+    )
+    changed_code, changed = _main([*common, "-o", "quiet", "-k", "beta"])
+    rg.record(kept / "a.json", rg.Regression("gone", 0, 0, {}, {}))
+    unknown_code, unknown = _main([*common, "-o", "quiet", "-k", "beta"])
     return (
         first_code == 1
         and f"Recorded in {kept / 'b.json'}" in first
@@ -522,14 +530,170 @@ def _regressions(seed: int) -> bool:
         and replayed.get("seed") == seed
         and replayed.get("attempt") == entries[0].attempt
         and "path" in replayed
-        and stale_code == 1
-        and "Error: The regressions file" in stale
-        and '"gone"' in stale
-        and "Tests:" not in stale
+        and changed_code == 1
+        and "no longer draw the arguments they drew" in changed
+        and f"attempt {entries[0].attempt + 1} of seed {seed}" in changed
+        and unknown_code == 1
+        and "Error: The regressions file" in unknown
+        and '"gone"' in unknown
+        and "Tests:" not in unknown
+    )
+
+
+_TRICKY_DESCS = [
+    "beta fails",
+    "it's 'quoted'",
+    'a "double" $HOME `x` fails',
+    "-dash",
+    "--select",
+]
+
+
+@context(g.one_of(_TRICKY_DESCS))
+@prop("a failure's reproduce flags run it alone to the same counterexample")
+def _reproduce(desc: str, seed: int) -> bool:
+    directory = f.temporary_path()
+    (directory / "a.py").write_text(_named_module("alpha holds", 101))
+    (directory / "b.py").write_text(_named_module(desc, 50))
+    common = ["-t", "0.2", "-d", str(directory)]
+    code, data = _json_main([*common, "-s", str(seed)])
+    flags = _tests(data).get(desc, {}).get("reproduce")
+    if not isinstance(flags, str):
+        return False
+    again_code, again = _json_main([*common, *shlex.split(flags)])
+    quiet_code, quiet = _main([*common, "-o", "quiet", "-s", str(seed)])
+    return (
+        code == 1
+        and _tests(data)["alpha holds"]["reproduce"] is None
+        and again_code == 1
+        and list(_tests(again)) == [desc]
+        and _tests(again)[desc]["counter_example"]
+        == _tests(data)[desc]["counter_example"]
+        and quiet_code == 1
+        and f"  Reproduce with: {flags}" in quiet
+    )
+
+
+def _examples_module() -> str:
+    # The laws fail, raise, and write a file, so running any is visible.
+    return (
+        "from pathlib import Path\n"
+        "import minigun.generate as g\n"
+        "from minigun.specify import conj, context, prop\n"
+        "@context(g.filter(lambda x: x % 3 != 0, g.int_range(0, 10**6)))\n"
+        "@prop('first examples')\n"
+        "def _p(x: int) -> bool:\n"
+        "    Path(__file__).with_name('ran').write_text('')\n"
+        "    raise RuntimeError\n"
+        "@context(g.sets(g.strings()))\n"
+        "@prop('second examples')\n"
+        "def _q(xs: set[str]) -> bool:\n"
+        "    return False\n"
+        "spec = conj(_p, _q)\n"
+    )
+
+
+@context(g.int_range(1, 4))
+@prop("--examples prints the arguments a run would test, running no law")
+def _examples(n: int, seed: int) -> bool:
+    directory = f.temporary_path()
+    (directory / "m.py").write_text(_examples_module())
+    common = ["-d", str(directory), "-e", str(n), "-s", str(seed)]
+    code, text = _main(common)
+    again_code, again = _main(common)
+    json_code, data = _json_main([*common, "-k", "second"])
+    specs, _ = cli.discover_test_modules(directory)
+    resolved = {r.prop.desc: r for r in resolve_all(specs["m"])}
+    expected = {
+        desc: sp.first_arguments(r, seed, n) for desc, r in resolved.items()
+    }
+    shown_first = [
+        f"    x = {args['x']}" for args in expected["first examples"]
+    ]
+    lines = text.splitlines()
+    return (
+        code == 0
+        and (again_code, again) == (code, text)
+        and lines[0] == f"Seed: {seed}"
+        and "[m] first examples" in lines
+        and "[m] second examples" in lines
+        and text.count("  Example ") == 2 * n
+        and lines.count(f"  Example {n}:") == 2
+        and lines.count("  Example 1:") == 2
+        and [line for line in lines if line.startswith("    x = ")]
+        == shown_first
+        and not (directory / "ran").exists()
+        and json_code == 0
+        and data is not None
+        and data["seed"] == seed
+        and [p["name"] for p in data["properties"]] == ["second examples"]
+        and data["properties"][0]["examples"]
+        == [
+            {"xs": canonical.text(args["xs"])}
+            for args in expected["second examples"]
+        ]
+    )
+
+
+@context(g.one_of(["unknown module", "discards", "duplicate"]))
+@prop("--examples fails on what a run would reject or cannot draw")
+def _examples_errors(case: str) -> bool:
+    directory = f.temporary_path()
+    (directory / "m.py").write_text(_examples_module())
+    flags = ["-d", str(directory), "-e", "2"]
+    if case == "unknown module":
+        flags += ["-m", "absent"]
+    elif case == "discards":
+        (directory / "n.py").write_text(
+            _named_module("never drawn", 101).replace(
+                "g.int_range(0, 100)", "g.filter(lambda x: False, g.ints())"
+            )
+        )
+    else:
+        (directory / "n.py").write_text(
+            "from minigun.specify import conj, prop\n"
+            "@prop('twice')\n"
+            "def _a(x: int) -> bool:\n"
+            "    return True\n"
+            "@prop('twice')\n"
+            "def _b(x: int) -> bool:\n"
+            "    return True\n"
+            "spec = conj(_a, _b)\n"
+        )
+    code, text = _main(flags)
+    return code == 1 and "Error:" in text and "Example" not in text
+
+
+@context(
+    g.one_of(
+        [
+            ["-t", "1"],
+            ["-j", "2"],
+            ["-r", "regressions"],
+            ["--verbose"],
+            ["-e", "0"],
+            ["-e", "x"],
+        ]
+    )
+)
+@prop("--examples takes a positive count and no flags of a run")
+def _examples_flags(flags: list[str]) -> bool:
+    directory = f.temporary_path()
+    (directory / "m.py").write_text(_examples_module())
+    count = [] if flags[0] == "-e" else ["-e", "1"]
+    code, text = _main(["-d", str(directory), *count, *flags])
+    return (
+        code != 0
+        and not (directory / "ran").exists()
+        and (flags[0] == "-e" or "--examples runs no tests" in text)
     )
 
 
 spec = conj(
+    _reproduce,
+    _examples,
+    _examples_flags,
+    _examples_errors,
     _discovery,
     _missing_dir,
     _run_tests,

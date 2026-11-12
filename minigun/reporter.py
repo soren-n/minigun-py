@@ -26,6 +26,7 @@ import io
 import itertools
 import json
 import pprint
+import shlex
 import sys
 import textwrap
 import time
@@ -48,6 +49,7 @@ __all__ = [
     "format_arguments",
     "describe_failure",
     "describe_found",
+    "reproduce_flags",
     "describe_path",
     "format_distribution",
     "ModuleResult",
@@ -109,23 +111,42 @@ def _replayed(example: CounterExample) -> str:
     )
 
 
-def describe_failure(outcome: Outcome) -> str:
-    """One paragraph explaining why an outcome did not hold."""
-    if outcome.error is not None:
-        return outcome.error
-    example = outcome.counter_example
-    if example is None:
-        return f'Property "{outcome.desc}" did not hold'
+def _describe_example(desc: str, example: CounterExample) -> str:
     notes = f"{_not_minimal(example)}{_replayed(example)}"
     if example.exception is not None:
         return (
-            f'A test case of "{outcome.desc}" raised '
+            f'A test case of "{desc}" raised '
             f"{exception_name(example.exception)}: {example.exception}\n"
             f"{format_arguments(example.args)}{notes}"
         )
     return (
-        f'A test case of "{outcome.desc}" failed with the following counter '
+        f'A test case of "{desc}" failed with the following counter '
         f"example:\n{format_arguments(example.args)}{notes}"
+    )
+
+
+def describe_failure(outcome: Outcome) -> str:
+    """Why an outcome did not hold: its error, its counterexample, or
+    both, a paragraph each."""
+    example = outcome.counter_example
+    paragraphs = [] if outcome.error is None else [outcome.error]
+    if example is not None:
+        paragraphs.append(_describe_example(outcome.desc, example))
+    if not paragraphs:
+        return f'Property "{outcome.desc}" did not hold'
+    return "\n".join(paragraphs)
+
+
+def reproduce_flags(seed: int, module: str, desc: str) -> str:
+    """The command line flags that run one property of a run again: the
+    seed, its module and its description as the selection, quoted for a
+    POSIX shell. A selected property draws what it draws in the full run,
+    so the run fails again on the same attempt."""
+    # The values are attached with "=", so one starting with a dash is
+    # not taken for a flag.
+    return (
+        f"--seed {seed} --modules={shlex.quote(module)} "
+        f"--select={shlex.quote(desc)}"
     )
 
 
@@ -431,6 +452,10 @@ class QuietReporter(Reporter):
                         print(textwrap.indent(path, "  "))
                     if outcome.desc in self.recorded_in:
                         print(f"  Recorded in {self.recorded_in[outcome.desc]}")
+                    flags = reproduce_flags(
+                        self.seed, module.name, outcome.desc
+                    )
+                    print(f"  Reproduce with: {flags}")
         print(f"Reproduce with: --seed {self.seed}")
 
 
@@ -525,9 +550,12 @@ class RichReporter(Reporter):
             )
         if outcome.holds:
             return
+        flags = reproduce_flags(
+            self.seed, self._current_module().name, outcome.desc
+        )
         self.console.print(
             Panel(
-                describe_failure(outcome),
+                f"{describe_failure(outcome)}\nReproduce with: {flags}",
                 title="[red]Failure[/red]",
                 title_align="left",
                 border_style="red",
@@ -650,7 +678,7 @@ class JSONReporter(Reporter):
     def found_counter_example(self, desc: str, example: CounterExample) -> None:
         _announce(self._current_module().name, desc, example, self.seed)
 
-    def _outcome(self, outcome: Outcome) -> dict[str, Any]:
+    def _outcome(self, module: str, outcome: Outcome) -> dict[str, Any]:
         example = outcome.counter_example
         plan = self.plans.get(outcome.desc)
         return {
@@ -688,7 +716,14 @@ class JSONReporter(Reporter):
             "labels": dict(outcome.labels),
             "coverage": dict(outcome.coverage),
             "replayed": outcome.replayed,
+            "stale": [
+                {"seed": entry.seed, "attempt": entry.attempt}
+                for entry in outcome.stale
+            ],
             "recorded": self.recorded_in.get(outcome.desc),
+            "reproduce": None
+            if outcome.holds
+            else reproduce_flags(self.seed, module, outcome.desc),
             "domain_size": None if plan is None else str(plan.cardinality),
             "attempt_limit": None if plan is None else plan.attempt_limit,
         }
@@ -713,7 +748,9 @@ class JSONReporter(Reporter):
             "modules": [
                 {
                     "name": module.name,
-                    "tests": [self._outcome(o) for o in module.outcomes],
+                    "tests": [
+                        self._outcome(module.name, o) for o in module.outcomes
+                    ],
                     "passed": module.passed,
                     "failed": module.failed,
                     "total": module.total,

@@ -9,11 +9,16 @@ draws depend only on the seed and its description, so an entry draws the
 same arguments again for as long as the property's generators are
 unchanged, and shrinking then reaches the same counterexample.
 
-The arguments and the exception are recorded as text, for reading only:
-nothing is replayed from them, so no value is serialized. When a generator
-changes, an entry draws whatever the generator now draws at that attempt,
-still a value of the property's domain, and the recorded text shows what
-the entry used to find.
+An entry also keeps the canonical text (``minigun.canonical``) of the
+arguments the attempt drew. When a generator changes, the attempt draws
+something else; the replay compares the text of what it draws with the
+recorded text, and an entry that no longer matches is stale: its
+property fails, saying which entries to remove, instead of silently
+replaying a draw that no longer covers the bug.
+
+The shrunk arguments and the exception are also recorded as text, for
+reading only: nothing is replayed from the text, so no value is
+serialized.
 
 A file is JSON, written whole through a temporary file so a run that stops
 midway never leaves it half written. Entries are kept in the order they
@@ -29,8 +34,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from minigun import canonical
 from minigun.parallel import exception_name
-from minigun.specify import Outcome
+from minigun.specify import Outcome, Recorded
 
 __all__ = [
     "FORMAT",
@@ -48,7 +54,7 @@ __all__ = [
 FORMAT = "minigun-regressions"
 
 #: The version of the format this module reads and writes.
-VERSION = 1
+VERSION = 2
 
 _NOTE = (
     "Failing draws recorded by minigun, each replayed before its "
@@ -56,7 +62,9 @@ _NOTE = (
     "an entry to stop replaying it."
 )
 
-_KEYS = frozenset({"property", "seed", "attempt", "arguments", "exception"})
+_KEYS = frozenset(
+    {"property", "seed", "attempt", "drawn", "arguments", "exception"}
+)
 _TOP_KEYS = frozenset({"format", "version", "note", "regressions"})
 
 
@@ -72,8 +80,10 @@ class Regression:
     :param desc: The description of the property it falsified.
     :param seed: The seed of the run that drew it.
     :param attempt: The zero-based index of the attempt that drew it.
-    :param arguments: The shrunk counterexample's arguments as their
-        ``repr``, for reading.
+    :param drawn: The canonical text of the arguments the attempt drew,
+        by name, which a replay checks it draws again.
+    :param arguments: The shrunk counterexample's arguments as canonical
+        text, for reading.
     :param exception: The exception the law raised on them as
         ``Type: message``, or None when the law returned False.
     """
@@ -81,6 +91,7 @@ class Regression:
     desc: str
     seed: int
     attempt: int
+    drawn: dict[str, str]
     arguments: dict[str, str]
     exception: str | None = None
 
@@ -88,6 +99,11 @@ class Regression:
     def key(self) -> tuple[str, int, int]:
         """What identifies the draw: the property, seed and attempt."""
         return self.desc, self.seed, self.attempt
+
+    @property
+    def recorded(self) -> Recorded:
+        """The draw for its property to replay."""
+        return Recorded(self.seed, self.attempt, dict(self.drawn))
 
 
 def module_file(directory: Path, module: str) -> Path:
@@ -112,6 +128,7 @@ def _entry(path: Path, index: int, entry: Any) -> Regression:
     desc = entry["property"]
     seed = entry["seed"]
     attempt = entry["attempt"]
+    drawn = entry["drawn"]
     arguments = entry["arguments"]
     exception = entry["exception"]
     if not isinstance(desc, str):
@@ -120,14 +137,22 @@ def _entry(path: Path, index: int, entry: Any) -> Regression:
         raise _bad(f"has a seed that is not an integer: {seed!r}")
     if not _is_int(attempt) or attempt < 0:
         raise _bad(f"has an attempt that is not a natural number: {attempt!r}")
-    if not isinstance(arguments, dict) or not all(
-        isinstance(name, str) and isinstance(text, str)
-        for name, text in arguments.items()
-    ):
+    if not _texts(drawn):
+        raise _bad("has drawn arguments that are not strings by name")
+    if not _texts(arguments):
         raise _bad("has arguments that are not strings by name")
     if exception is not None and not isinstance(exception, str):
         raise _bad("has an exception that is neither a string nor null")
-    return Regression(desc, seed, attempt, dict(arguments), exception)
+    return Regression(
+        desc, seed, attempt, dict(drawn), dict(arguments), exception
+    )
+
+
+def _texts(value: Any) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(name, str) and isinstance(text, str)
+        for name, text in value.items()
+    )
 
 
 def load(path: Path) -> list[Regression]:
@@ -160,6 +185,13 @@ def load(path: Path) -> list[Regression]:
             f"The regressions file {path} has version "
             f"{data.get('version')!r}; this version of minigun reads "
             f"version {VERSION}"
+            + (
+                ". Version 1 entries do not record what their attempts "
+                "drew, so a replay cannot tell whether they are stale; "
+                "remove the file and record the failures again"
+                if data.get("version") == 1
+                else ""
+            )
         )
     entries = data.get("regressions")
     if not isinstance(entries, list):
@@ -179,6 +211,7 @@ def _save(path: Path, regressions: list[Regression]) -> None:
                 "property": regression.desc,
                 "seed": regression.seed,
                 "attempt": regression.attempt,
+                "drawn": regression.drawn,
                 "arguments": regression.arguments,
                 "exception": regression.exception,
             }
@@ -231,11 +264,16 @@ def check_properties(
         )
 
 
-def from_outcome(seed: int, outcome: Outcome) -> Regression | None:
+def from_outcome(
+    seed: int, outcome: Outcome, drawn: dict[str, str]
+) -> Regression | None:
     """The regression to record for an outcome of a run: one whose law
     failed on a counterexample the run drew itself.
 
     :param seed: The run seed.
+    :param drawn: The canonical text of the arguments the failing attempt
+        drew (``specify.drawn_text`` of the attempt drawn again, since the
+        law may have changed the arguments it was given).
 
     :return: The regression, or None when the property held, failed
         without a counterexample, or failed on a replayed one.
@@ -252,7 +290,8 @@ def from_outcome(seed: int, outcome: Outcome) -> Regression | None:
         outcome.desc,
         seed,
         example.attempt,
-        {name: repr(value) for name, value in example.args.items()},
+        dict(drawn),
+        {name: canonical.text(value) for name, value in example.args.items()},
         None
         if example.exception is None
         else f"{exception_name(example.exception)}: {example.exception}",

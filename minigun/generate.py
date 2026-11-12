@@ -28,11 +28,12 @@ import random
 import string
 import types
 import typing
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, cast, get_args, get_origin
 
 from minigun import arbitrary as a
+from minigun import canonical
 from minigun import cardinality as c
 from minigun import shrink as s
 from minigun import stream as fs
@@ -1139,8 +1140,22 @@ def sets[T](generator: Generator[T]) -> Generator[set[T]]:
     )
 
 
-def map_set[T](generators: set[Generator[T]]) -> Generator[set[T]]:
-    """A generator of sets with one element from each generator."""
+def map_set[T](generators: Sequence[Generator[T]]) -> Generator[set[T]]:
+    """A generator of sets with one element from each generator, drawn in
+    the order of the generators. Equal elements collapse, so a set may be
+    smaller than the number of generators.
+
+    :raises TypeError: When the generators are given as a set or frozenset:
+        a set of generators iterates in an order that differs between
+        processes, so the draws, and with them ``--seed`` replays, worker
+        evaluations and regressions entries, would too.
+    """
+    if isinstance(generators, (set, frozenset)):
+        raise TypeError(
+            "map_set requires a sequence of generators, not a set: a set "
+            "iterates in an order that differs between processes, so its "
+            "draws would not be reproducible"
+        )
 
     def _compose(*values: T) -> set[T]:
         return set(values)
@@ -1263,12 +1278,21 @@ def weighted_choice[T](
     return Generator(_impl, _sum(generators))
 
 
-def one_of[T](values: list[T]) -> Generator[T]:
+def one_of[T](values: Sequence[T]) -> Generator[T]:
     """A generator drawing one of the given values, shrinking toward the
     first.
 
+    :raises TypeError: When the values are given as a set or frozenset,
+        whose order, and with it the draws, differs between processes;
+        ``subset_of`` draws from a set.
     :raises ValueError: When ``values`` is empty.
     """
+    if isinstance(values, (set, frozenset)):
+        raise TypeError(
+            "one_of requires a sequence of values, not a set: a set iterates "
+            "in an order that differs between processes, so its draws "
+            "would not be reproducible"
+        )
     if len(values) == 0:
         raise ValueError("one_of requires at least one value")
     snapshot = list(values)
@@ -1280,8 +1304,14 @@ def one_of[T](values: list[T]) -> Generator[T]:
 
 
 def subset_of[T](values: set[T]) -> Generator[set[T]]:
-    """A generator of subsets of the given set."""
-    snapshot = list(values)
+    """A generator of subsets of the given set.
+
+    The values are ordered by their canonical text (``minigun.canonical``),
+    not by the set's iteration order, which for strings differs between
+    processes; so a seed draws the same subsets in every process, and
+    subsets shrink toward the values that come first.
+    """
+    snapshot = sorted(values, key=canonical.text)
 
     def _select(indices: set[int]) -> set[T]:
         return {snapshot[index] for index in indices}
